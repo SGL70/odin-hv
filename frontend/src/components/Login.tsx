@@ -32,7 +32,7 @@ export function Login() {
       }}>
         <div style={{ textAlign: 'center', marginBottom: 28 }}>
           <div style={{ fontSize: 40, marginBottom: 8 }}>🗺</div>
-          <h1 style={{ fontSize: 20, fontWeight: 700, color: '#fff' }}>Ledningssystem</h1>
+          <h1 style={{ fontSize: 20, fontWeight: 700, color: '#fff' }}>Resursläge</h1>
           <p style={{ color: '#888', fontSize: 13, marginTop: 4 }}>Hemvärnet</p>
         </div>
         <form onSubmit={submit}>

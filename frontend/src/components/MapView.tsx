@@ -272,7 +272,7 @@ export function MapView() {
         display: 'flex', alignItems: 'center', padding: '0 14px', gap: 10, zIndex: 20,
         backdropFilter: 'blur(8px)',
       }}>
-        <span style={{ fontWeight: 700, fontSize: 15, color: '#fff', marginRight: 8 }}>🗺 Ledningssystem</span>
+        <span style={{ fontWeight: 700, fontSize: 15, color: '#fff', marginRight: 8 }}>🗺 Resursläge</span>
         <button className="btn-ghost btn-sm" onClick={() => setShowDash(d => !d)}>📊 Dashboard</button>
         {canEdit && (
           <button

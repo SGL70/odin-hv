@@ -55,7 +55,7 @@ async function start() {
     }
   }
   await ensureAdmin();
-  server.listen(PORT, () => console.log(`Ledningssystem backend på port ${PORT}`));
+  server.listen(PORT, () => console.log(`Resursläge backend på port ${PORT}`));
 }
 
 start().catch(err => { console.error(err); process.exit(1); });

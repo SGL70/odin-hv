@@ -1,12 +1,12 @@
-# Ledningssystem
+# Resursläge
 
-Kartbaserat logistik- och ledningssystem för Hemvärnet. Hanterar realtidslägesbild av resurser som drivmedel, livsmedel, vatten och råvaror på en interaktiv karta.
+Kartbaserat resursledningssystem för Hemvärnet. Realtidslägesbild av logistiska resurser: drivmedel, livsmedel, vatten, råvaror, fordon, uppställningsytor och mer.
 
 ## Skärmbild
 
 ```
 ┌──────────────────────────────────────────────────────────┐
-│ 🗺 Ledningssystem          [Dashboard] [+ Lägg till] ...  │
+│ 🗺 Resursläge          [Dashboard] [+ Lägg till] ...  │
 ├──────────────┬───────────────────────────────────────────┤
 │ LAGER        │                                           │
 │ ⛽ Drivmedel │           [Interaktiv karta]              │
@@ -39,8 +39,8 @@ Kartbaserat logistik- och ledningssystem för Hemvärnet. Hanterar realtidsläge
 ### Installation
 
 ```bash
-git clone https://github.com/SGL70/ledningssystem.git
-cd ledningssystem
+git clone https://github.com/SGL70/resurslage.git
+cd resurslage
 
 cp .env.example .env
 # Redigera .env med egna lösenord och hemligheter
@@ -61,7 +61,7 @@ ADMIN_PASSWORD= # Lösenord för admin-kontot vid första start
 ### Bakom reverse proxy (Caddy)
 
 ```
-ledning.jv10.se {
+resurslage.jv10.se {
     reverse_proxy 192.168.1.136:80
 }
 ```
@@ -147,7 +147,7 @@ FreeTAK Server kan aktiveras som sidecar (kommenterat i `docker-compose.yml`):
 ## Projektstruktur
 
 ```
-ledningssystem/
+resurslage/
 ├── docker-compose.yml
 ├── .env.example
 ├── db/
