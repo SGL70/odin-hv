@@ -115,14 +115,33 @@ export function MapView() {
 
       if (LINE_LAYERS.includes(layer.id)) {
         const dashed = layer.id === 'tunnels';
+
+        // Invisible wide hit layer so thin lines are easy to click
+        map.addLayer({
+          id: `hit-${layer.id}`,
+          type: 'line', source: sourceId,
+          layout: { visibility: 'visible' },
+          paint: { 'line-width': 20, 'line-opacity': 0 },
+        });
+
+        // Roads: colour by BK-class; other lines: static colour
+        const lineColor = layer.id === 'roads'
+          ? ['match', ['get', 'bk_class'],
+              'BK 1', '#27ae60',
+              'BK 2', '#f1c40f',
+              'BK 3', '#e67e22',
+              'BK 4', '#e74c3c',
+              layer.color] as maplibregl.ExpressionSpecification
+          : layer.color;
+
         map.addLayer({
           id: `lyr-${layer.id}`,
           type: 'line', source: sourceId,
           layout: { visibility: 'visible' },
           paint: {
-            'line-color': layer.color,
+            'line-color': lineColor,
             'line-width': layer.id === 'roads' ? 4 : layer.id === 'railways' ? 3 : 2,
-            'line-opacity': 0.85,
+            'line-opacity': 0.9,
             ...(dashed ? { 'line-dasharray': [4, 3] } : {}),
           },
         });
@@ -169,15 +188,22 @@ export function MapView() {
         });
       }
 
-      map.on('click', `lyr-${layer.id}`, e => {
+      const handleClick = (e: maplibregl.MapMouseEvent & { features?: maplibregl.MapGeoJSONFeature[] }) => {
         if (addMode) return;
         const props = e.features?.[0]?.properties;
         if (!props) return;
         const feat = features.find(f => f.properties.uid === props.uid);
         if (feat) setSelected(feat);
-      });
+      };
+      map.on('click', `lyr-${layer.id}`, handleClick);
+      if (map.getLayer(`hit-${layer.id}`)) map.on('click', `hit-${layer.id}`, handleClick);
+
       map.on('mouseenter', `lyr-${layer.id}`, () => { map.getCanvas().style.cursor = 'pointer'; });
       map.on('mouseleave', `lyr-${layer.id}`, () => { map.getCanvas().style.cursor = addMode ? 'crosshair' : ''; });
+      if (map.getLayer(`hit-${layer.id}`)) {
+        map.on('mouseenter', `hit-${layer.id}`, () => { map.getCanvas().style.cursor = 'pointer'; });
+        map.on('mouseleave', `hit-${layer.id}`, () => { map.getCanvas().style.cursor = addMode ? 'crosshair' : ''; });
+      }
     });
   }, [features, addMode]);
 
@@ -187,9 +213,10 @@ export function MapView() {
     if (!map || !map.isStyleLoaded()) return;
     LAYERS.forEach(layer => {
       const vis = visible.has(layer.id) ? 'visible' : 'none';
-      if (map.getLayer(`lyr-${layer.id}`)) map.setLayoutProperty(`lyr-${layer.id}`, 'visibility', vis);
+      if (map.getLayer(`hit-${layer.id}`))         map.setLayoutProperty(`hit-${layer.id}`,         'visibility', vis);
+      if (map.getLayer(`lyr-${layer.id}`))         map.setLayoutProperty(`lyr-${layer.id}`,         'visibility', vis);
       if (map.getLayer(`lyr-${layer.id}-outline`)) map.setLayoutProperty(`lyr-${layer.id}-outline`, 'visibility', vis);
-      if (map.getLayer(`lbl-${layer.id}`)) map.setLayoutProperty(`lbl-${layer.id}`, 'visibility', vis);
+      if (map.getLayer(`lbl-${layer.id}`))         map.setLayoutProperty(`lbl-${layer.id}`,         'visibility', vis);
     });
   }, [visible]);
 

@@ -102,11 +102,14 @@ export const LAYERS: LayerConfig[] = [
   {
     id: 'roads',
     label: 'Vägbärighet',
-    color: '#95a5a6',
+    color: '#27ae60',
     icon: '🛣',
     fields: [
-      { key: 'bk_class', label: 'BK-klass', type: 'select', options: ['BK1', 'BK2', 'BK3', 'BK4'] },
-      { key: 'max_axle_ton', label: 'Max axellast', type: 'number', unit: 'ton' },
+      { key: 'bk_class',      label: 'Bärighetsklass',  type: 'select', options: ['BK 1', 'BK 2', 'BK 3', 'BK 4'] },
+      { key: 'max_axle_ton',  label: 'Max axellast',     type: 'number', unit: 'ton' },
+      { key: 'bk_winter',     label: 'Vinterbärighet',   type: 'text' },
+      { key: 'avg_speed_kmh', label: 'Aktuell hastighet',type: 'number', unit: 'km/h' },
+      { key: 'flow_per_hour', label: 'Trafikflöde',      type: 'number', unit: 'fordon/h' },
     ],
   },
   {

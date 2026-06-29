@@ -101,24 +101,56 @@ export function FeaturePanel({ feature, onClose, onSaved, onDeleted, addMode, ad
           <label>Namn</label>
           <input value={name} onChange={e => setName(e.target.value)} disabled={!canEdit} />
         </div>
-        {layerCfg?.fields.map(f => (
-          <div key={f.key} className="field-row">
-            <label>{f.label}{f.unit ? ` (${f.unit})` : ''}</label>
-            {f.type === 'select' ? (
-              <select value={fields[f.key] || ''} onChange={e => setFields(p => ({ ...p, [f.key]: e.target.value }))} disabled={!canEdit}>
-                <option value="">Välj...</option>
-                {f.options?.map(o => <option key={o} value={o}>{o}</option>)}
-              </select>
-            ) : (
-              <input
-                type={f.type === 'number' ? 'number' : f.type === 'date' ? 'date' : 'text'}
-                value={fields[f.key] || ''}
-                onChange={e => setFields(p => ({ ...p, [f.key]: e.target.value }))}
-                disabled={!canEdit}
-              />
-            )}
-          </div>
-        ))}
+        {layerCfg?.fields.map(f => {
+          const val = fields[f.key];
+          if (!val && val !== '0') return null;
+          if (!canEdit) {
+            return (
+              <div key={f.key} className="field-row">
+                <label>{f.label}{f.unit ? ` (${f.unit})` : ''}</label>
+                <span style={{ fontSize: 13, color: '#e0e0e0', padding: '4px 0' }}>{val}</span>
+              </div>
+            );
+          }
+          return (
+            <div key={f.key} className="field-row">
+              <label>{f.label}{f.unit ? ` (${f.unit})` : ''}</label>
+              {f.type === 'select' ? (
+                <select value={val} onChange={e => setFields(p => ({ ...p, [f.key]: e.target.value }))}>
+                  <option value="">Välj...</option>
+                  {f.options?.map(o => <option key={o} value={o}>{o}</option>)}
+                </select>
+              ) : (
+                <input
+                  type={f.type === 'number' ? 'number' : f.type === 'date' ? 'date' : 'text'}
+                  value={val}
+                  onChange={e => setFields(p => ({ ...p, [f.key]: e.target.value }))}
+                />
+              )}
+            </div>
+          );
+        })}
+
+        {/* Extra attributes not in layer config (imported data) */}
+        {(() => {
+          const knownKeys = new Set([
+            'uid', 'layer', 'cot_type', 'name', 'created_by', 'updated_by', 'created_at', 'updated_at',
+            'photo_url', 'station_url', 'scraped_at', 'trv_source_id', 'osm_id', '_source_id',
+            ...(layerCfg?.fields.map(f => f.key) || []),
+          ]);
+          const extra = Object.entries(fields).filter(([k, v]) => !knownKeys.has(k) && v && v !== 'null' && v !== 'undefined');
+          if (!extra.length) return null;
+          return (
+            <div style={{ marginTop: 8, paddingTop: 8, borderTop: '1px solid #2a2a40' }}>
+              {extra.map(([k, v]) => (
+                <div key={k} className="field-row">
+                  <label style={{ color: '#666', fontSize: 11 }}>{k.replace(/_/g, ' ')}</label>
+                  <span style={{ fontSize: 12, color: '#999' }}>{v}</span>
+                </div>
+              ))}
+            </div>
+          );
+        })()}
         {fields.photo_url && (
           <div style={{ marginTop: 12 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
