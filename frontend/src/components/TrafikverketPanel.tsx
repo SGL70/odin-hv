@@ -10,8 +10,10 @@ interface DataSource {
 }
 
 const SOURCES: DataSource[] = [
-  { id: 'cameras', label: 'Trafikkameror', layer: 'cameras', icon: '📷', endpoint: '/api/trafikverket/cameras' },
-  { id: 'roads',   label: 'Vägbärighet (BK-klass)', layer: 'roads', icon: '🛣', endpoint: '/api/trafikverket/roads' },
+  { id: 'cameras', label: 'Trafikkameror',          layer: 'cameras', icon: '📷', endpoint: '/api/trafikverket/cameras' },
+  { id: 'atk',     label: 'ATK-kameror (fart)',     layer: 'cameras', icon: '🚨', endpoint: '/api/trafikverket/atk'     },
+  { id: 'roads',   label: 'Vägbärighet (BK-klass)', layer: 'roads',   icon: '🛣',  endpoint: '/api/trafikverket/roads'   },
+  { id: 'ferries', label: 'Färjeleder',              layer: 'ports',   icon: '⛴',  endpoint: '/api/trafikverket/ferries' },
 ];
 
 interface Props {
@@ -33,7 +35,7 @@ interface SourceResult {
 }
 
 export function TrafikverketPanel({ mapRef, onClose, onImported }: Props) {
-  const [selected, setSelected] = useState<Set<string>>(new Set(['cameras', 'roads']));
+  const [selected, setSelected] = useState<Set<string>>(new Set(['cameras', 'atk', 'roads', 'ferries']));
   const [results, setResults] = useState<Record<string, SourceResult>>({});
   const [loading, setLoading] = useState(false);
   const [importing, setImporting] = useState(false);

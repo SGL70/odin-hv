@@ -102,22 +102,52 @@ router.get('/cameras', requireAuth, async (req, res) => {
   }
 });
 
-// ── FERRY ROUTES ─────────────────────────────────────────────────────────────
+// ── FÄRJELEDER (NVDB) ────────────────────────────────────────────────────────
 router.get('/ferries', requireAuth, async (req, res) => {
   const { minlng, minlat, maxlng, maxlat } = req.query;
   try {
     const items = await trvQuery(
-      'FerryRoute', '2',
-      bboxFilter('Geometry.WGS84', minlng, minlat, maxlng, maxlat),
-      'Id, Name, Shortname, Geometry'
+      'Färjeled', '1.2',
+      bboxFilter('Geometry.WKT-WGS84-3D', minlng, minlat, maxlng, maxlat),
+      'GID, Färjeledsnamn, Geometry',
+      200,
+      'vägdata.nvdb_dk_o'
     );
     const features = items.map(f => ({
       type: 'Feature',
-      geometry: parseWKT(f?.Geometry?.WGS84),
+      geometry: parseWKT(f?.Geometry?.['WKT-WGS84-3D']),
       properties: {
-        layer: 'ports', name: f.Name || f.Shortname || f.Id,
-        port_type: 'Färjeläge', status: 'Operativ',
-        _source_id: f.Id,
+        layer: 'ports',
+        name: f.Färjeledsnamn || `Färjeled ${f.GID}`,
+        port_type: 'Färjeled',
+        _source_id: String(f.GID || ''),
+      },
+    })).filter(f => f.geometry);
+    res.json({ count: features.length, features });
+  } catch (err) {
+    res.status(502).json({ error: err.message });
+  }
+});
+
+// ── ATK-KAMEROR (fartkameror) ─────────────────────────────────────────────────
+router.get('/atk', requireAuth, async (req, res) => {
+  const { minlng, minlat, maxlng, maxlat } = req.query;
+  try {
+    const items = await trvQuery(
+      'TrafficSafetyCamera', '1',
+      bboxFilter('Geometry.WGS84', minlng, minlat, maxlng, maxlat),
+      'Id, Name, RoadNumber, Bearing, Geometry'
+    );
+    const features = items.map(c => ({
+      type: 'Feature',
+      geometry: parseWKT(c?.Geometry?.WGS84),
+      properties: {
+        layer: 'cameras',
+        name: c.Name || `ATK ${c.RoadNumber || c.Id}`,
+        camera_type: 'ATK/Fartkamera',
+        owner: 'Trafikverket',
+        direction: c.Bearing ?? null,
+        _source_id: c.Id,
       },
     })).filter(f => f.geometry);
     res.json({ count: features.length, features });
