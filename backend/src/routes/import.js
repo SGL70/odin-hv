@@ -11,6 +11,7 @@ const LAYER_COT = {
   fuel: 'b-m-p-s-p', food: 'b-m-p-s-p', water: 'b-m-p-s-p',
   raw_materials: 'b-m-p-s-p', vehicles: 'a-f-G-U-C-V',
   maintenance: 'b-m-p-s-p', hygiene: 'b-m-p-s-p',
+  staging_areas: 'b-m-p-s-p', transshipment: 'b-m-p-s-p',
   roads: 'b-m-p-s-p', bridges: 'b-m-p-s-p',
 };
 

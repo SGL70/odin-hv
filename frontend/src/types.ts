@@ -6,7 +6,7 @@ export interface User {
   role: Role;
 }
 
-export type LayerId = 'fuel' | 'food' | 'water' | 'raw_materials' | 'vehicles' | 'roads' | 'bridges' | 'maintenance' | 'hygiene';
+export type LayerId = 'fuel' | 'food' | 'water' | 'raw_materials' | 'vehicles' | 'roads' | 'bridges' | 'maintenance' | 'hygiene' | 'staging_areas' | 'transshipment';
 
 export interface LayerConfig {
   id: LayerId;
@@ -143,6 +143,32 @@ export const LAYERS: LayerConfig[] = [
       { key: 'capacity_persons', label: 'Kapacitet', type: 'number', unit: 'pers/dygn' },
       { key: 'status', label: 'Status', type: 'select', options: ['Operativ', 'Ej operativ', 'Under underhåll'] },
       { key: 'water_required', label: 'Kräver vatten', type: 'select', options: ['Ja', 'Nej'] },
+    ],
+  },
+  {
+    id: 'staging_areas',
+    label: 'Uppställningsytor',
+    color: '#d4ac0d',
+    icon: '🅿',
+    fields: [
+      { key: 'area_type', label: 'Typ', type: 'select', options: ['Fordon', 'Personal', 'Materiel', 'Blandad'] },
+      { key: 'area_m2', label: 'Areal', type: 'number', unit: 'm²' },
+      { key: 'capacity_vehicles', label: 'Kapacitet', type: 'number', unit: 'fordon' },
+      { key: 'surface', label: 'Underlag', type: 'select', options: ['Asfalt', 'Betong', 'Grus', 'Gräs', 'Jord'] },
+      { key: 'status', label: 'Status', type: 'select', options: ['Tillgänglig', 'Belagd', 'Ej tillgänglig'] },
+    ],
+  },
+  {
+    id: 'transshipment',
+    label: 'Omlastningsplatser',
+    color: '#c8a2c8',
+    icon: '🏗',
+    fields: [
+      { key: 'facility_type', label: 'Typ', type: 'select', options: ['Lastkaj', 'Ramp', 'Järnvägsterminal', 'Helikopterplatta', 'Färjeläge', 'Övrigt'] },
+      { key: 'max_load_ton', label: 'Max boggi', type: 'number', unit: 'ton' },
+      { key: 'height_m', label: 'Kajhöjd', type: 'number', unit: 'm' },
+      { key: 'width_m', label: 'Bredd', type: 'number', unit: 'm' },
+      { key: 'status', label: 'Status', type: 'select', options: ['Operativ', 'Ej operativ', 'Begränsad kapacitet'] },
     ],
   },
 ];
