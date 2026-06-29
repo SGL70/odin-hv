@@ -1,0 +1,339 @@
+import { useEffect, useRef, useState, useCallback } from 'react';
+import maplibregl from 'maplibre-gl';
+import { api } from '../api';
+import { LAYERS, getLayer } from '../types';
+import type { Feature, LayerId } from '../types';
+import { LayerControl } from './LayerControl';
+import { FeaturePanel } from './FeaturePanel';
+import { Dashboard } from './Dashboard';
+import { ImportDialog } from './ImportDialog';
+import { useAuth } from '../contexts/AuthContext';
+import { io } from 'socket.io-client';
+
+const STYLE: maplibregl.StyleSpecification = {
+  version: 8,
+  sources: {
+    osm: {
+      type: 'raster',
+      tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
+      tileSize: 256,
+      attribution: '© OpenStreetMap',
+    },
+  },
+  layers: [{ id: 'osm', type: 'raster', source: 'osm' }],
+};
+
+export function MapView() {
+  const { user, logout } = useAuth();
+  const mapRef = useRef<maplibregl.Map | null>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  const [features, setFeatures] = useState<Feature[]>([]);
+  const [visible, setVisible] = useState<Set<LayerId>>(new Set(LAYERS.map(l => l.id)));
+  const [selected, setSelected] = useState<Feature | null>(null);
+  const [addMode, setAddMode] = useState(false);
+  const [addLayer, setAddLayer] = useState<LayerId>('fuel');
+  const [showDash, setShowDash] = useState(false);
+  const [showImport, setShowImport] = useState(false);
+  const [addDialog, setAddDialog] = useState<{ lngLat: maplibregl.LngLat } | null>(null);
+  const [newName, setNewName] = useState('');
+  const [newFields, setNewFields] = useState<Record<string, string>>({});
+
+  const canEdit = user?.role === 'editor' || user?.role === 'admin';
+
+  // Load all features
+  const loadFeatures = useCallback(async () => {
+    const fc = await api.getFeatures();
+    setFeatures((fc.features || []) as Feature[]);
+  }, []);
+
+  useEffect(() => { loadFeatures(); }, [loadFeatures]);
+
+  // Socket.io real-time
+  useEffect(() => {
+    const socket = io({ path: '/socket.io' });
+    socket.on('feature:created', (f: Feature) => setFeatures(prev => [f, ...prev.filter(p => p.properties.uid !== f.properties.uid)]));
+    socket.on('feature:updated', (f: Feature) => setFeatures(prev => prev.map(p => p.properties.uid === f.properties.uid ? f : p)));
+    socket.on('feature:deleted', ({ uid }: { uid: string }) => setFeatures(prev => prev.filter(p => p.properties.uid !== uid)));
+    socket.on('features:reloaded', () => loadFeatures());
+    return () => { socket.disconnect(); };
+  }, [loadFeatures]);
+
+  // Init map
+  useEffect(() => {
+    if (!containerRef.current) return;
+    const map = new maplibregl.Map({
+      container: containerRef.current,
+      style: STYLE,
+      center: [15.6, 58.4], // Sverige
+      zoom: 6,
+    });
+    map.addControl(new maplibregl.NavigationControl(), 'bottom-right');
+    map.addControl(new maplibregl.ScaleControl({ unit: 'metric' }), 'bottom-left');
+    mapRef.current = map;
+    return () => map.remove();
+  }, []);
+
+  // Sync features to map
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !map.isStyleLoaded()) return;
+
+    LAYERS.forEach(layer => {
+      const sourceId = `src-${layer.id}`;
+      const layerFeatures = features.filter(f => f.properties.layer === layer.id);
+
+      const geojson: GeoJSON.FeatureCollection = {
+        type: 'FeatureCollection',
+        features: layerFeatures,
+      };
+
+      if (map.getSource(sourceId)) {
+        (map.getSource(sourceId) as maplibregl.GeoJSONSource).setData(geojson);
+      } else {
+        map.addSource(sourceId, { type: 'geojson', data: geojson });
+
+        if (layer.id === 'roads') {
+          map.addLayer({
+            id: `lyr-${layer.id}`,
+            type: 'line',
+            source: sourceId,
+            layout: { visibility: 'visible' },
+            paint: { 'line-color': layer.color, 'line-width': 4, 'line-opacity': 0.8 },
+          });
+        } else {
+          // Circle for all point layers
+          map.addLayer({
+            id: `lyr-${layer.id}`,
+            type: 'circle',
+            source: sourceId,
+            layout: { visibility: 'visible' },
+            paint: {
+              'circle-radius': 9,
+              'circle-color': layer.color,
+              'circle-stroke-color': '#fff',
+              'circle-stroke-width': 2,
+              'circle-opacity': 0.9,
+            },
+          });
+          // Label
+          map.addLayer({
+            id: `lbl-${layer.id}`,
+            type: 'symbol',
+            source: sourceId,
+            layout: {
+              'text-field': ['get', 'name'],
+              'text-size': 11,
+              'text-offset': [0, 1.5],
+              'text-anchor': 'top',
+              visibility: 'visible',
+            },
+            paint: { 'text-color': '#fff', 'text-halo-color': '#000', 'text-halo-width': 1 },
+          });
+        }
+
+        // Click handler
+        map.on('click', `lyr-${layer.id}`, e => {
+          if (addMode) return;
+          const props = e.features?.[0]?.properties;
+          if (!props) return;
+          const feat = features.find(f => f.properties.uid === props.uid);
+          if (feat) setSelected(feat);
+        });
+
+        map.on('mouseenter', `lyr-${layer.id}`, () => { map.getCanvas().style.cursor = 'pointer'; });
+        map.on('mouseleave', `lyr-${layer.id}`, () => { map.getCanvas().style.cursor = addMode ? 'crosshair' : ''; });
+      }
+    });
+  }, [features, addMode]);
+
+  // Visibility toggle
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !map.isStyleLoaded()) return;
+    LAYERS.forEach(layer => {
+      const vis = visible.has(layer.id) ? 'visible' : 'none';
+      if (map.getLayer(`lyr-${layer.id}`)) map.setLayoutProperty(`lyr-${layer.id}`, 'visibility', vis);
+      if (map.getLayer(`lbl-${layer.id}`)) map.setLayoutProperty(`lbl-${layer.id}`, 'visibility', vis);
+    });
+  }, [visible]);
+
+  // Add mode cursor + click
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    map.getCanvas().style.cursor = addMode ? 'crosshair' : '';
+
+    const onClick = (e: maplibregl.MapMouseEvent) => {
+      if (!addMode) return;
+      setAddDialog({ lngLat: e.lngLat });
+      setNewName('');
+      setNewFields({});
+    };
+    map.on('click', onClick);
+    return () => { map.off('click', onClick); };
+  }, [addMode]);
+
+  const toggleLayer = (id: LayerId) => {
+    setVisible(prev => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  };
+
+  const counts = Object.fromEntries(LAYERS.map(l => [l.id, features.filter(f => f.properties.layer === l.id).length]));
+
+  const submitNew = async () => {
+    if (!addDialog || !newName.trim()) return;
+    const { lngLat } = addDialog;
+    const f = await api.createFeature({
+      layer: addLayer,
+      name: newName.trim(),
+      geometry: { type: 'Point', coordinates: [lngLat.lng, lngLat.lat] },
+      cot_type: LAYERS.find(l => l.id === addLayer)?.id === 'vehicles' ? 'a-f-G-U-C-V' : 'b-m-p-s-p',
+      ...newFields,
+    });
+    setAddDialog(null);
+    setAddMode(false);
+    setSelected(f as Feature);
+  };
+
+  const layerCfg = getLayer(addLayer);
+
+  return (
+    <div style={{ position: 'relative', flex: 1, overflow: 'hidden' }}>
+      <div ref={containerRef} style={{ width: '100%', height: '100%' }} />
+
+      {/* Topbar */}
+      <div style={{
+        position: 'absolute', top: 0, left: 0, right: 0, height: 48,
+        background: '#1a1a2ecc', borderBottom: '1px solid #333',
+        display: 'flex', alignItems: 'center', padding: '0 14px', gap: 10, zIndex: 20,
+        backdropFilter: 'blur(8px)',
+      }}>
+        <span style={{ fontWeight: 700, fontSize: 15, color: '#fff', marginRight: 8 }}>🗺 Ledningssystem</span>
+
+        <button className="btn-ghost btn-sm" onClick={() => setShowDash(d => !d)}>
+          📊 Dashboard
+        </button>
+
+        {canEdit && (
+          <button
+            className={addMode ? 'btn-danger btn-sm' : 'btn-primary btn-sm'}
+            onClick={() => { setAddMode(m => !m); setSelected(null); }}
+          >
+            {addMode ? '✕ Avbryt' : '+ Lägg till'}
+          </button>
+        )}
+
+        {canEdit && (
+          <button className="btn-ghost btn-sm" onClick={() => setShowImport(true)}>
+            ⬆ Importera
+          </button>
+        )}
+
+        <div style={{ flex: 1 }} />
+
+        <a
+          href="/api/export/kmz"
+          style={{ fontSize: 12, color: '#888', textDecoration: 'none', padding: '4px 8px', border: '1px solid #444', borderRadius: 4 }}
+          download
+        >
+          ⬇ KMZ
+        </a>
+
+        <span style={{ fontSize: 12, color: '#888' }}>
+          {user?.username} <span className={`badge badge-${user?.role === 'admin' ? 'orange' : user?.role === 'editor' ? 'blue' : 'green'}`}>{user?.role}</span>
+        </span>
+        <button className="btn-ghost btn-sm" onClick={logout}>Logga ut</button>
+      </div>
+
+      {/* Layer control */}
+      <div style={{ position: 'absolute', top: 58, left: 10, zIndex: 10 }}>
+        <LayerControl visible={visible} onToggle={toggleLayer} counts={counts} />
+      </div>
+
+      {/* Dashboard */}
+      {showDash && (
+        <div style={{ position: 'absolute', top: 58, left: 190, zIndex: 10 }}>
+          <Dashboard onClose={() => setShowDash(false)} />
+        </div>
+      )}
+
+      {/* Feature panel */}
+      {(selected || addMode) && (
+        <FeaturePanel
+          feature={selected}
+          onClose={() => { setSelected(null); setAddMode(false); }}
+          onSaved={f => setSelected(f)}
+          onDeleted={uid => { setFeatures(p => p.filter(f => f.properties.uid !== uid)); setSelected(null); }}
+          addMode={addMode && !addDialog}
+          addLayer={addLayer}
+          onAddLayerChange={setAddLayer}
+        />
+      )}
+
+      {/* Add dialog */}
+      {addDialog && (
+        <div style={{
+          position: 'fixed', inset: 0, background: '#000a', zIndex: 100,
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+        }}>
+          <div style={{
+            background: '#1e1e30', border: '1px solid #444', borderRadius: 10,
+            padding: 24, width: 360,
+          }}>
+            <h3 style={{ fontSize: 15, marginBottom: 14 }}>{layerCfg?.icon} Nytt {layerCfg?.label}-objekt</h3>
+
+            <div className="field-row">
+              <label>Namn *</label>
+              <input value={newName} onChange={e => setNewName(e.target.value)} autoFocus
+                onKeyDown={e => e.key === 'Enter' && submitNew()} />
+            </div>
+
+            {layerCfg?.fields.slice(0, 3).map(f => (
+              <div key={f.key} className="field-row">
+                <label>{f.label}{f.unit ? ` (${f.unit})` : ''}</label>
+                {f.type === 'select' ? (
+                  <select value={newFields[f.key] || ''} onChange={e => setNewFields(p => ({ ...p, [f.key]: e.target.value }))}>
+                    <option value="">Välj...</option>
+                    {f.options?.map(o => <option key={o} value={o}>{o}</option>)}
+                  </select>
+                ) : (
+                  <input type={f.type === 'number' ? 'number' : 'text'} value={newFields[f.key] || ''}
+                    onChange={e => setNewFields(p => ({ ...p, [f.key]: e.target.value }))} />
+                )}
+              </div>
+            ))}
+
+            <div style={{ display: 'flex', gap: 8, marginTop: 16 }}>
+              <button className="btn-primary" onClick={submitNew} style={{ flex: 1 }} disabled={!newName.trim()}>
+                Skapa
+              </button>
+              <button className="btn-ghost" onClick={() => setAddDialog(null)}>Avbryt</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Import dialog */}
+      {showImport && (
+        <ImportDialog
+          onClose={() => setShowImport(false)}
+          onImported={() => { setShowImport(false); loadFeatures(); }}
+        />
+      )}
+
+      {addMode && (
+        <div style={{
+          position: 'absolute', bottom: 60, left: '50%', transform: 'translateX(-50%)',
+          background: '#1e1e30cc', border: '1px solid #5b8cff', borderRadius: 8,
+          padding: '8px 16px', fontSize: 13, color: '#5b8cff', zIndex: 10,
+        }}>
+          Klicka på kartan för att placera {layerCfg?.label.toLowerCase()}
+        </div>
+      )}
+    </div>
+  );
+}
