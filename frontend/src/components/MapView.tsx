@@ -8,20 +8,28 @@ import { FeaturePanel } from './FeaturePanel';
 import { Dashboard } from './Dashboard';
 import { ImportDialog } from './ImportDialog';
 import { TrafikverketPanel } from './TrafikverketPanel';
+import { BaseMapControl } from './BaseMapControl';
 import { useAuth } from '../contexts/AuthContext';
 import { io } from 'socket.io-client';
+
+const LM_TOPO_URL = 'https://minkarta.lantmateriet.se/map/topowebb/?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=topowebbkartan&BBOX={bbox-epsg-3857}&WIDTH=256&HEIGHT=256&SRS=EPSG:3857&FORMAT=image/png';
+const LM_HILL_URL = 'https://minkarta.lantmateriet.se/map/hojdmodell/?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=terrangskuggning&BBOX={bbox-epsg-3857}&WIDTH=256&HEIGHT=256&SRS=EPSG:3857&FORMAT=image/png&TRANSPARENT=true';
+const SVK_URL = 'https://inspire-skn.metria.se/geoserver/skn/ows?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=US.ElectricityNetwork.Lines,US.ElectricityNetwork.Pylons,US.ElectricityNetwork.Stations&BBOX={bbox-epsg-3857}&WIDTH=256&HEIGHT=256&SRS=EPSG:3857&FORMAT=image/png&TRANSPARENT=true';
 
 const STYLE: maplibregl.StyleSpecification = {
   version: 8,
   sources: {
-    osm: {
-      type: 'raster',
-      tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
-      tileSize: 256,
-      attribution: '© OpenStreetMap',
-    },
+    osm:            { type: 'raster', tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'], tileSize: 256, attribution: '© OpenStreetMap' },
+    'lm-topo':      { type: 'raster', tiles: [LM_TOPO_URL], tileSize: 256, attribution: '© Lantmäteriet CC BY' },
+    'wms-hillshade':{ type: 'raster', tiles: [LM_HILL_URL], tileSize: 256, attribution: '© Lantmäteriet' },
+    'wms-svk':      { type: 'raster', tiles: [SVK_URL],     tileSize: 256, attribution: '© Svenska kraftnät' },
   },
-  layers: [{ id: 'osm', type: 'raster', source: 'osm' }],
+  layers: [
+    { id: 'osm',             type: 'raster', source: 'osm' },
+    { id: 'lm-topo',         type: 'raster', source: 'lm-topo',       layout: { visibility: 'none' } },
+    { id: 'wms-hillshade',   type: 'raster', source: 'wms-hillshade', layout: { visibility: 'none' }, paint: { 'raster-opacity': 0.55 } },
+    { id: 'wms-svk',         type: 'raster', source: 'wms-svk',       layout: { visibility: 'none' } },
+  ],
 };
 
 const POLYGON_LAYERS: LayerId[] = ['staging_areas', 'airports'];
@@ -41,6 +49,8 @@ export function MapView() {
   const [showDash, setShowDash] = useState(false);
   const [showImport, setShowImport] = useState(false);
   const [showTrv, setShowTrv] = useState(false);
+  const [baseMap, setBaseMap] = useState<'osm' | 'lm'>('osm');
+  const [wmsOverlays, setWmsOverlays] = useState<Set<string>>(new Set());
   const [addDialog, setAddDialog] = useState<{ lngLat: maplibregl.LngLat } | null>(null);
   const [polygonPoints, setPolygonPoints] = useState<[number, number][]>([]);
   const [polygonReady, setPolygonReady] = useState(false);
@@ -181,6 +191,23 @@ export function MapView() {
     });
   }, [visible]);
 
+  // Base map switch: OSM ↔ Lantmäteriet topo
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !map.isStyleLoaded()) return;
+    if (map.getLayer('osm'))     map.setLayoutProperty('osm',     'visibility', baseMap === 'osm' ? 'visible' : 'none');
+    if (map.getLayer('lm-topo')) map.setLayoutProperty('lm-topo', 'visibility', baseMap === 'lm'  ? 'visible' : 'none');
+  }, [baseMap]);
+
+  // WMS overlays: terrängskuggning + SVK kraftnät
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !map.isStyleLoaded()) return;
+    const vis = (id: string) => wmsOverlays.has(id) ? 'visible' : 'none';
+    if (map.getLayer('wms-hillshade')) map.setLayoutProperty('wms-hillshade', 'visibility', vis('hillshade'));
+    if (map.getLayer('wms-svk'))       map.setLayoutProperty('wms-svk',       'visibility', vis('svk'));
+  }, [wmsOverlays]);
+
   // Draw in-progress polygon preview
   useEffect(() => {
     const map = mapRef.current;
@@ -241,6 +268,14 @@ export function MapView() {
 
   const toggleLayer = (id: LayerId) => {
     setVisible(prev => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  };
+
+  const toggleOverlay = (id: string) => {
+    setWmsOverlays(prev => {
       const next = new Set(prev);
       next.has(id) ? next.delete(id) : next.add(id);
       return next;
@@ -384,6 +419,13 @@ export function MapView() {
       {showImport && (
         <ImportDialog onClose={() => setShowImport(false)} onImported={() => { setShowImport(false); loadFeatures(); }} />
       )}
+
+      <BaseMapControl
+        baseMap={baseMap}
+        overlays={wmsOverlays}
+        onBaseMap={setBaseMap}
+        onOverlay={toggleOverlay}
+      />
 
       {/* Bottom hint */}
       {addMode && !showDialog && (
