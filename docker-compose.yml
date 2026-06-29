@@ -24,6 +24,7 @@ services:
       DATABASE_URL: postgresql://ledning:${DB_PASSWORD}@db:5432/ledning
       JWT_SECRET: ${JWT_SECRET}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD}
+      TRAFIKVERKET_API_KEY: ${TRAFIKVERKET_API_KEY}
       PORT: 3000
     depends_on:
       db:

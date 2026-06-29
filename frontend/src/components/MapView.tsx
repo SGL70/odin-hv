@@ -7,6 +7,7 @@ import { LayerControl } from './LayerControl';
 import { FeaturePanel } from './FeaturePanel';
 import { Dashboard } from './Dashboard';
 import { ImportDialog } from './ImportDialog';
+import { TrafikverketPanel } from './TrafikverketPanel';
 import { useAuth } from '../contexts/AuthContext';
 import { io } from 'socket.io-client';
 
@@ -39,6 +40,7 @@ export function MapView() {
   const [addLayer, setAddLayer] = useState<LayerId>('fuel');
   const [showDash, setShowDash] = useState(false);
   const [showImport, setShowImport] = useState(false);
+  const [showTrv, setShowTrv] = useState(false);
   const [addDialog, setAddDialog] = useState<{ lngLat: maplibregl.LngLat } | null>(null);
   const [polygonPoints, setPolygonPoints] = useState<[number, number][]>([]);
   const [polygonReady, setPolygonReady] = useState(false);
@@ -304,6 +306,7 @@ export function MapView() {
           </button>
         )}
         {canEdit && <button className="btn-ghost btn-sm" onClick={() => setShowImport(true)}>⬆ Importera</button>}
+        {canEdit && <button className="btn-ghost btn-sm" onClick={() => setShowTrv(t => !t)}>🟡 Trafikverket</button>}
         <div style={{ flex: 1 }} />
         <a href="/api/export/kmz" style={{ fontSize: 12, color: '#888', textDecoration: 'none', padding: '4px 8px', border: '1px solid #444', borderRadius: 4 }} download>⬇ KMZ</a>
         <span style={{ fontSize: 12, color: '#888' }}>
@@ -320,6 +323,14 @@ export function MapView() {
         <div style={{ position: 'absolute', top: 58, left: 190, zIndex: 10 }}>
           <Dashboard onClose={() => setShowDash(false)} />
         </div>
+      )}
+
+      {showTrv && (
+        <TrafikverketPanel
+          mapRef={mapRef}
+          onClose={() => setShowTrv(false)}
+          onImported={loadFeatures}
+        />
       )}
 
       {(selected || addMode) && (
