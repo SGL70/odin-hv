@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { api } from '../api';
 import { getLayer, LAYERS } from '../types';
 import type { Feature, LayerId } from '../types';
@@ -22,13 +22,25 @@ export function FeaturePanel({ feature, onClose, onSaved, onDeleted, addMode, ad
   const [fields, setFields] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const [imgTs, setImgTs] = useState(() => Date.now());
+  const refreshRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
     if (!feature) { setName(''); setFields({}); return; }
     const { name, uid: _uid, layer: _l, cot_type: _c, created_by: _cb, updated_by: _ub, created_at: _ca, updated_at: _ua, ...rest } = feature.properties;
     setName(String(name || ''));
     setFields(Object.fromEntries(Object.entries(rest).map(([k, v]) => [k, String(v ?? '')])));
+    setImgTs(Date.now());
   }, [feature]);
+
+  // Auto-refresh camera image every 30 seconds
+  useEffect(() => {
+    const photoUrl = feature?.properties?.photo_url as string | undefined;
+    if (!photoUrl) { if (refreshRef.current) clearInterval(refreshRef.current); return; }
+    refreshRef.current = setInterval(() => setImgTs(Date.now()), 30000);
+    return () => { if (refreshRef.current) clearInterval(refreshRef.current); };
+  }, [feature?.properties?.photo_url]);
+
 
   const layerCfg = getLayer(feature ? feature.properties.layer : addLayer);
 
@@ -107,6 +119,23 @@ export function FeaturePanel({ feature, onClose, onSaved, onDeleted, addMode, ad
             )}
           </div>
         ))}
+        {fields.photo_url && (
+          <div style={{ marginTop: 12 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+              <span style={{ fontSize: 11, color: '#888' }}>📷 Live-bild (uppdateras var 30 s)</span>
+              <a href={`${fields.photo_url}?t=${imgTs}`} target="_blank" rel="noreferrer"
+                style={{ fontSize: 11, color: '#5b8cff', textDecoration: 'none' }}>↗ Öppna</a>
+            </div>
+            <img
+              key={imgTs}
+              src={`${fields.photo_url}?t=${imgTs}`}
+              alt={`Kamera ${feature.properties.name}`}
+              style={{ width: '100%', borderRadius: 4, border: '1px solid #333', cursor: 'pointer' }}
+              onClick={() => window.open(`${fields.photo_url}?t=${imgTs}`, '_blank')}
+              onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }}
+            />
+          </div>
+        )}
         <div style={{ fontSize: 11, color: '#666', marginTop: 8 }}>
           {feature.properties.updated_by != null && <span>Ändrad av {String(feature.properties.updated_by)} · </span>}
           {feature.properties.updated_at && <span>{new Date(feature.properties.updated_at).toLocaleString('sv')}</span>}
