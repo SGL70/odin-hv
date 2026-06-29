@@ -11,7 +11,7 @@ CREATE TABLE users (
 
 CREATE TABLE features (
   uid UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  layer VARCHAR(50) NOT NULL CHECK (layer IN ('fuel','food','water','raw_materials','vehicles','roads','bridges')),
+  layer VARCHAR(50) NOT NULL CHECK (layer IN ('fuel','food','water','raw_materials','vehicles','roads','bridges','maintenance','hygiene')),
   cot_type VARCHAR(50) DEFAULT 'b-m-p-s-p',
   name VARCHAR(200) NOT NULL,
   geom GEOMETRY(GEOMETRY, 4326) NOT NULL,

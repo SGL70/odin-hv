@@ -6,7 +6,7 @@ export interface User {
   role: Role;
 }
 
-export type LayerId = 'fuel' | 'food' | 'water' | 'raw_materials' | 'vehicles' | 'roads' | 'bridges';
+export type LayerId = 'fuel' | 'food' | 'water' | 'raw_materials' | 'vehicles' | 'roads' | 'bridges' | 'maintenance' | 'hygiene';
 
 export interface LayerConfig {
   id: LayerId;
@@ -118,6 +118,31 @@ export const LAYERS: LayerConfig[] = [
       { key: 'max_load_ton', label: 'Maxlast', type: 'number', unit: 'ton' },
       { key: 'width_m', label: 'Bredd', type: 'number', unit: 'm' },
       { key: 'height_m', label: 'Höjd', type: 'number', unit: 'm' },
+    ],
+  },
+  {
+    id: 'maintenance',
+    label: 'Underhåll',
+    color: '#e67e22',
+    icon: '🔧',
+    fields: [
+      { key: 'item_type', label: 'Typ', type: 'select', options: ['Verktyg', 'Reservdelar', 'Aggregat/Generator', 'Verkstadsutrustning', 'Drivlina', 'Övrigt'] },
+      { key: 'quantity', label: 'Antal/Mängd', type: 'number' },
+      { key: 'unit', label: 'Enhet', type: 'select', options: ['st', 'kg', 'liter', 'sats'] },
+      { key: 'condition', label: 'Skick', type: 'select', options: ['Bra', 'Tillfredsställande', 'Dåligt'] },
+      { key: 'owner', label: 'Ägare/Förband', type: 'text' },
+    ],
+  },
+  {
+    id: 'hygiene',
+    label: 'Hygien',
+    color: '#1abc9c',
+    icon: '🚿',
+    fields: [
+      { key: 'facility_type', label: 'Typ', type: 'select', options: ['Fälttoalett', 'Dusch', 'Tvättstation', 'Sanitetstation', 'Avfallshantering', 'Övrigt'] },
+      { key: 'capacity_persons', label: 'Kapacitet', type: 'number', unit: 'pers/dygn' },
+      { key: 'status', label: 'Status', type: 'select', options: ['Operativ', 'Ej operativ', 'Under underhåll'] },
+      { key: 'water_required', label: 'Kräver vatten', type: 'select', options: ['Ja', 'Nej'] },
     ],
   },
 ];
