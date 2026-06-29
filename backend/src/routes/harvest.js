@@ -142,7 +142,59 @@ async function okq8Station(url) {
   };
 }
 
+// ── Deduplication ─────────────────────────────────────────────────────────────
+
+function haversineMeters(lat1, lon1, lat2, lon2) {
+  const R = 6371000;
+  const phi1 = lat1 * Math.PI / 180, phi2 = lat2 * Math.PI / 180;
+  const dphi = (lat2 - lat1) * Math.PI / 180;
+  const dlam = (lon2 - lon1) * Math.PI / 180;
+  const a = Math.sin(dphi / 2) ** 2 + Math.cos(phi1) * Math.cos(phi2) * Math.sin(dlam / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+// OKQ8 web data wins over OSM for matched stations (better phone/hours/address)
+function mergeStations(osmFeatures, okq8WebFeatures, thresholdM = 150) {
+  const osmOkq8  = osmFeatures.filter(f => (f.properties.brand || '').toUpperCase() === 'OKQ8');
+  const osmOther = osmFeatures.filter(f => (f.properties.brand || '').toUpperCase() !== 'OKQ8');
+  const merged   = [...osmOther];
+  const usedIdx  = new Set();
+
+  for (const web of okq8WebFeatures) {
+    const [wLon, wLat] = web.geometry.coordinates;
+    let bestIdx = -1, bestDist = thresholdM;
+    for (let i = 0; i < osmOkq8.length; i++) {
+      if (usedIdx.has(i)) continue;
+      const [oLon, oLat] = osmOkq8[i].geometry.coordinates;
+      const d = haversineMeters(wLat, wLon, oLat, oLon);
+      if (d < bestDist) { bestDist = d; bestIdx = i; }
+    }
+    if (bestIdx >= 0) {
+      usedIdx.add(bestIdx);
+      merged.push({
+        ...web,
+        properties: { brand: 'OKQ8', ...web.properties, osm_id: osmOkq8[bestIdx].properties.osm_id },
+      });
+    } else {
+      merged.push({ ...web, properties: { brand: 'OKQ8', ...web.properties } });
+    }
+  }
+  // Keep OSM OKQ8 stations not matched to any web entry
+  for (let i = 0; i < osmOkq8.length; i++) {
+    if (!usedIdx.has(i)) merged.push(osmOkq8[i]);
+  }
+  return merged;
+}
+
 // ── Save to DB ────────────────────────────────────────────────────────────────
+
+// Remove all previously harvested features for a layer (preserves manually entered ones)
+async function clearHarvested(layer) {
+  await db.query(
+    `DELETE FROM features WHERE layer = $1 AND (attributes->>'scraped_at') IS NOT NULL`,
+    [layer],
+  );
+}
 
 async function saveFeatures(features, userId) {
   let imported = 0, skipped = 0;
@@ -230,6 +282,60 @@ router.post('/okq8/scrape', requireAuth, requireRole('editor', 'admin'), async (
 
   const { imported, skipped } = await saveFeatures(features, req.user?.id || 0);
   io.emit('harvest:done', { source: 'okq8', imported, skipped });
+  if (imported > 0) io.emit('features:reloaded', {});
+});
+
+// GET /api/harvest/combined/preview
+router.get('/combined/preview', requireAuth, (_req, res) => {
+  res.json({
+    source: 'combined',
+    total: 2000,
+    brands: ['Circle K (~340)', 'OKQ8 (~882 webb)', 'Preem (~430)', 'St1 (~370)'],
+    note: 'OSM i grund + OKQ8 webb slås ihop, ~90–120 s',
+  });
+});
+
+// POST /api/harvest/combined/scrape — OSM base + OKQ8 web, deduplicated by proximity
+router.post('/combined/scrape', requireAuth, requireRole('editor', 'admin'), async (req, res) => {
+  res.json({ started: true });
+  const io = req.io;
+
+  // Phase 1: OSM
+  io.emit('harvest:progress', { source: 'combined', phase: 'Hämtar OSM…', done: 0, total: 1 });
+  let osmFeatures;
+  try {
+    osmFeatures = await osmFuelStations();
+  } catch (err) {
+    io.emit('harvest:done', { source: 'combined', imported: 0, skipped: 0, error: err.message });
+    return;
+  }
+  io.emit('harvest:progress', { source: 'combined', phase: 'Hämtar OSM…', done: 1, total: 1 });
+
+  // Phase 2: OKQ8 web
+  let urls;
+  try {
+    urls = await okq8Index();
+  } catch (err) {
+    io.emit('harvest:done', { source: 'combined', imported: 0, skipped: 0, error: err.message });
+    return;
+  }
+  io.emit('harvest:progress', { source: 'combined', phase: 'OKQ8 webb', done: 0, total: urls.length });
+  const okq8Features = await runBatched(
+    urls, okq8Station, CONCURRENCY,
+    (done, total) => io.emit('harvest:progress', { source: 'combined', phase: 'OKQ8 webb', done, total }),
+  );
+
+  // Phase 3: Merge
+  io.emit('harvest:progress', { source: 'combined', phase: 'Sammanfogar…', done: 0, total: 1 });
+  const merged = mergeStations(osmFeatures, okq8Features);
+  io.emit('harvest:progress', { source: 'combined', phase: 'Sammanfogar…', done: 1, total: 1 });
+
+  // Phase 4: Clear old harvested data + save
+  io.emit('harvest:progress', { source: 'combined', phase: 'Sparar till karta…', done: 0, total: 1 });
+  await clearHarvested('fuel');
+  const { imported, skipped } = await saveFeatures(merged, req.user?.id || 0);
+
+  io.emit('harvest:done', { source: 'combined', imported, skipped });
   if (imported > 0) io.emit('features:reloaded', {});
 });
 

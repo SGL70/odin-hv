@@ -12,8 +12,16 @@ interface Source {
 
 const SOURCES: Source[] = [
   {
+    id: 'combined',
+    label: 'OSM + OKQ8 webb',
+    icon: '⭐',
+    layer: 'fuel',
+    previewEndpoint: '/api/harvest/combined/preview',
+    scrapeEndpoint: '/api/harvest/combined/scrape',
+  },
+  {
     id: 'osm',
-    label: 'Alla (OSM)',
+    label: 'Bara OSM',
     icon: '🗺',
     layer: 'fuel',
     previewEndpoint: '/api/harvest/osm/preview',
@@ -21,7 +29,7 @@ const SOURCES: Source[] = [
   },
   {
     id: 'okq8',
-    label: 'OKQ8 (webb)',
+    label: 'Bara OKQ8 webb',
     icon: '⛽',
     layer: 'fuel',
     previewEndpoint: '/api/harvest/okq8/preview',
@@ -32,6 +40,7 @@ const SOURCES: Source[] = [
 interface Progress {
   done: number;
   total: number;
+  phase?: string;
 }
 
 interface Props {
@@ -40,7 +49,7 @@ interface Props {
 }
 
 export function HarvestPanel({ onClose, onImported }: Props) {
-  const [selected, setSelected] = useState<string>('okq8');
+  const [selected, setSelected] = useState<string>('combined');
   const [preview, setPreview] = useState<{ total: number } | null>(null);
   const [loadingPreview, setLoadingPreview] = useState(false);
   const [progress, setProgress] = useState<Progress | null>(null);
@@ -52,8 +61,8 @@ export function HarvestPanel({ onClose, onImported }: Props) {
   useEffect(() => {
     const socket = io({ path: '/socket.io' });
     socketRef.current = socket;
-    socket.on('harvest:progress', (data: { source: string; done: number; total: number }) => {
-      if (data.source === selected) setProgress({ done: data.done, total: data.total });
+    socket.on('harvest:progress', (data: { source: string; done: number; total: number; phase?: string }) => {
+      if (data.source === selected) setProgress({ done: data.done, total: data.total, phase: data.phase });
     });
     socket.on('harvest:done', (data: { source: string; imported: number; skipped: number }) => {
       if (data.source === selected) {
@@ -162,8 +171,8 @@ export function HarvestPanel({ onClose, onImported }: Props) {
         {progress && (
           <div style={{ marginBottom: 12 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: '#aaa', marginBottom: 6 }}>
-              <span>Hämtar stationer…</span>
-              <span>{progress.done} / {progress.total}</span>
+              <span>{progress.phase || 'Hämtar stationer…'}</span>
+              <span>{progress.total > 1 ? `${progress.done} / ${progress.total}` : '…'}</span>
             </div>
             <div style={{ background: '#2a2a40', borderRadius: 4, height: 6 }}>
               <div style={{ background: '#5b8cff', borderRadius: 4, height: 6, width: `${pct}%`, transition: 'width 0.3s' }} />
@@ -183,7 +192,9 @@ export function HarvestPanel({ onClose, onImported }: Props) {
                   Skörda och importera alla
                 </button>
                 <p style={{ fontSize: 11, color: '#666', marginTop: 6 }}>
-                  {selected === 'osm'
+                  {selected === 'combined'
+                    ? 'OSM (~60 s) + OKQ8 webb (~30 s). Dubbletter tas bort, befintliga stationer rensas.'
+                    : selected === 'osm'
                     ? 'En förfrågan, ~60 s. Circle K, OKQ8, Preem och St1 importeras på en gång.'
                     : `Tar ~${Math.ceil(Number(preview.total) / 6 * 0.2 / 60)} min. Duplicat hoppas över automatiskt.`
                   }
