@@ -133,19 +133,31 @@ export function FeaturePanel({ feature, onClose, onSaved, onDeleted, addMode, ad
 
         {/* Extra attributes not in layer config (imported data) */}
         {(() => {
-          const knownKeys = new Set([
+          const HIDDEN = new Set([
             'uid', 'layer', 'cot_type', 'name', 'created_by', 'updated_by', 'created_at', 'updated_at',
             'photo_url', 'station_url', 'scraped_at', 'trv_source_id', 'osm_id', '_source_id',
             ...(layerCfg?.fields.map(f => f.key) || []),
           ]);
-          const extra = Object.entries(fields).filter(([k, v]) => !knownKeys.has(k) && v && v !== 'null' && v !== 'undefined');
+          const LABELS: Record<string, string> = {
+            address: 'Adress', phone: 'Telefon', brand: 'Varumärke',
+            opening_hours: 'Öppettider', source: 'Källa', camera_type: 'Kameratyp',
+            direction: 'Riktning', status: 'Status', avg_speed_kmh: 'Hastighet (km/h)',
+            flow_per_hour: 'Flöde (fordon/h)', measured_at: 'Mätt', data_quality: 'Datakvalitet',
+            port_type: 'Hamntyp', bk_class: 'BK-klass', bk_winter: 'Vinterbärighet',
+            max_axle_ton: 'Max axellast (ton)',
+          };
+          const extra = Object.entries(fields).filter(
+            ([k, v]) => !HIDDEN.has(k) && v && v !== 'null' && v !== 'undefined' && v !== ''
+          );
           if (!extra.length) return null;
           return (
             <div style={{ marginTop: 8, paddingTop: 8, borderTop: '1px solid #2a2a40' }}>
               {extra.map(([k, v]) => (
                 <div key={k} className="field-row">
-                  <label style={{ color: '#666', fontSize: 11 }}>{k.replace(/_/g, ' ')}</label>
-                  <span style={{ fontSize: 12, color: '#999' }}>{v}</span>
+                  <label style={{ color: '#666', fontSize: 11 }}>
+                    {LABELS[k] || k.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())}
+                  </label>
+                  <span style={{ fontSize: 12, color: '#aaa' }}>{v}</span>
                 </div>
               ))}
             </div>
