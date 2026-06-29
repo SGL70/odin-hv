@@ -18,13 +18,16 @@ function parseWKT(wkt) {
   const pt = s.match(/^POINT\s*\(\s*([^\s)]+)\s+([^\s)]+)\s*\)/i);
   if (pt) return { type: 'Point', coordinates: [parseFloat(pt[1]), parseFloat(pt[2])] };
 
-  const ls = s.match(/^LINESTRING\s*\(([^)]+)\)/i);
+  // Strip Z/M modifier before parsing coordinates (3D → 2D)
+  const s2 = s.replace(/\b(LINESTRING|MULTILINESTRING|POLYGON|MULTIPOLYGON)\s+Z\s+/i, '$1 ');
+
+  const ls = s2.match(/^LINESTRING\s*\(([^)]+)\)/i);
   if (ls) return {
     type: 'LineString',
-    coordinates: ls[1].split(',').map(p => p.trim().split(/\s+/).map(Number)),
+    coordinates: ls[1].split(',').map(p => p.trim().split(/\s+/).slice(0, 2).map(Number)),
   };
 
-  const mls = s.match(/^MULTILINESTRING\s*\((.+)\)\s*$/i);
+  const mls = s2.match(/^MULTILINESTRING\s*\((.+)\)\s*$/i);
   if (mls) {
     const rings = mls[1].match(/\(([^)]+)\)/g) || [];
     return {
@@ -35,7 +38,7 @@ function parseWKT(wkt) {
     };
   }
 
-  const pg = s.match(/^POLYGON\s*\((.+)\)\s*$/i);
+  const pg = s2.match(/^POLYGON\s*\((.+)\)\s*$/i);
   if (pg) {
     const rings = pg[1].match(/\(([^)]+)\)/g) || [];
     return {
@@ -49,19 +52,21 @@ function parseWKT(wkt) {
 }
 
 // POST to Trafikverket Open Data API
-async function trvQuery(objecttype, schemaversion, filter, include, limit = 500) {
+async function trvQuery(objecttype, schemaversion, filter, include, limit = 500, namespace = '') {
+  const nsAttr = namespace ? ` namespace="${namespace}"` : '';
+  const includeTag = include ? `<INCLUDE>${include}</INCLUDE>` : '';
   const xml = `<REQUEST>
   <LOGIN authenticationkey="${apiKey()}"/>
-  <QUERY objecttype="${objecttype}" schemaversion="${schemaversion}" limit="${limit}">
+  <QUERY objecttype="${objecttype}"${nsAttr} schemaversion="${schemaversion}" limit="${limit}">
     <FILTER>${filter}</FILTER>
-    <INCLUDE>${include}</INCLUDE>
+    ${includeTag}
   </QUERY>
 </REQUEST>`;
   const res = await fetch(TRV_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'text/xml' },
     body: xml,
-    signal: AbortSignal.timeout(15000),
+    signal: AbortSignal.timeout(20000),
   });
   const json = await res.json();
   return json?.RESPONSE?.RESULT?.[0]?.[objecttype] || [];
@@ -121,31 +126,34 @@ router.get('/ferries', requireAuth, async (req, res) => {
   }
 });
 
-// ── ROAD CONDITIONS (väglag — is, snö, torrt) ────────────────────────────────
+// ── NVDB BÄRIGHET (BK-klass) via vägdata.nvdb_dk_o namespace ────────────────
 router.get('/roads', requireAuth, async (req, res) => {
   const { minlng, minlat, maxlng, maxlat } = req.query;
   try {
     const items = await trvQuery(
-      'RoadCondition', '1',
-      bboxFilter('Geometry.WGS84', minlng, minlat, maxlng, maxlat),
-      'Id, ConditionCode, ConditionText, ConditionInfo, CountyNo, Geometry',
-      500
+      'Bärighet', '1.2',
+      bboxFilter('Geometry.WKT-WGS84-3D', minlng, minlat, maxlng, maxlat),
+      'GID,Bärighetsklass,Bärighetsklass_vinterperiod,Startdatum_sommarperiod,Geometry',
+      500,
+      'vägdata.nvdb_dk_o'
     );
-    const CONDITION_NAMES = {
-      1: 'Normalt', 2: 'Våt/fuktig', 3: 'Is/frost', 4: 'Snöbelagd',
-      5: 'Halkbekämpning pågår', 6: 'Snöröjning pågår',
-    };
-    const features = items.map(r => ({
-      type: 'Feature',
-      geometry: parseWKT(r?.Geometry?.WGS84),
-      properties: {
-        layer: 'roads',
-        name: CONDITION_NAMES[r.ConditionCode] || r.ConditionText || 'Väglag',
-        road_condition: r.ConditionText || '',
-        condition_info: (r.ConditionInfo || []).join(', '),
-        _source_id: String(r.Id || ''),
-      },
-    })).filter(f => f.geometry);
+    const BK_TON = { 'BK 1': 10, 'BK 2': 10, 'BK 3': 8, 'BK 4': 6, 'Undantag': null };
+    const features = items.map(r => {
+      const bk = r.Bärighetsklass || 'BK 1';
+      const geom = parseWKT(r?.Geometry?.['WKT-WGS84-3D']);
+      if (!geom) return null;
+      return {
+        type: 'Feature', geometry: geom,
+        properties: {
+          layer: 'roads',
+          name: bk,
+          bk_class: bk,
+          bk_winter: r.Bärighetsklass_vinterperiod || null,
+          max_axle_ton: BK_TON[bk] ?? null,
+          _source_id: String(r.GID || ''),
+        },
+      };
+    }).filter(Boolean);
     res.json({ count: features.length, features });
   } catch (err) {
     res.status(502).json({ error: err.message });

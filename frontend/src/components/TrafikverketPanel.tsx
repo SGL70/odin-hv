@@ -11,7 +11,7 @@ interface DataSource {
 
 const SOURCES: DataSource[] = [
   { id: 'cameras', label: 'Trafikkameror', layer: 'cameras', icon: '📷', endpoint: '/api/trafikverket/cameras' },
-  { id: 'roads',   label: 'Väglag (is/snö/torrt)', layer: 'roads', icon: '🛣', endpoint: '/api/trafikverket/roads' },
+  { id: 'roads',   label: 'Vägbärighet (BK-klass)', layer: 'roads', icon: '🛣', endpoint: '/api/trafikverket/roads' },
 ];
 
 interface Props {
