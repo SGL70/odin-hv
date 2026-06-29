@@ -23,6 +23,7 @@ app.use('/api/import', require('./routes/import'));
 app.use('/api/export', require('./routes/export'));
 app.use('/api/dashboard', require('./routes/dashboard'));
 app.use('/api/trafikverket', require('./routes/trafikverket'));
+app.use('/api/harvest', require('./routes/harvest'));
 
 app.get('/api/health', (_req, res) => res.json({ ok: true }));
 
