@@ -12,14 +12,21 @@ interface Source {
 
 const SOURCES: Source[] = [
   {
+    id: 'osm',
+    label: 'Alla (OSM)',
+    icon: '🗺',
+    layer: 'fuel',
+    previewEndpoint: '/api/harvest/osm/preview',
+    scrapeEndpoint: '/api/harvest/osm/scrape',
+  },
+  {
     id: 'okq8',
-    label: 'OKQ8',
+    label: 'OKQ8 (webb)',
     icon: '⛽',
     layer: 'fuel',
     previewEndpoint: '/api/harvest/okq8/preview',
     scrapeEndpoint: '/api/harvest/okq8/scrape',
   },
-  // Fler källor tillkommer här: Circle K, Preem, St1 ...
 ];
 
 interface Progress {
@@ -176,7 +183,10 @@ export function HarvestPanel({ onClose, onImported }: Props) {
                   Skörda och importera alla
                 </button>
                 <p style={{ fontSize: 11, color: '#666', marginTop: 6 }}>
-                  Tar ~{Math.ceil(preview.total / 6 * 0.2 / 60)} min. Duplicat hoppas över automatiskt.
+                  {selected === 'osm'
+                    ? 'En förfrågan, ~60 s. Circle K, OKQ8, Preem och St1 importeras på en gång.'
+                    : `Tar ~${Math.ceil(Number(preview.total) / 6 * 0.2 / 60)} min. Duplicat hoppas över automatiskt.`
+                  }
                 </p>
               </div>
             ) : (

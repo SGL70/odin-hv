@@ -42,6 +42,67 @@ async function runBatched(items, fn, concurrency, onProgress) {
   return results;
 }
 
+// ── OSM / Overpass ───────────────────────────────────────────────────────────
+
+const OVERPASS_URL = 'https://overpass-api.de/api/interpreter';
+
+const OSM_BRANDS = {
+  'circle k': 'Circle K',
+  'okq8':     'OKQ8',
+  'preem':    'Preem',
+  'st1':      'St1',
+  'shell':    'St1',        // St1 operates Shell in Sweden
+};
+
+function normalizeBrand(raw = '') {
+  const key = raw.toLowerCase().split(/[\s/]/)[0];
+  return OSM_BRANDS[key] || raw;
+}
+
+async function osmFuelStations() {
+  const query = `[out:json][timeout:60];
+area["ISO3166-1"="SE"][admin_level=2]->.s;
+nwr["amenity"="fuel"]["brand"~"Circle K|OKQ8|Preem|St1",i](area.s);
+out center;`;
+
+  const res = await fetch(OVERPASS_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'User-Agent': UA },
+    body: `data=${encodeURIComponent(query)}`,
+    signal: AbortSignal.timeout(90000),
+  });
+  if (!res.ok) throw new Error(`Overpass HTTP ${res.status}`);
+  const json = await res.json();
+
+  return (json.elements || []).map(e => {
+    const tags = e.tags || {};
+    const lat = e.type === 'node' ? e.lat : e.center?.lat;
+    const lon = e.type === 'node' ? e.lon : e.center?.lon;
+    if (!lat || !lon) return null;
+
+    const brand = normalizeBrand(tags.brand || tags.name || '');
+    const street = [tags['addr:street'], tags['addr:housenumber']].filter(Boolean).join(' ');
+    const address = [street, tags['addr:postcode'], tags['addr:city']].filter(Boolean).join(', ');
+    const name = tags.name || `${brand} ${tags['addr:city'] || ''}`.trim();
+
+    return {
+      type: 'Feature',
+      geometry: { type: 'Point', coordinates: [lon, lat] },
+      properties: {
+        layer: 'fuel',
+        name,
+        source: `OSM/${brand}`,
+        brand,
+        address: address || null,
+        phone: tags.phone || tags['contact:phone'] || null,
+        opening_hours: tags.opening_hours || null,
+        osm_id: `${e.type}/${e.id}`,
+        scraped_at: new Date().toISOString(),
+      },
+    };
+  }).filter(Boolean);
+}
+
 // ── OKQ8 ─────────────────────────────────────────────────────────────────────
 
 async function okq8Index() {
@@ -103,6 +164,37 @@ async function saveFeatures(features, userId) {
 }
 
 // ── Routes ────────────────────────────────────────────────────────────────────
+
+// GET /api/harvest/osm/preview
+router.get('/osm/preview', requireAuth, async (_req, res) => {
+  res.json({
+    source: 'OSM',
+    total: '~1 600',
+    brands: ['Circle K', 'OKQ8', 'Preem', 'St1'],
+    note: 'En förfrågan, alla varumärken, ~60 s',
+  });
+});
+
+// POST /api/harvest/osm/scrape — fetch all fuel stations from OpenStreetMap
+router.post('/osm/scrape', requireAuth, requireRole('editor', 'admin'), async (req, res) => {
+  res.json({ started: true, total: 1619 });
+  const io = req.io;
+  io.emit('harvest:progress', { source: 'osm', done: 0, total: 1619 });
+
+  let features;
+  try {
+    features = await osmFuelStations();
+  } catch (err) {
+    io.emit('harvest:done', { source: 'osm', imported: 0, skipped: 0, error: err.message });
+    return;
+  }
+
+  io.emit('harvest:progress', { source: 'osm', done: features.length, total: features.length });
+
+  const { imported, skipped } = await saveFeatures(features, req.user?.id || 0);
+  io.emit('harvest:done', { source: 'osm', imported, skipped });
+  if (imported > 0) io.emit('features:reloaded', {});
+});
 
 // GET /api/harvest/okq8/preview — returns count (fast, single request)
 router.get('/okq8/preview', requireAuth, async (_req, res) => {
