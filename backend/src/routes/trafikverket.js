@@ -6,8 +6,9 @@ const router = express.Router();
 const TRV_URL = 'https://api.trafikinfo.trafikverket.se/v2/data.json';
 const NVDB_URL = 'https://api.trafikinfo.trafikverket.se/v2/data.json';
 
-function apiKey() {
-  return process.env.TRAFIKVERKET_API_KEY || '';
+function apiKey(datex = false) {
+  return (datex ? process.env.TRAFIKVERKET_DATEX_KEY : null)
+    || process.env.TRAFIKVERKET_API_KEY || '';
 }
 
 // Parse WKT geometry string → GeoJSON geometry
@@ -52,11 +53,11 @@ function parseWKT(wkt) {
 }
 
 // POST to Trafikverket Open Data API
-async function trvQuery(objecttype, schemaversion, filter, include, limit = 500, namespace = '') {
+async function trvQuery(objecttype, schemaversion, filter, include, limit = 500, namespace = '', datex = false) {
   const nsAttr = namespace ? ` namespace="${namespace}"` : '';
   const includeTag = include ? `<INCLUDE>${include}</INCLUDE>` : '';
   const xml = `<REQUEST>
-  <LOGIN authenticationkey="${apiKey()}"/>
+  <LOGIN authenticationkey="${apiKey(datex)}"/>
   <QUERY objecttype="${objecttype}"${nsAttr} schemaversion="${schemaversion}" limit="${limit}">
     <FILTER>${filter}</FILTER>
     ${includeTag}
@@ -193,6 +194,57 @@ router.get('/roads', requireAuth, async (req, res) => {
 // ── BRIDGES — not available in Trafikinfo API; placeholder ───────────────────
 router.get('/bridges', requireAuth, async (_req, res) => {
   res.json({ count: 0, features: [], note: 'Brodata ej tillgänglig via Trafikinfo API' });
+});
+
+// ── TRAFIKFLÖDE (realtidshastighet och flöde) ─────────────────────────────────
+router.get('/traffic', requireAuth, async (req, res) => {
+  const { minlng, minlat, maxlng, maxlat } = req.query;
+  try {
+    const items = await trvQuery(
+      'TrafficFlow', '1.5',
+      bboxFilter('Geometry.WGS84', minlng, minlat, maxlng, maxlat),
+      'SiteId,CountyNo,AverageVehicleSpeed,VehicleFlowRate,VehicleType,MeasurementSide,MeasurementTime,DataQuality,Geometry',
+      500, '', true
+    );
+
+    // Group by SiteId — keep one entry per site (anyVehicle preferred, else first)
+    const bysite = {};
+    for (const r of items) {
+      const id = r.SiteId;
+      if (!bysite[id] || r.VehicleType === 'anyVehicle') bysite[id] = r;
+    }
+
+    const SIDE = {
+      northBound: 'N', southBound: 'S', eastBound: 'Ö', westBound: 'V',
+      lane1: '', lane2: '', anyDirection: '',
+    };
+
+    const features = Object.values(bysite).map(r => {
+      const geom = parseWKT(r?.Geometry?.WGS84);
+      if (!geom) return null;
+      const speed = r.AverageVehicleSpeed != null ? Math.round(r.AverageVehicleSpeed) : null;
+      const flow  = r.VehicleFlowRate != null ? Math.round(r.VehicleFlowRate) : null;
+      const dir   = SIDE[r.MeasurementSide] ?? '';
+      const name  = speed != null ? `${speed} km/h${dir ? ' ' + dir : ''}` : `Mätpunkt ${r.SiteId}`;
+      return {
+        type: 'Feature', geometry: geom,
+        properties: {
+          layer: 'roads',
+          name,
+          avg_speed_kmh: speed,
+          flow_per_hour: flow,
+          direction: r.MeasurementSide || null,
+          measured_at: r.MeasurementTime || null,
+          data_quality: r.DataQuality || null,
+          _source_id: String(r.SiteId),
+        },
+      };
+    }).filter(Boolean);
+
+    res.json({ count: features.length, features });
+  } catch (err) {
+    res.status(502).json({ error: err.message });
+  }
 });
 
 // ── IMPORT: Write fetched features to DB ──────────────────────────────────────
