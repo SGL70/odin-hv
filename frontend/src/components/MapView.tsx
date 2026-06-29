@@ -23,7 +23,9 @@ const STYLE: maplibregl.StyleSpecification = {
   layers: [{ id: 'osm', type: 'raster', source: 'osm' }],
 };
 
-const POLYGON_LAYERS: LayerId[] = ['staging_areas'];
+const POLYGON_LAYERS: LayerId[] = ['staging_areas', 'airports'];
+const LINE_LAYERS: LayerId[] = ['roads', 'railways', 'tunnels', 'powerlines'];
+const DRAW_LAYERS: LayerId[] = [...POLYGON_LAYERS, ...LINE_LAYERS];
 
 export function MapView() {
   const { user, logout } = useAuth();
@@ -45,6 +47,8 @@ export function MapView() {
 
   const canEdit = user?.role === 'editor' || user?.role === 'admin';
   const isPolygonMode = addMode && POLYGON_LAYERS.includes(addLayer);
+  const isLineMode = addMode && LINE_LAYERS.includes(addLayer);
+  const isDrawMode = addMode && DRAW_LAYERS.includes(addLayer);
 
   const loadFeatures = useCallback(async () => {
     const fc = await api.getFeatures();
@@ -95,12 +99,24 @@ export function MapView() {
 
       map.addSource(sourceId, { type: 'geojson', data: geojson });
 
-      if (layer.id === 'roads') {
+      if (LINE_LAYERS.includes(layer.id)) {
+        const dashed = layer.id === 'tunnels';
         map.addLayer({
           id: `lyr-${layer.id}`,
           type: 'line', source: sourceId,
           layout: { visibility: 'visible' },
-          paint: { 'line-color': layer.color, 'line-width': 4, 'line-opacity': 0.8 },
+          paint: {
+            'line-color': layer.color,
+            'line-width': layer.id === 'roads' ? 4 : layer.id === 'railways' ? 3 : 2,
+            'line-opacity': 0.85,
+            ...(dashed ? { 'line-dasharray': [4, 3] } : {}),
+          },
+        });
+        map.addLayer({
+          id: `lbl-${layer.id}`,
+          type: 'symbol', source: sourceId,
+          layout: { 'text-field': ['get', 'name'], 'text-size': 10, 'symbol-placement': 'line', visibility: 'visible' },
+          paint: { 'text-color': '#fff', 'text-halo-color': '#000', 'text-halo-width': 1 },
         });
       } else if (layer.id === 'staging_areas') {
         map.addLayer({
@@ -201,7 +217,7 @@ export function MapView() {
 
     const onClick = (e: maplibregl.MapMouseEvent) => {
       if (!addMode) return;
-      if (isPolygonMode) {
+      if (isDrawMode) {
         setPolygonPoints(prev => [...prev, [e.lngLat.lng, e.lngLat.lat]]);
       } else {
         setAddDialog({ lngLat: e.lngLat });
@@ -236,8 +252,13 @@ export function MapView() {
 
     let geometry: GeoJSON.Geometry;
     if (polygonReady) {
-      if (polygonPoints.length < 3) return;
-      geometry = { type: 'Polygon', coordinates: [[...polygonPoints, polygonPoints[0]]] };
+      if (isLineMode) {
+        if (polygonPoints.length < 2) return;
+        geometry = { type: 'LineString', coordinates: polygonPoints };
+      } else {
+        if (polygonPoints.length < 3) return;
+        geometry = { type: 'Polygon', coordinates: [[...polygonPoints, polygonPoints[0]]] };
+      }
     } else {
       if (!addDialog) return;
       geometry = { type: 'Point', coordinates: [addDialog.lngLat.lng, addDialog.lngLat.lat] };
@@ -320,7 +341,7 @@ export function MapView() {
             <h3 style={{ fontSize: 15, marginBottom: 14 }}>{layerCfg?.icon} Nytt {layerCfg?.label}-objekt</h3>
             {polygonReady && (
               <p style={{ fontSize: 12, color: '#5b8cff', marginBottom: 12 }}>
-                Polygon med {polygonPoints.length} hörn
+                {isLineMode ? `Linje med ${polygonPoints.length} punkter` : `Polygon med ${polygonPoints.length} hörn`}
               </p>
             )}
             <div className="field-row">
@@ -361,19 +382,23 @@ export function MapView() {
           padding: '8px 16px', fontSize: 13, color: '#5b8cff', zIndex: 10,
           display: 'flex', alignItems: 'center', gap: 12,
         }}>
-          {isPolygonMode ? (
-            polygonPoints.length < 3
-              ? `Klicka hörn för uppställningsytan (${polygonPoints.length} av minst 3)`
-              : `${polygonPoints.length} hörn — klicka fler eller`
+          {isDrawMode ? (
+            isLineMode
+              ? polygonPoints.length < 2
+                ? `Klicka punkter för ${layerCfg?.label.toLowerCase()} (${polygonPoints.length} av minst 2)`
+                : `${polygonPoints.length} punkter — fortsätt eller`
+              : polygonPoints.length < 3
+                ? `Klicka hörn för ${layerCfg?.label.toLowerCase()} (${polygonPoints.length} av minst 3)`
+                : `${polygonPoints.length} hörn — klicka fler eller`
           ) : (
             `Klicka på kartan för att placera ${layerCfg?.label.toLowerCase()}`
           )}
-          {isPolygonMode && polygonPoints.length >= 3 && (
+          {isDrawMode && ((isLineMode && polygonPoints.length >= 2) || (!isLineMode && polygonPoints.length >= 3)) && (
             <button
               className="btn-primary btn-sm"
               onClick={() => { setPolygonReady(true); setNewName(''); setNewFields({}); }}
             >
-              Avsluta yta
+              {isLineMode ? 'Avsluta linje' : 'Avsluta yta'}
             </button>
           )}
         </div>

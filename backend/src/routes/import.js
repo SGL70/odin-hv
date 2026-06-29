@@ -12,6 +12,9 @@ const LAYER_COT = {
   raw_materials: 'b-m-p-s-p', vehicles: 'a-f-G-U-C-V',
   maintenance: 'b-m-p-s-p', hygiene: 'b-m-p-s-p',
   staging_areas: 'b-m-p-s-p', transshipment: 'b-m-p-s-p',
+  cameras: 'b-m-p-s-p', powerlines: 'b-m-p-s-p', telecom: 'b-m-p-s-p',
+  railways: 'b-m-p-s-p', ports: 'b-m-p-s-p', airports: 'b-m-p-s-p',
+  medical: 'b-m-p-s-p', emergency: 'b-m-p-s-p', tunnels: 'b-m-p-s-p', fording_points: 'b-m-p-s-p',
   roads: 'b-m-p-s-p', bridges: 'b-m-p-s-p',
 };
 
