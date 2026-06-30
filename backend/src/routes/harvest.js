@@ -113,10 +113,10 @@ const SKOOGS_PRODUCTS = {
 
 async function skoogsFuelStations() {
   const html = await fetchHtml('https://skoogsbransle.se/tankstationer/');
-  const raw = html.match(/data-location="([^"]+)"/g) || [];
+  const raw = html.match(/data-location='([^']+)'/g) || [];
   return raw.map(attr => {
     try {
-      const d = JSON.parse(attr.slice('data-location="'.length, -1).replace(/&quot;/g, '"'));
+      const d = JSON.parse(attr.slice("data-location='".length, -1).replace(/&quot;/g, '"').replace(/&amp;/g, '&'));
       const lat = parseFloat(d.location?.lat);
       const lng = parseFloat(d.location?.lng);
       if (!lat || !lng) return null;
