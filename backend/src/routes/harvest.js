@@ -4,7 +4,35 @@ const { requireAuth, requireRole } = require('../middleware/auth');
 
 const router = express.Router();
 const CONCURRENCY = 6;
-const UA = 'Mozilla/5.0 (compatible; ResurslageScraper/1.0; +https://github.com/SGL70/resurslage)';
+const UA = 'curl/8.21.0';
+const https = require('https');
+const http  = require('http');
+
+// Low-level HTTPS POST — avoids extra headers that Node fetch adds (Accept-Encoding etc.)
+function httpsPost(url, body, timeoutMs = 120000) {
+  return new Promise((resolve, reject) => {
+    const u = new URL(url);
+    const buf = Buffer.from(body, 'utf8');
+    const req = (u.protocol === 'https:' ? https : http).request({
+      hostname: u.hostname, port: u.port || (u.protocol === 'https:' ? 443 : 80),
+      path: u.pathname + u.search, method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'Content-Length': buf.length,
+        'Accept': '*/*',
+        'User-Agent': UA,
+      },
+    }, res => {
+      const chunks = [];
+      res.on('data', c => chunks.push(c));
+      res.on('end', () => resolve({ status: res.statusCode, text: () => Buffer.concat(chunks).toString(), json: () => JSON.parse(Buffer.concat(chunks).toString()) }));
+    });
+    req.on('error', reject);
+    req.setTimeout(timeoutMs, () => { req.destroy(); reject(new Error('Timeout')); });
+    req.write(buf);
+    req.end();
+  });
+}
 
 async function fetchHtml(url) {
   const res = await fetch(url, {
@@ -45,10 +73,10 @@ async function runBatched(items, fn, concurrency, onProgress) {
 // ── OSM / Overpass ───────────────────────────────────────────────────────────
 
 const OVERPASS_ENDPOINTS = [
-  'https://overpass-api.de/api/interpreter',
+  'http://overpass-api.de/api/interpreter',
+  'http://lz4.overpass-api.de/api/interpreter',
   'https://overpass.kumi.systems/api/interpreter',
   'https://overpass.openstreetmap.fr/api/interpreter',
-  'https://lz4.overpass-api.de/api/interpreter',
 ];
 
 const OSM_BRANDS = {
@@ -73,18 +101,12 @@ out center;`;
   let lastErr;
   for (const endpoint of OVERPASS_ENDPOINTS) {
     try {
-      const res = await fetch(endpoint, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'User-Agent': UA, 'Accept': '*/*' },
-        body: `data=${encodeURIComponent(query)}`,
-        signal: AbortSignal.timeout(120000),
-      });
-      if (!res.ok) {
-        const body = await res.text().catch(() => '');
-        lastErr = new Error(`Overpass HTTP ${res.status}: ${body.slice(0, 200)}`);
+      const res = await httpsPost(endpoint, `data=${encodeURIComponent(query)}`, 120000);
+      if (res.status !== 200) {
+        lastErr = new Error(`Overpass HTTP ${res.status}: ${res.text().slice(0, 200)}`);
         continue;
       }
-      const json = await res.json();
+      const json = res.json();
       if (!json.elements) { lastErr = new Error('Tomt svar från Overpass'); continue; }
       return buildOsmFeatures(json.elements);
     } catch (err) {
