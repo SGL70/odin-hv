@@ -99,7 +99,7 @@ router.delete('/layer/:layer', requireAuth, requireRole('editor', 'admin'), asyn
     const { rows } = await db.query('DELETE FROM features WHERE layer=$1 RETURNING uid', [layer]);
     await db.query(
       'INSERT INTO activity_log (user_id,username,action,layer,feature_name) VALUES ($1,$2,$3,$4,$5)',
-      [req.user.id, req.user.username, 'clear_layer', layer, `Rensade ${rows.length} objekt`]
+      [req.user.id, req.user.username, 'delete', layer, `Rensade ${rows.length} objekt`]
     );
     req.io.emit('features:reloaded', {});
     res.json({ deleted: rows.length });

@@ -4,6 +4,9 @@ const { requireAuth, requireRole } = require('../middleware/auth');
 
 const router = express.Router();
 const CONCURRENCY = 6;
+
+// Active job cancellation controllers — keyed by source id
+const activeJobs = new Map(); // source -> AbortController
 const UA = 'curl/8.21.0';
 const https = require('https');
 const http  = require('http');
@@ -294,72 +297,80 @@ async function saveFeatures(features, userId) {
 
 // ── Routes ────────────────────────────────────────────────────────────────────
 
+function startJob(source) {
+  activeJobs.get(source)?.abort();
+  const ctrl = new AbortController();
+  activeJobs.set(source, ctrl);
+  return ctrl;
+}
+
+function cancelledError(source) {
+  return new Error(`Skördning avbruten (${source})`);
+}
+
+// POST /api/harvest/:source/cancel
+router.post('/:source/cancel', requireAuth, (req, res) => {
+  const ctrl = activeJobs.get(req.params.source);
+  if (ctrl) { ctrl.abort(); activeJobs.delete(req.params.source); }
+  res.json({ cancelled: !!ctrl });
+});
+
 // GET /api/harvest/osm/preview
 router.get('/osm/preview', requireAuth, async (_req, res) => {
-  res.json({
-    source: 'OSM',
-    total: '~1 600',
-    brands: ['Circle K', 'OKQ8', 'Preem', 'St1'],
-    note: 'En förfrågan, alla varumärken, ~60 s',
-  });
+  res.json({ source: 'OSM', total: '~1 600', brands: ['Circle K', 'OKQ8', 'Preem', 'St1'], note: 'En förfrågan, ~60 s' });
 });
 
-// POST /api/harvest/osm/scrape — fetch all fuel stations from OpenStreetMap
+// POST /api/harvest/osm/scrape
 router.post('/osm/scrape', requireAuth, requireRole('editor', 'admin'), async (req, res) => {
-  res.json({ started: true, total: 1619 });
+  const ctrl = startJob('osm');
+  res.json({ started: true });
   const io = req.io;
-  io.emit('harvest:progress', { source: 'osm', done: 0, total: 1619 });
-
-  let features;
+  io.emit('harvest:progress', { source: 'osm', done: 0, total: 1 });
   try {
-    features = await osmFuelStations();
+    if (ctrl.signal.aborted) throw cancelledError('osm');
+    const features = await osmFuelStations();
+    if (ctrl.signal.aborted) throw cancelledError('osm');
+    io.emit('harvest:progress', { source: 'osm', done: features.length, total: features.length });
+    const { imported, skipped } = await saveFeatures(features, req.user?.id || 0);
+    io.emit('harvest:done', { source: 'osm', imported, skipped });
+    if (imported > 0) io.emit('features:reloaded', {});
   } catch (err) {
     io.emit('harvest:done', { source: 'osm', imported: 0, skipped: 0, error: err.message });
-    return;
-  }
-
-  io.emit('harvest:progress', { source: 'osm', done: features.length, total: features.length });
-
-  const { imported, skipped } = await saveFeatures(features, req.user?.id || 0);
-  io.emit('harvest:done', { source: 'osm', imported, skipped });
-  if (imported > 0) io.emit('features:reloaded', {});
+  } finally { activeJobs.delete('osm'); }
 });
 
-// GET /api/harvest/okq8/preview — returns count (fast, single request)
+// GET /api/harvest/okq8/preview
 router.get('/okq8/preview', requireAuth, async (_req, res) => {
   try {
     const urls = await okq8Index();
     res.json({ source: 'OKQ8', total: urls.length, sample: urls.slice(0, 3) });
-  } catch (err) {
-    res.status(502).json({ error: err.message });
-  }
+  } catch (err) { res.status(502).json({ error: err.message }); }
 });
 
-// POST /api/harvest/okq8/scrape — scrapes all stations, streams progress via socket
+// POST /api/harvest/okq8/scrape
 router.post('/okq8/scrape', requireAuth, requireRole('editor', 'admin'), async (req, res) => {
+  const ctrl = startJob('okq8');
   let urls;
   try {
     urls = await okq8Index();
   } catch (err) {
     return res.status(502).json({ error: 'Kunde inte hämta stationsindex: ' + err.message });
   }
-
-  // Respond immediately so client isn't stuck waiting
   res.json({ started: true, total: urls.length });
-
   const io = req.io;
   io.emit('harvest:progress', { source: 'okq8', done: 0, total: urls.length });
-
-  const features = await runBatched(
-    urls,
-    okq8Station,
-    CONCURRENCY,
-    (done, total) => io.emit('harvest:progress', { source: 'okq8', done, total }),
-  );
-
-  const { imported, skipped } = await saveFeatures(features, req.user?.id || 0);
-  io.emit('harvest:done', { source: 'okq8', imported, skipped });
-  if (imported > 0) io.emit('features:reloaded', {});
+  try {
+    const features = await runBatched(urls, okq8Station, CONCURRENCY,
+      (done, total) => {
+        if (ctrl.signal.aborted) throw cancelledError('okq8');
+        io.emit('harvest:progress', { source: 'okq8', done, total });
+      });
+    const { imported, skipped } = await saveFeatures(features, req.user?.id || 0);
+    io.emit('harvest:done', { source: 'okq8', imported, skipped });
+    if (imported > 0) io.emit('features:reloaded', {});
+  } catch (err) {
+    io.emit('harvest:done', { source: 'okq8', imported: 0, skipped: 0, error: err.message });
+  } finally { activeJobs.delete('okq8'); }
 });
 
 // GET /api/harvest/skoogs/preview
@@ -368,89 +379,77 @@ router.get('/skoogs/preview', requireAuth, async (_req, res) => {
     const html = await fetchHtml('https://skoogsbransle.se/tankstationer/');
     const count = (html.match(/data-location='/g) || []).length;
     res.json({ source: 'Skoogs', total: count, note: 'Ett anrop, allt inbakat i HTML, <5 s' });
-  } catch (err) {
-    res.status(502).json({ error: err.message });
-  }
+  } catch (err) { res.status(502).json({ error: err.message }); }
 });
 
 // POST /api/harvest/skoogs/scrape
 router.post('/skoogs/scrape', requireAuth, requireRole('editor', 'admin'), async (req, res) => {
+  const ctrl = startJob('skoogs');
   res.json({ started: true });
   const io = req.io;
   io.emit('harvest:progress', { source: 'skoogs', phase: 'Skoogs Bränsle…', done: 0, total: 1 });
-  let features;
   try {
-    features = await skoogsFuelStations();
+    if (ctrl.signal.aborted) throw cancelledError('skoogs');
+    const features = await skoogsFuelStations();
+    io.emit('harvest:progress', { source: 'skoogs', phase: 'Skoogs Bränsle…', done: 1, total: 1 });
+    const { imported, skipped } = await saveFeatures(features, req.user?.id || 0);
+    io.emit('harvest:done', { source: 'skoogs', imported, skipped });
+    if (imported > 0) io.emit('features:reloaded', {});
   } catch (err) {
     io.emit('harvest:done', { source: 'skoogs', imported: 0, skipped: 0, error: err.message });
-    return;
-  }
-  io.emit('harvest:progress', { source: 'skoogs', phase: 'Skoogs Bränsle…', done: 1, total: 1 });
-  const { imported, skipped } = await saveFeatures(features, req.user?.id || 0);
-  io.emit('harvest:done', { source: 'skoogs', imported, skipped });
-  if (imported > 0) io.emit('features:reloaded', {});
+  } finally { activeJobs.delete('skoogs'); }
 });
 
 // GET /api/harvest/combined/preview
 router.get('/combined/preview', requireAuth, (_req, res) => {
-  res.json({
-    source: 'combined',
-    total: 2300,
-    brands: ['Circle K (~340)', 'OKQ8 (~882 webb)', 'Preem (~430)', 'St1 (~370)', 'Skoogs (~293)'],
-    note: 'OSM + OKQ8 webb + Skoogs, dubbletter tas bort, ~90–120 s',
-  });
+  res.json({ source: 'combined', total: 2300, brands: ['Circle K (~340)', 'OKQ8 (~882 webb)', 'Preem (~430)', 'St1 (~370)', 'Skoogs (~293)'], note: 'OSM + OKQ8 webb + Skoogs, dubbletter tas bort, ~90–120 s' });
 });
 
-// POST /api/harvest/combined/scrape — OSM base + OKQ8 web, deduplicated by proximity
+// POST /api/harvest/combined/scrape
 router.post('/combined/scrape', requireAuth, requireRole('editor', 'admin'), async (req, res) => {
+  const ctrl = startJob('combined');
   res.json({ started: true });
   const io = req.io;
 
-  // Phase 1: OSM
-  io.emit('harvest:progress', { source: 'combined', phase: 'Hämtar OSM…', done: 0, total: 1 });
-  let osmFeatures;
+  const aborted = () => ctrl.signal.aborted;
+  const checkAbort = (phase) => { if (aborted()) throw cancelledError(phase); };
+
   try {
-    osmFeatures = await osmFuelStations();
+    // Phase 1: OSM
+    io.emit('harvest:progress', { source: 'combined', phase: 'Hämtar OSM…', done: 0, total: 1 });
+    checkAbort('OSM');
+    const osmFeatures = await osmFuelStations();
+    checkAbort('OSM');
+    io.emit('harvest:progress', { source: 'combined', phase: 'Hämtar OSM…', done: 1, total: 1 });
+
+    // Phase 2: OKQ8 web
+    const urls = await okq8Index();
+    checkAbort('OKQ8');
+    io.emit('harvest:progress', { source: 'combined', phase: 'OKQ8 webb', done: 0, total: urls.length });
+    const okq8Features = await runBatched(urls, okq8Station, CONCURRENCY, (done, total) => {
+      checkAbort('OKQ8');
+      io.emit('harvest:progress', { source: 'combined', phase: 'OKQ8 webb', done, total });
+    });
+
+    // Phase 3: Skoogs
+    checkAbort('Skoogs');
+    io.emit('harvest:progress', { source: 'combined', phase: 'Skoogs Bränsle…', done: 0, total: 1 });
+    let skoogsFeatures = [];
+    try { skoogsFeatures = await skoogsFuelStations(); } catch { /* non-fatal */ }
+    checkAbort('Skoogs');
+    io.emit('harvest:progress', { source: 'combined', phase: 'Skoogs Bränsle…', done: 1, total: 1 });
+
+    // Phase 4: Merge + save
+    io.emit('harvest:progress', { source: 'combined', phase: 'Sammanfogar…', done: 0, total: 1 });
+    const merged = [...mergeStations(osmFeatures, okq8Features), ...skoogsFeatures];
+    io.emit('harvest:progress', { source: 'combined', phase: 'Sparar till karta…', done: 0, total: 1 });
+    await clearHarvested('fuel');
+    const { imported, skipped } = await saveFeatures(merged, req.user?.id || 0);
+    io.emit('harvest:done', { source: 'combined', imported, skipped });
+    if (imported > 0) io.emit('features:reloaded', {});
   } catch (err) {
     io.emit('harvest:done', { source: 'combined', imported: 0, skipped: 0, error: err.message });
-    return;
-  }
-  io.emit('harvest:progress', { source: 'combined', phase: 'Hämtar OSM…', done: 1, total: 1 });
-
-  // Phase 2: OKQ8 web
-  let urls;
-  try {
-    urls = await okq8Index();
-  } catch (err) {
-    io.emit('harvest:done', { source: 'combined', imported: 0, skipped: 0, error: err.message });
-    return;
-  }
-  io.emit('harvest:progress', { source: 'combined', phase: 'OKQ8 webb', done: 0, total: urls.length });
-  const okq8Features = await runBatched(
-    urls, okq8Station, CONCURRENCY,
-    (done, total) => io.emit('harvest:progress', { source: 'combined', phase: 'OKQ8 webb', done, total }),
-  );
-
-  // Phase 3: Skoogs (single fetch)
-  io.emit('harvest:progress', { source: 'combined', phase: 'Skoogs Bränsle…', done: 0, total: 1 });
-  let skoogsFeatures = [];
-  try {
-    skoogsFeatures = await skoogsFuelStations();
-  } catch { /* non-fatal */ }
-  io.emit('harvest:progress', { source: 'combined', phase: 'Skoogs Bränsle…', done: 1, total: 1 });
-
-  // Phase 4: Merge OSM + OKQ8 (deduplicated), then append Skoogs
-  io.emit('harvest:progress', { source: 'combined', phase: 'Sammanfogar…', done: 0, total: 1 });
-  const merged = [...mergeStations(osmFeatures, okq8Features), ...skoogsFeatures];
-  io.emit('harvest:progress', { source: 'combined', phase: 'Sammanfogar…', done: 1, total: 1 });
-
-  // Phase 4: Clear old harvested data + save
-  io.emit('harvest:progress', { source: 'combined', phase: 'Sparar till karta…', done: 0, total: 1 });
-  await clearHarvested('fuel');
-  const { imported, skipped } = await saveFeatures(merged, req.user?.id || 0);
-
-  io.emit('harvest:done', { source: 'combined', imported, skipped });
-  if (imported > 0) io.emit('features:reloaded', {});
+  } finally { activeJobs.delete('combined'); }
 });
 
 module.exports = router;

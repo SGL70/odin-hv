@@ -76,6 +76,10 @@ export function HarvestSidebar({ open, onOpenChange, onImported }: Props) {
     }
   }
 
+  async function cancel(sourceId: string) {
+    await fetch(`/api/harvest/${sourceId}/cancel`, { method: 'POST', headers: { Authorization: `Bearer ${token}` } });
+  }
+
   async function scrapeAll() {
     for (const cat of CATEGORIES.filter(c => !c.placeholder)) {
       const src = cat.sources.find(s => s.id === cat.defaultSource);
@@ -149,7 +153,7 @@ export function HarvestSidebar({ open, onOpenChange, onImported }: Props) {
 
                 {defSrc && (
                   <div style={{ padding: '0 12px 8px' }}>
-                    <JobRow job={defJob} onScrape={() => scrape(defSrc)} onClear={() => clearJob(defSrc.id)} label="Skörda" primary />
+                    <JobRow job={defJob} onScrape={() => scrape(defSrc)} onCancel={() => cancel(defSrc.id)} onClear={() => clearJob(defSrc.id)} label="Skörda" primary />
                   </div>
                 )}
 
@@ -161,7 +165,7 @@ export function HarvestSidebar({ open, onOpenChange, onImported }: Props) {
                       return (
                         <div key={src.id} style={{ marginBottom: 8 }}>
                           <div style={{ fontSize: 11, color: '#777', marginBottom: 4 }}>{src.label}</div>
-                          <JobRow job={job} onScrape={() => scrape(src)} onClear={() => clearJob(src.id)} label="Skörda" />
+                          <JobRow job={job} onScrape={() => scrape(src)} onCancel={() => cancel(src.id)} onClear={() => clearJob(src.id)} label="Skörda" />
                         </div>
                       );
                     })}
@@ -189,8 +193,8 @@ export function HarvestSidebar({ open, onOpenChange, onImported }: Props) {
   );
 }
 
-function JobRow({ job, onScrape, onClear, label, primary }: {
-  job?: JobState; onScrape: () => void; onClear: () => void; label: string; primary?: boolean;
+function JobRow({ job, onScrape, onCancel, onClear, label, primary }: {
+  job?: JobState; onScrape: () => void; onCancel: () => void; onClear: () => void; label: string; primary?: boolean;
 }) {
   if (!job) {
     return (
@@ -218,7 +222,10 @@ function JobRow({ job, onScrape, onClear, label, primary }: {
   const pct = job.total > 1 ? Math.round((job.done / job.total) * 100) : 50;
   return (
     <div>
-      <div style={{ fontSize: 10, color: '#888', marginBottom: 3 }}>{job.phase || 'Arbetar…'} {job.total > 1 ? `${job.done}/${job.total}` : ''}</div>
+      <div style={{ display: 'flex', alignItems: 'center', marginBottom: 3, gap: 6 }}>
+        <span style={{ fontSize: 10, color: '#888', flex: 1 }}>{job.phase || 'Arbetar…'} {job.total > 1 ? `${job.done}/${job.total}` : ''}</span>
+        <button onClick={onCancel} style={{ background: 'none', border: '1px solid #555', borderRadius: 3, color: '#888', fontSize: 10, padding: '1px 6px', cursor: 'pointer' }}>Avbryt</button>
+      </div>
       <div style={{ background: '#2a2a40', borderRadius: 3, height: 4 }}>
         <div style={{ background: '#5b8cff', borderRadius: 3, height: 4, width: `${pct}%`, transition: 'width 0.3s' }} />
       </div>
