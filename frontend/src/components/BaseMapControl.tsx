@@ -13,7 +13,6 @@ const OVERLAYS = [
 export function BaseMapControl({ baseMap, overlays, onBaseMap, onOverlay }: Props) {
   return (
     <div style={{
-      position: 'absolute', bottom: 28, right: 10, zIndex: 10,
       background: '#1e1e30cc', border: '1px solid #444',
       borderRadius: 8, padding: '8px 10px', backdropFilter: 'blur(6px)',
       fontSize: 12, minWidth: 160,

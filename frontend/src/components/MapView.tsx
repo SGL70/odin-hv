@@ -23,13 +23,11 @@ const STYLE: maplibregl.StyleSpecification = {
     osm:            { type: 'raster', tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'], tileSize: 256, attribution: '© OpenStreetMap' },
     'lm-topo':      { type: 'raster', tiles: [LM_TOPO_URL], tileSize: 256, attribution: '© Lantmäteriet CC BY' },
     'wms-hillshade':{ type: 'raster', tiles: [LM_HILL_URL], tileSize: 256, attribution: '© Lantmäteriet' },
-    'wms-svk':      { type: 'raster', tiles: [SVK_URL],     tileSize: 256, attribution: '© Svenska kraftnät' },
   },
   layers: [
     { id: 'osm',             type: 'raster', source: 'osm' },
     { id: 'lm-topo',         type: 'raster', source: 'lm-topo',       layout: { visibility: 'none' } },
     { id: 'wms-hillshade',   type: 'raster', source: 'wms-hillshade', layout: { visibility: 'none' }, paint: { 'raster-opacity': 0.55 } },
-    { id: 'wms-svk',         type: 'raster', source: 'wms-svk',       layout: { visibility: 'none' } },
   ],
 };
 
@@ -222,9 +220,30 @@ export function MapView() {
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !map.isStyleLoaded()) return;
-    const vis = (id: string) => wmsOverlays.has(id) ? 'visible' : 'none';
-    if (map.getLayer('wms-hillshade')) map.setLayoutProperty('wms-hillshade', 'visibility', vis('hillshade'));
-    if (map.getLayer('wms-svk'))       map.setLayoutProperty('wms-svk',       'visibility', vis('svk'));
+
+    // Hillshade: exists in initial STYLE, toggle visibility
+    if (map.getLayer('wms-hillshade'))
+      map.setLayoutProperty('wms-hillshade', 'visibility', wmsOverlays.has('hillshade') ? 'visible' : 'none');
+
+    // SVK: add source+layer dynamically on first enable (avoids stale STYLE caching)
+    if (wmsOverlays.has('svk')) {
+      if (!map.getSource('wms-svk')) {
+        map.addSource('wms-svk', {
+          type: 'raster', tileSize: 256, attribution: '© Svenska kraftnät',
+          tiles: [SVK_URL],
+        });
+      }
+      if (!map.getLayer('wms-svk')) {
+        map.addLayer({
+          id: 'wms-svk', type: 'raster', source: 'wms-svk',
+          paint: { 'raster-opacity': 0.9 },
+        }, 'osm'); // insert above base, below feature layers
+      } else {
+        map.setLayoutProperty('wms-svk', 'visibility', 'visible');
+      }
+    } else {
+      if (map.getLayer('wms-svk')) map.setLayoutProperty('wms-svk', 'visibility', 'none');
+    }
   }, [wmsOverlays]);
 
   // Draw in-progress polygon preview
@@ -389,7 +408,8 @@ export function MapView() {
         <button className="btn-ghost btn-sm" onClick={logout}>Logga ut</button>
       </div>
 
-      <div style={{ position: 'absolute', top: 58, left: 10, zIndex: 10 }}>
+      <div style={{ position: 'absolute', top: 58, left: 10, zIndex: 10, display: 'flex', flexDirection: 'column', gap: 8 }}>
+        <BaseMapControl baseMap={baseMap} overlays={wmsOverlays} onBaseMap={setBaseMap} onOverlay={toggleOverlay} />
         <LayerControl visible={visible} onToggle={toggleLayer} counts={counts} />
       </div>
 
@@ -466,12 +486,6 @@ export function MapView() {
         <ImportDialog onClose={() => setShowImport(false)} onImported={() => { setShowImport(false); loadFeatures(); }} />
       )}
 
-      <BaseMapControl
-        baseMap={baseMap}
-        overlays={wmsOverlays}
-        onBaseMap={setBaseMap}
-        onOverlay={toggleOverlay}
-      />
 
       {/* Bottom hint */}
       {addMode && !showDialog && (
