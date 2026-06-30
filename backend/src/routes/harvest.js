@@ -268,12 +268,19 @@ function mergeStations(osmFeatures, okq8WebFeatures, thresholdM = 150) {
 
 // ── Save to DB ────────────────────────────────────────────────────────────────
 
-// Remove all previously harvested features for a layer (preserves manually entered ones)
-async function clearHarvested(layer) {
-  await db.query(
-    `DELETE FROM features WHERE layer = $1 AND (attributes->>'scraped_at') IS NOT NULL`,
-    [layer],
-  );
+// Remove previously harvested features — optionally filtered by source prefix
+async function clearHarvested(layer, sourcePattern = null) {
+  if (sourcePattern) {
+    await db.query(
+      `DELETE FROM features WHERE layer = $1 AND (attributes->>'scraped_at') IS NOT NULL AND attributes->>'source' ILIKE $2`,
+      [layer, sourcePattern],
+    );
+  } else {
+    await db.query(
+      `DELETE FROM features WHERE layer = $1 AND (attributes->>'scraped_at') IS NOT NULL`,
+      [layer],
+    );
+  }
 }
 
 async function saveFeatures(features, userId) {
@@ -357,6 +364,7 @@ router.post('/osm/scrape', requireAuth, requireRole('editor', 'admin'), async (r
     const features = await osmFuelStations();
     if (ctrl.signal.aborted) throw cancelledError('osm');
     io.emit('harvest:progress', { source: 'osm', done: features.length, total: features.length });
+    await clearHarvested('fuel', 'OSM%');
     const { imported, skipped } = await saveFeatures(features, req.user?.id || 0);
     io.emit('harvest:done', { source: 'osm', imported, skipped });
     if (imported > 0) io.emit('features:reloaded', {});
@@ -391,6 +399,7 @@ router.post('/okq8/scrape', requireAuth, requireRole('editor', 'admin'), async (
         if (ctrl.signal.aborted) throw cancelledError('okq8');
         io.emit('harvest:progress', { source: 'okq8', done, total });
       });
+    await clearHarvested('fuel', 'OKQ8');
     const { imported, skipped } = await saveFeatures(features, req.user?.id || 0);
     io.emit('harvest:done', { source: 'okq8', imported, skipped });
     if (imported > 0) io.emit('features:reloaded', {});
@@ -418,6 +427,7 @@ router.post('/skoogs/scrape', requireAuth, requireRole('editor', 'admin'), async
     if (ctrl.signal.aborted) throw cancelledError('skoogs');
     const features = await skoogsFuelStations();
     io.emit('harvest:progress', { source: 'skoogs', phase: 'Skoogs Bränsle…', done: 1, total: 1 });
+    await clearHarvested('fuel', 'Skoogs');
     const { imported, skipped } = await saveFeatures(features, req.user?.id || 0);
     io.emit('harvest:done', { source: 'skoogs', imported, skipped });
     if (imported > 0) io.emit('features:reloaded', {});
