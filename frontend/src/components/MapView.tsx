@@ -313,6 +313,14 @@ export function MapView() {
     });
   };
 
+  const setAllLayers = (ids: LayerId[], show: boolean) => {
+    setVisible(prev => {
+      const next = new Set(prev);
+      ids.forEach(id => show ? next.add(id) : next.delete(id));
+      return next;
+    });
+  };
+
   const toggleOverlay = (id: string) => {
     setWmsOverlays(prev => {
       const next = new Set(prev);
@@ -391,7 +399,7 @@ export function MapView() {
 
       <Sidebar
         open={sidebarOpen} onOpenChange={v => { setSidebarOpen(v); localStorage.setItem('sidebarOpen', String(v)); }}
-        visible={visible} onToggle={toggleLayer} counts={counts}
+        visible={visible} onToggle={toggleLayer} onSetAll={setAllLayers} counts={counts}
         baseMap={baseMap} overlays={wmsOverlays} onBaseMap={setBaseMap} onOverlay={toggleOverlay}
       />
 
