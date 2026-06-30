@@ -65,9 +65,9 @@ function normalizeBrand(raw = '') {
 }
 
 async function osmFuelStations() {
-  const query = `[out:json][timeout:60];
-area["ISO3166-1"="SE"][admin_level=2]->.s;
-nwr["amenity"="fuel"]["brand"~"Circle K|OKQ8|Preem|St1",i](area.s);
+  // Bounding box for Sweden (S,W,N,E) — avoids expensive area-lookup
+  const query = `[out:json][timeout:90];
+nwr["amenity"="fuel"]["brand"~"Circle K|OKQ8|Preem|St1",i](55.3,10.9,69.1,24.2);
 out center;`;
 
   let lastErr;
@@ -75,11 +75,15 @@ out center;`;
     try {
       const res = await fetch(endpoint, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'User-Agent': UA, 'Accept': 'application/json' },
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'User-Agent': UA },
         body: `data=${encodeURIComponent(query)}`,
-        signal: AbortSignal.timeout(90000),
+        signal: AbortSignal.timeout(120000),
       });
-      if (!res.ok) { lastErr = new Error(`Overpass HTTP ${res.status} (${endpoint})`); continue; }
+      if (!res.ok) {
+        const body = await res.text().catch(() => '');
+        lastErr = new Error(`Overpass HTTP ${res.status}: ${body.slice(0, 200)}`);
+        continue;
+      }
       const json = await res.json();
       if (!json.elements) { lastErr = new Error('Tomt svar från Overpass'); continue; }
       return buildOsmFeatures(json.elements);
