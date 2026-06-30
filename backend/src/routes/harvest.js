@@ -44,7 +44,12 @@ async function runBatched(items, fn, concurrency, onProgress) {
 
 // ── OSM / Overpass ───────────────────────────────────────────────────────────
 
-const OVERPASS_URL = 'https://overpass-api.de/api/interpreter';
+const OVERPASS_ENDPOINTS = [
+  'https://overpass-api.de/api/interpreter',
+  'https://overpass.kumi.systems/api/interpreter',
+  'https://overpass.openstreetmap.fr/api/interpreter',
+  'https://lz4.overpass-api.de/api/interpreter',
+];
 
 const OSM_BRANDS = {
   'circle k': 'Circle K',
@@ -65,16 +70,28 @@ area["ISO3166-1"="SE"][admin_level=2]->.s;
 nwr["amenity"="fuel"]["brand"~"Circle K|OKQ8|Preem|St1",i](area.s);
 out center;`;
 
-  const res = await fetch(OVERPASS_URL, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'User-Agent': UA },
-    body: `data=${encodeURIComponent(query)}`,
-    signal: AbortSignal.timeout(90000),
-  });
-  if (!res.ok) throw new Error(`Overpass HTTP ${res.status}`);
-  const json = await res.json();
+  let lastErr;
+  for (const endpoint of OVERPASS_ENDPOINTS) {
+    try {
+      const res = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'User-Agent': UA, 'Accept': 'application/json' },
+        body: `data=${encodeURIComponent(query)}`,
+        signal: AbortSignal.timeout(90000),
+      });
+      if (!res.ok) { lastErr = new Error(`Overpass HTTP ${res.status} (${endpoint})`); continue; }
+      const json = await res.json();
+      if (!json.elements) { lastErr = new Error('Tomt svar från Overpass'); continue; }
+      return buildOsmFeatures(json.elements);
+    } catch (err) {
+      lastErr = err;
+    }
+  }
+  throw lastErr || new Error('Alla Overpass-noder misslyckades');
+}
 
-  return (json.elements || []).map(e => {
+function buildOsmFeatures(elements) {
+  return elements.map(e => {
     const tags = e.tags || {};
     const lat = e.type === 'node' ? e.lat : e.center?.lat;
     const lon = e.type === 'node' ? e.lon : e.center?.lon;
