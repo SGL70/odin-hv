@@ -15,7 +15,7 @@ import { io } from 'socket.io-client';
 
 const LM_TOPO_URL = 'https://minkarta.lantmateriet.se/map/topowebb/?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=topowebbkartan&BBOX={bbox-epsg-3857}&WIDTH=256&HEIGHT=256&SRS=EPSG:3857&FORMAT=image/png';
 const LM_HILL_URL = 'https://minkarta.lantmateriet.se/map/hojdmodell/?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=terrangskuggning&BBOX={bbox-epsg-3857}&WIDTH=256&HEIGHT=256&SRS=EPSG:3857&FORMAT=image/png&TRANSPARENT=true';
-const SVK_URL = 'https://inspire-skn.metria.se/geoserver/skn/ows?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=US.ElectricityNetwork.Lines,US.ElectricityNetwork.Pylons,US.ElectricityNetwork.Stations&BBOX={bbox-epsg-3857}&WIDTH=256&HEIGHT=256&SRS=EPSG:3857&FORMAT=image/png&TRANSPARENT=true';
+const SVK_URL = 'https://inspire-skn.metria.se/geoserver/skn/ows?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=US.ElectricityNetwork.Lines,US.ElectricityNetwork.Pylons,US.ElectricityNetwork.StationAreas&STYLES=skn_line,skn_point,skn_polygon&BBOX={bbox-epsg-3857}&WIDTH=256&HEIGHT=256&SRS=EPSG:900913&FORMAT=image/png&TRANSPARENT=true';
 
 const STYLE: maplibregl.StyleSpecification = {
   version: 8,
