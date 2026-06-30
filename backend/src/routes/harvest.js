@@ -308,6 +308,32 @@ function cancelledError(source) {
   return new Error(`Skördning avbruten (${source})`);
 }
 
+// GET /api/harvest/status — last scraped_at per source, derived from features table
+router.get('/status', requireAuth, async (_req, res) => {
+  try {
+    const { rows } = await db.query(`
+      SELECT
+        CASE
+          WHEN attributes->>'source' ILIKE 'OSM%' THEN 'osm'
+          WHEN attributes->>'source' = 'OKQ8'     THEN 'okq8'
+          WHEN attributes->>'source' = 'Skoogs'   THEN 'skoogs'
+        END AS src,
+        MAX(attributes->>'scraped_at') AS last_at
+      FROM features
+      WHERE layer = 'fuel' AND attributes->>'scraped_at' IS NOT NULL
+      GROUP BY 1
+    `);
+    const status = {};
+    for (const r of rows) if (r.src) status[r.src] = r.last_at;
+    // combined = oldest of the individual sources (all must have run)
+    const times = [status.osm, status.okq8, status.skoogs].filter(Boolean);
+    if (times.length > 0) status.combined = times.sort()[0];
+    res.json(status);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // POST /api/harvest/:source/cancel
 router.post('/:source/cancel', requireAuth, (req, res) => {
   const ctrl = activeJobs.get(req.params.source);

@@ -48,11 +48,25 @@ interface Props {
   onImported: () => void;
 }
 
+function fmtDate(iso?: string) {
+  if (!iso) return null;
+  const d = new Date(iso);
+  return d.toLocaleString('sv-SE', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+}
+
 export function HarvestSidebar({ open, onOpenChange, onImported }: Props) {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [jobs, setJobs] = useState<Record<string, JobState>>({});
+  const [status, setStatus] = useState<Record<string, string>>({});
   const socketRef = useRef<Socket | null>(null);
   const token = localStorage.getItem('token');
+
+  async function fetchStatus() {
+    const r = await fetch('/api/harvest/status', { headers: { Authorization: `Bearer ${token}` } });
+    if (r.ok) setStatus(await r.json());
+  }
+
+  useEffect(() => { fetchStatus(); }, []);
 
   useEffect(() => {
     const socket = io({ path: '/socket.io' });
@@ -62,7 +76,7 @@ export function HarvestSidebar({ open, onOpenChange, onImported }: Props) {
     });
     socket.on('harvest:done', (d: { source: string; imported: number; skipped: number; error?: string }) => {
       setJobs(prev => ({ ...prev, [d.source]: { done: 1, total: 1, result: d } }));
-      if (!d.error && d.imported > 0) onImported();
+      if (!d.error && d.imported > 0) { onImported(); fetchStatus(); }
     });
     return () => { socket.disconnect(); };
   }, [onImported]);
@@ -138,9 +152,11 @@ export function HarvestSidebar({ open, onOpenChange, onImported }: Props) {
             const defSrc = cat.sources.find(s => s.id === cat.defaultSource);
             const defJob = defSrc ? jobs[defSrc.id] : undefined;
 
+            const lastAt = fmtDate(status[cat.defaultSource]);
+
             return (
               <div key={cat.id} style={{ borderBottom: '1px solid #2a2a40' }}>
-                <div style={{ display: 'flex', alignItems: 'center', padding: '8px 12px', gap: 8 }}>
+                <div style={{ display: 'flex', alignItems: 'center', padding: '8px 12px 4px', gap: 8 }}>
                   <span style={{ fontSize: 14, opacity: cat.placeholder ? 0.35 : 1 }}>{cat.icon}</span>
                   <span style={{ flex: 1, fontSize: 12, color: cat.placeholder ? '#555' : '#ccc' }}>{cat.label}</span>
                   {!cat.placeholder && (
@@ -151,8 +167,14 @@ export function HarvestSidebar({ open, onOpenChange, onImported }: Props) {
                   )}
                 </div>
 
+                {!cat.placeholder && (
+                  <div style={{ padding: '0 12px 2px', fontSize: 10, color: lastAt ? '#4a7' : '#444' }}>
+                    {lastAt ? `Senast: ${lastAt}` : 'Ej hämtat'}
+                  </div>
+                )}
+
                 {defSrc && (
-                  <div style={{ padding: '0 12px 8px' }}>
+                  <div style={{ padding: '4px 12px 8px' }}>
                     <JobRow job={defJob} onScrape={() => scrape(defSrc)} onCancel={() => cancel(defSrc.id)} onClear={() => clearJob(defSrc.id)} label="Skörda" primary />
                   </div>
                 )}
