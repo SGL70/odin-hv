@@ -8,7 +8,7 @@ import { FeaturePanel } from './FeaturePanel';
 import { Dashboard } from './Dashboard';
 import { ImportDialog } from './ImportDialog';
 import { TrafikverketPanel } from './TrafikverketPanel';
-import { HarvestPanel } from './HarvestPanel';
+import { HarvestSidebar } from './HarvestSidebar';
 import { useAuth } from '../contexts/AuthContext';
 import { io } from 'socket.io-client';
 
@@ -49,7 +49,7 @@ export function MapView() {
   const [showDash, setShowDash] = useState(false);
   const [showImport, setShowImport] = useState(false);
   const [showTrv, setShowTrv] = useState(false);
-  const [showHarvest, setShowHarvest] = useState(false);
+  const [harvestOpen, setHarvestOpen] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [baseMap, setBaseMap] = useState<'osm' | 'lm'>('osm');
   const [wmsOverlays, setWmsOverlays] = useState<Set<string>>(new Set());
@@ -381,7 +381,6 @@ export function MapView() {
         )}
         {canEdit && <button className="btn-ghost btn-sm" onClick={() => setShowImport(true)}>⬆ Importera</button>}
         {canEdit && <button className="btn-ghost btn-sm" onClick={() => setShowTrv(t => !t)}>🟡 Trafikverket</button>}
-        {canEdit && <button className="btn-ghost btn-sm" onClick={() => setShowHarvest(h => !h)}>🕷 Skörda</button>}
         <div style={{ flex: 1 }} />
         <a href="/api/export/kmz" style={{ fontSize: 12, color: '#888', textDecoration: 'none', padding: '4px 8px', border: '1px solid #444', borderRadius: 4 }} download>⬇ KMZ</a>
         <span style={{ fontSize: 12, color: '#888' }}>
@@ -410,12 +409,11 @@ export function MapView() {
         />
       )}
 
-      {showHarvest && (
-        <HarvestPanel
-          onClose={() => setShowHarvest(false)}
-          onImported={loadFeatures}
-        />
-      )}
+      <HarvestSidebar
+        open={harvestOpen}
+        onOpenChange={setHarvestOpen}
+        onImported={loadFeatures}
+      />
 
       {(selected || addMode) && (
         <FeaturePanel
