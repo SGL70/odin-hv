@@ -87,7 +87,7 @@ export function MapView() {
     const map = new maplibregl.Map({
       container: containerRef.current,
       style: STYLE,
-      center: [22.843, 66.499],
+      center: [22.848, 66.330],
       zoom: 11,
     });
     map.addControl(new maplibregl.NavigationControl(), 'bottom-right');
