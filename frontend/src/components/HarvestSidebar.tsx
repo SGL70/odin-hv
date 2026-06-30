@@ -14,7 +14,7 @@ interface Category {
   icon: string;
   defaultSource: string;
   sources: Source[];
-  placeholder?: boolean; // future category, not yet implemented
+  placeholder?: boolean;
 }
 
 const CATEGORIES: Category[] = [
@@ -30,9 +30,9 @@ const CATEGORIES: Category[] = [
       { id: 'skoogs',   label: 'Bara Skoogs',    previewEndpoint: '/api/harvest/skoogs/preview', scrapeEndpoint: '/api/harvest/skoogs/scrape' },
     ],
   },
-  { id: 'police',  label: 'Polishändelser',        icon: '🚔', defaultSource: '', sources: [], placeholder: true },
-  { id: 'energy',  label: 'Energi driftstatus',    icon: '⚡', defaultSource: '', sources: [], placeholder: true },
-  { id: 'telecom', label: 'Telekom driftstatus',   icon: '📡', defaultSource: '', sources: [], placeholder: true },
+  { id: 'police',  label: 'Polishändelser',      icon: '🚔', defaultSource: '', sources: [], placeholder: true },
+  { id: 'energy',  label: 'Energi driftstatus',  icon: '⚡', defaultSource: '', sources: [], placeholder: true },
+  { id: 'telecom', label: 'Telekom driftstatus', icon: '📡', defaultSource: '', sources: [], placeholder: true },
 ];
 
 interface JobState {
@@ -91,26 +91,25 @@ export function HarvestSidebar({ open, onOpenChange, onImported }: Props) {
     setJobs(prev => { const n = { ...prev }; delete n[id]; return n; });
   }
 
-  const toggleBtn = (
-    <button
-      onClick={() => onOpenChange(!open)}
-      style={{
-        position: 'absolute', top: 66, right: 0, zIndex: 15,
-        background: '#1e1e30ee', border: '1px solid #333',
-        borderRight: 'none', borderRadius: '6px 0 0 6px',
-        color: '#aaa', fontSize: 16, width: 22, height: 40,
-        cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
-      }}
-      title={open ? 'Dölj skördare' : 'Visa skördare'}
-    >{open ? '›' : '‹'}</button>
-  );
-
-  if (!open) return toggleBtn;
+  if (!open) {
+    return (
+      <button
+        onClick={() => onOpenChange(true)}
+        style={{
+          position: 'absolute', top: 66, right: 0, zIndex: 15,
+          background: '#1e1e30ee', border: '1px solid #333',
+          borderRight: 'none', borderRadius: '6px 0 0 6px',
+          color: '#aaa', fontSize: 16, width: 22, height: 40,
+          cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+        }}
+        title="Visa skördare"
+      >‹</button>
+    );
+  }
 
   return (
-    <div style={{ position: 'absolute', top: 58, right: 0, bottom: 0, zIndex: 15, display: 'flex' }}>
-      {toggleBtn}
-
+    <div style={{ position: 'absolute', top: 58, right: 0, bottom: 0, zIndex: 15, display: 'flex', flexDirection: 'row-reverse' }}>
+      {/* Panel */}
       <div style={{
         width: 220, background: '#1e1e30ee', borderLeft: '1px solid #333',
         display: 'flex', flexDirection: 'column', backdropFilter: 'blur(8px)',
@@ -137,7 +136,6 @@ export function HarvestSidebar({ open, onOpenChange, onImported }: Props) {
 
             return (
               <div key={cat.id} style={{ borderBottom: '1px solid #2a2a40' }}>
-                {/* Category row */}
                 <div style={{ display: 'flex', alignItems: 'center', padding: '8px 12px', gap: 8 }}>
                   <span style={{ fontSize: 14, opacity: cat.placeholder ? 0.35 : 1 }}>{cat.icon}</span>
                   <span style={{ flex: 1, fontSize: 12, color: cat.placeholder ? '#555' : '#ccc' }}>{cat.label}</span>
@@ -149,20 +147,12 @@ export function HarvestSidebar({ open, onOpenChange, onImported }: Props) {
                   )}
                 </div>
 
-                {/* Default action (always visible for non-placeholder) */}
                 {defSrc && (
                   <div style={{ padding: '0 12px 8px' }}>
-                    <JobRow
-                      job={defJob}
-                      onScrape={() => scrape(defSrc)}
-                      onClear={() => clearJob(defSrc.id)}
-                      label="Skörda"
-                      primary
-                    />
+                    <JobRow job={defJob} onScrape={() => scrape(defSrc)} onClear={() => clearJob(defSrc.id)} label="Skörda" primary />
                   </div>
                 )}
 
-                {/* Expanded sub-sources */}
                 {isOpen && (
                   <div style={{ background: '#16162a', padding: '4px 12px 8px', borderTop: '1px solid #2a2a40' }}>
                     <div style={{ fontSize: 10, color: '#555', marginBottom: 6, textTransform: 'uppercase', letterSpacing: 0.5 }}>Enskilda källor</div>
@@ -182,6 +172,19 @@ export function HarvestSidebar({ open, onOpenChange, onImported }: Props) {
           })}
         </div>
       </div>
+
+      {/* Collapse button — left edge of panel (mirrors left sidebar pattern) */}
+      <button
+        onClick={() => onOpenChange(false)}
+        style={{
+          background: '#1e1e30ee', border: '1px solid #333',
+          borderRight: 'none', borderRadius: '6px 0 0 6px',
+          color: '#aaa', fontSize: 16, width: 22, height: 40,
+          cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+          alignSelf: 'flex-start', marginTop: 8, flexShrink: 0,
+        }}
+        title="Dölj skördare"
+      >›</button>
     </div>
   );
 }
@@ -204,7 +207,7 @@ function JobRow({ job, onScrape, onClear, label, primary }: {
     return (
       <div style={{ fontSize: 11 }}>
         {error
-          ? <span style={{ color: '#e74c3c' }}>⚠ {error.slice(0, 60)}</span>
+          ? <span style={{ color: '#e74c3c' }}>⚠ {error.slice(0, 80)}</span>
           : <span style={{ color: '#27ae60' }}>✓ {imported} importerade{skipped > 0 ? `, ${skipped} hoppades` : ''}</span>
         }
         <button onClick={onClear} style={{ marginLeft: 8, background: 'none', border: 'none', color: '#555', fontSize: 10, cursor: 'pointer' }}>✕</button>

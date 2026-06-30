@@ -36,6 +36,9 @@ export const api = {
   deleteFeature: (uid: string) =>
     req<{ ok: boolean }>('DELETE', `/features/${uid}`),
 
+  clearLayer: (layer: string) =>
+    req<{ deleted: number }>('DELETE', `/features/layer/${layer}`),
+
   dashboard: () =>
     req<{ totals: unknown[]; alerts: unknown[]; activity: unknown[] }>('GET', '/dashboard'),
 

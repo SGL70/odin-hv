@@ -49,8 +49,8 @@ export function MapView() {
   const [showDash, setShowDash] = useState(false);
   const [showImport, setShowImport] = useState(false);
   const [showTrv, setShowTrv] = useState(false);
-  const [harvestOpen, setHarvestOpen] = useState(false);
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [harvestOpen, setHarvestOpen] = useState(() => localStorage.getItem('harvestOpen') === 'true');
+  const [sidebarOpen, setSidebarOpen] = useState(() => localStorage.getItem('sidebarOpen') !== 'false');
   const [baseMap, setBaseMap] = useState<'osm' | 'lm'>('osm');
   const [wmsOverlays, setWmsOverlays] = useState<Set<string>>(new Set());
   const [addDialog, setAddDialog] = useState<{ lngLat: maplibregl.LngLat } | null>(null);
@@ -390,7 +390,7 @@ export function MapView() {
       </div>
 
       <Sidebar
-        open={sidebarOpen} onOpenChange={setSidebarOpen}
+        open={sidebarOpen} onOpenChange={v => { setSidebarOpen(v); localStorage.setItem('sidebarOpen', String(v)); }}
         visible={visible} onToggle={toggleLayer} counts={counts}
         baseMap={baseMap} overlays={wmsOverlays} onBaseMap={setBaseMap} onOverlay={toggleOverlay}
       />
@@ -411,7 +411,7 @@ export function MapView() {
 
       <HarvestSidebar
         open={harvestOpen}
-        onOpenChange={setHarvestOpen}
+        onOpenChange={v => { setHarvestOpen(v); localStorage.setItem('harvestOpen', String(v)); }}
         onImported={loadFeatures}
       />
 
