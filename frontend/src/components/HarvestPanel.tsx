@@ -20,6 +20,14 @@ const SOURCES: Source[] = [
     scrapeEndpoint: '/api/harvest/combined/scrape',
   },
   {
+    id: 'skoogs',
+    label: 'Skoogs',
+    icon: '🪣',
+    layer: 'fuel',
+    previewEndpoint: '/api/harvest/skoogs/preview',
+    scrapeEndpoint: '/api/harvest/skoogs/scrape',
+  },
+  {
     id: 'osm',
     label: 'Bara OSM',
     icon: '🗺',

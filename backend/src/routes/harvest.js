@@ -103,6 +103,40 @@ out center;`;
   }).filter(Boolean);
 }
 
+// ── Skoogs Bränsle ───────────────────────────────────────────────────────────
+
+const SKOOGS_PRODUCTS = {
+  diesel_mk1: 'Diesel MK1', diesel_b7: 'Diesel B7',
+  bensin_95: 'Bensin 95', bensin_98: 'Bensin 98', bensin_e10: 'Bensin E10',
+  hvo100: 'HVO100', adblue: 'AdBlue',
+};
+
+async function skoogsFuelStations() {
+  const html = await fetchHtml('https://skoogsbransle.se/tankstationer/');
+  const raw = html.match(/data-location="([^"]+)"/g) || [];
+  return raw.map(attr => {
+    try {
+      const d = JSON.parse(attr.slice('data-location="'.length, -1).replace(/&quot;/g, '"'));
+      const lat = parseFloat(d.location?.lat);
+      const lng = parseFloat(d.location?.lng);
+      if (!lat || !lng) return null;
+      const products = (d.products || []).map(p => SKOOGS_PRODUCTS[p] || p).join(', ');
+      const addr = (d.location.address || '').replace(', Sverige', '').trim();
+      return {
+        type: 'Feature',
+        geometry: { type: 'Point', coordinates: [lng, lat] },
+        properties: {
+          layer: 'fuel', name: d.post_title || 'Skoogs',
+          source: 'Skoogs', brand: 'Skoogs Bränsle',
+          address: addr || null,
+          opening_hours: products || null,
+          scraped_at: new Date().toISOString(),
+        },
+      };
+    } catch { return null; }
+  }).filter(Boolean);
+}
+
 // ── OKQ8 ─────────────────────────────────────────────────────────────────────
 
 async function okq8Index() {
@@ -285,13 +319,42 @@ router.post('/okq8/scrape', requireAuth, requireRole('editor', 'admin'), async (
   if (imported > 0) io.emit('features:reloaded', {});
 });
 
+// GET /api/harvest/skoogs/preview
+router.get('/skoogs/preview', requireAuth, async (_req, res) => {
+  try {
+    const html = await fetchHtml('https://skoogsbransle.se/tankstationer/');
+    const count = (html.match(/data-location="/g) || []).length;
+    res.json({ source: 'Skoogs', total: count, note: 'Ett anrop, allt inbakat i HTML, <5 s' });
+  } catch (err) {
+    res.status(502).json({ error: err.message });
+  }
+});
+
+// POST /api/harvest/skoogs/scrape
+router.post('/skoogs/scrape', requireAuth, requireRole('editor', 'admin'), async (req, res) => {
+  res.json({ started: true });
+  const io = req.io;
+  io.emit('harvest:progress', { source: 'skoogs', phase: 'Skoogs Bränsle…', done: 0, total: 1 });
+  let features;
+  try {
+    features = await skoogsFuelStations();
+  } catch (err) {
+    io.emit('harvest:done', { source: 'skoogs', imported: 0, skipped: 0, error: err.message });
+    return;
+  }
+  io.emit('harvest:progress', { source: 'skoogs', phase: 'Skoogs Bränsle…', done: 1, total: 1 });
+  const { imported, skipped } = await saveFeatures(features, req.user?.id || 0);
+  io.emit('harvest:done', { source: 'skoogs', imported, skipped });
+  if (imported > 0) io.emit('features:reloaded', {});
+});
+
 // GET /api/harvest/combined/preview
 router.get('/combined/preview', requireAuth, (_req, res) => {
   res.json({
     source: 'combined',
-    total: 2000,
-    brands: ['Circle K (~340)', 'OKQ8 (~882 webb)', 'Preem (~430)', 'St1 (~370)'],
-    note: 'OSM i grund + OKQ8 webb slås ihop, ~90–120 s',
+    total: 2300,
+    brands: ['Circle K (~340)', 'OKQ8 (~882 webb)', 'Preem (~430)', 'St1 (~370)', 'Skoogs (~293)'],
+    note: 'OSM + OKQ8 webb + Skoogs, dubbletter tas bort, ~90–120 s',
   });
 });
 
@@ -325,9 +388,17 @@ router.post('/combined/scrape', requireAuth, requireRole('editor', 'admin'), asy
     (done, total) => io.emit('harvest:progress', { source: 'combined', phase: 'OKQ8 webb', done, total }),
   );
 
-  // Phase 3: Merge
+  // Phase 3: Skoogs (single fetch)
+  io.emit('harvest:progress', { source: 'combined', phase: 'Skoogs Bränsle…', done: 0, total: 1 });
+  let skoogsFeatures = [];
+  try {
+    skoogsFeatures = await skoogsFuelStations();
+  } catch { /* non-fatal */ }
+  io.emit('harvest:progress', { source: 'combined', phase: 'Skoogs Bränsle…', done: 1, total: 1 });
+
+  // Phase 4: Merge OSM + OKQ8 (deduplicated), then append Skoogs
   io.emit('harvest:progress', { source: 'combined', phase: 'Sammanfogar…', done: 0, total: 1 });
-  const merged = mergeStations(osmFeatures, okq8Features);
+  const merged = [...mergeStations(osmFeatures, okq8Features), ...skoogsFeatures];
   io.emit('harvest:progress', { source: 'combined', phase: 'Sammanfogar…', done: 1, total: 1 });
 
   // Phase 4: Clear old harvested data + save
