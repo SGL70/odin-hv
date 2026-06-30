@@ -3,13 +3,12 @@ import maplibregl from 'maplibre-gl';
 import { api } from '../api';
 import { LAYERS, getLayer } from '../types';
 import type { Feature, LayerId } from '../types';
-import { LayerControl } from './LayerControl';
+import { Sidebar } from './Sidebar';
 import { FeaturePanel } from './FeaturePanel';
 import { Dashboard } from './Dashboard';
 import { ImportDialog } from './ImportDialog';
 import { TrafikverketPanel } from './TrafikverketPanel';
 import { HarvestPanel } from './HarvestPanel';
-import { BaseMapControl } from './BaseMapControl';
 import { useAuth } from '../contexts/AuthContext';
 import { io } from 'socket.io-client';
 
@@ -49,6 +48,7 @@ export function MapView() {
   const [showImport, setShowImport] = useState(false);
   const [showTrv, setShowTrv] = useState(false);
   const [showHarvest, setShowHarvest] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(true);
   const [baseMap, setBaseMap] = useState<'osm' | 'lm'>('osm');
   const [wmsOverlays, setWmsOverlays] = useState<Set<string>>(new Set());
   const [addDialog, setAddDialog] = useState<{ lngLat: maplibregl.LngLat } | null>(null);
@@ -408,10 +408,11 @@ export function MapView() {
         <button className="btn-ghost btn-sm" onClick={logout}>Logga ut</button>
       </div>
 
-      <div style={{ position: 'absolute', top: 58, left: 10, zIndex: 10, display: 'flex', flexDirection: 'column', gap: 8 }}>
-        <BaseMapControl baseMap={baseMap} overlays={wmsOverlays} onBaseMap={setBaseMap} onOverlay={toggleOverlay} />
-        <LayerControl visible={visible} onToggle={toggleLayer} counts={counts} />
-      </div>
+      <Sidebar
+        open={sidebarOpen} onOpenChange={setSidebarOpen}
+        visible={visible} onToggle={toggleLayer} counts={counts}
+        baseMap={baseMap} overlays={wmsOverlays} onBaseMap={setBaseMap} onOverlay={toggleOverlay}
+      />
 
       {showDash && (
         <div style={{ position: 'absolute', top: 58, left: 190, zIndex: 10 }}>

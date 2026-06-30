@@ -10,7 +10,6 @@ interface Props {
 export function LayerControl({ visible, onToggle, counts }: Props) {
   return (
     <div style={{
-      position: 'absolute', top: 10, left: 10, zIndex: 10,
       background: '#1e1e30ee', border: '1px solid #333', borderRadius: 8,
       padding: '10px 0', minWidth: 170,
     }}>
