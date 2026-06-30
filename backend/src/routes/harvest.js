@@ -323,7 +323,7 @@ router.post('/okq8/scrape', requireAuth, requireRole('editor', 'admin'), async (
 router.get('/skoogs/preview', requireAuth, async (_req, res) => {
   try {
     const html = await fetchHtml('https://skoogsbransle.se/tankstationer/');
-    const count = (html.match(/data-location="/g) || []).length;
+    const count = (html.match(/data-location='/g) || []).length;
     res.json({ source: 'Skoogs', total: count, note: 'Ett anrop, allt inbakat i HTML, <5 s' });
   } catch (err) {
     res.status(502).json({ error: err.message });
