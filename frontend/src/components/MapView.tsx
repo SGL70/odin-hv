@@ -188,16 +188,6 @@ export function MapView() {
         });
       }
 
-      const handleClick = (e: maplibregl.MapMouseEvent & { features?: maplibregl.MapGeoJSONFeature[] }) => {
-        if (addMode) return;
-        const props = e.features?.[0]?.properties;
-        if (!props) return;
-        const feat = features.find(f => f.properties.uid === props.uid);
-        if (feat) setSelected(feat);
-      };
-      map.on('click', `lyr-${layer.id}`, handleClick);
-      if (map.getLayer(`hit-${layer.id}`)) map.on('click', `hit-${layer.id}`, handleClick);
-
       map.on('mouseenter', `lyr-${layer.id}`, () => { map.getCanvas().style.cursor = 'pointer'; });
       map.on('mouseleave', `lyr-${layer.id}`, () => { map.getCanvas().style.cursor = addMode ? 'crosshair' : ''; });
       if (map.getLayer(`hit-${layer.id}`)) {
@@ -266,6 +256,25 @@ export function MapView() {
       map.addLayer({ id: 'draw-dots', type: 'circle', source: 'draw-vertices', paint: { 'circle-radius': 5, 'circle-color': '#5b8cff', 'circle-stroke-color': '#fff', 'circle-stroke-width': 1.5 } });
     }
   }, [polygonPoints]);
+
+  // Single map-level click handler — picks topmost feature (point > line) via queryRenderedFeatures
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !map.isStyleLoaded()) return;
+    const handleClick = (e: maplibregl.MapMouseEvent) => {
+      if (addMode) return;
+      const layerIds = LAYERS.flatMap(l => [`lyr-${l.id}`, `lyr-${l.id}-outline`, `hit-${l.id}`])
+        .filter(id => !!map.getLayer(id));
+      const hits = map.queryRenderedFeatures(e.point, { layers: layerIds });
+      if (!hits.length) return;
+      const uid = hits[0].properties?.uid;
+      if (!uid) return;
+      const feat = features.find(f => f.properties.uid === uid);
+      if (feat) setSelected(feat);
+    };
+    map.on('click', handleClick);
+    return () => { map.off('click', handleClick); };
+  }, [features, addMode]);
 
   // Add mode: cursor + click/dblclick handlers
   useEffect(() => {
