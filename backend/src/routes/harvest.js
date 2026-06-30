@@ -75,7 +75,7 @@ out center;`;
     try {
       const res = await fetch(endpoint, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'User-Agent': UA },
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'User-Agent': UA, 'Accept': '*/*' },
         body: `data=${encodeURIComponent(query)}`,
         signal: AbortSignal.timeout(120000),
       });
