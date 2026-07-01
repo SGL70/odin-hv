@@ -7,8 +7,10 @@ import { Sidebar } from './Sidebar';
 import { FeaturePanel } from './FeaturePanel';
 import { Dashboard } from './Dashboard';
 import { ImportDialog } from './ImportDialog';
-import { TrafikverketPanel } from './TrafikverketPanel';
 import { HarvestSidebar } from './HarvestSidebar';
+import { SettingsModal } from './SettingsModal';
+import { AnalysisPanel } from './AnalysisPanel';
+import { OdinLogo } from './OdinLogo';
 import { useAuth } from '../contexts/AuthContext';
 import { io } from 'socket.io-client';
 
@@ -36,40 +38,65 @@ const POLYGON_LAYERS: LayerId[] = ['staging_areas', 'airports'];
 const LINE_LAYERS: LayerId[] = ['roads', 'railways', 'tunnels', 'powerlines'];
 const DRAW_LAYERS: LayerId[] = [...POLYGON_LAYERS, ...LINE_LAYERS];
 
+
 export function MapView() {
   const { user, logout } = useAuth();
   const mapRef = useRef<maplibregl.Map | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
   const [features, setFeatures] = useState<Feature[]>([]);
-  const [visible, setVisible] = useState<Set<LayerId>>(new Set(LAYERS.map(l => l.id)));
+  const [visible, setVisible] = useState<Set<LayerId>>(() => {
+    try {
+      const s = localStorage.getItem('layerVisible');
+      if (s) return new Set(JSON.parse(s) as LayerId[]);
+    } catch { /* ignore */ }
+    return new Set(LAYERS.map(l => l.id));
+  });
   const [selected, setSelected] = useState<Feature | null>(null);
+  const [selectedGroup, setSelectedGroup] = useState<Feature[]>([]);
   const [addMode, setAddMode] = useState(false);
   const [addLayer, setAddLayer] = useState<LayerId>('fuel');
   const [showDash, setShowDash] = useState(false);
   const [showImport, setShowImport] = useState(false);
-  const [showTrv, setShowTrv] = useState(false);
   const [harvestOpen, setHarvestOpen] = useState(() => localStorage.getItem('harvestOpen') === 'true');
   const [sidebarOpen, setSidebarOpen] = useState(() => localStorage.getItem('sidebarOpen') !== 'false');
-  const [baseMap, setBaseMap] = useState<'osm' | 'lm'>('osm');
-  const [wmsOverlays, setWmsOverlays] = useState<Set<string>>(new Set());
+  const [showSettings, setShowSettings] = useState(false);
+  const [showAnalysis, setShowAnalysis] = useState(false);
+  const [opomrFilter, setOpomrFilter] = useState(() => localStorage.getItem('opomrFilter') === 'true');
+  const [baseMap, setBaseMap] = useState<'osm' | 'lm'>(() => (localStorage.getItem('baseMap') as 'osm' | 'lm') || 'osm');
+  const [wmsOverlays, setWmsOverlays] = useState<Set<string>>(() => {
+    try {
+      const s = localStorage.getItem('wmsOverlays');
+      if (s) return new Set(JSON.parse(s) as string[]);
+    } catch { /* ignore */ }
+    return new Set();
+  });
   const [addDialog, setAddDialog] = useState<{ lngLat: maplibregl.LngLat } | null>(null);
   const [polygonPoints, setPolygonPoints] = useState<[number, number][]>([]);
   const [polygonReady, setPolygonReady] = useState(false);
   const [newName, setNewName] = useState('');
   const [newFields, setNewFields] = useState<Record<string, string>>({});
+  const [mapLoaded, setMapLoaded] = useState(false);
 
   const canEdit = user?.role === 'editor' || user?.role === 'admin';
   const isPolygonMode = addMode && POLYGON_LAYERS.includes(addLayer);
   const isLineMode = addMode && LINE_LAYERS.includes(addLayer);
   const isDrawMode = addMode && DRAW_LAYERS.includes(addLayer);
 
-  const loadFeatures = useCallback(async () => {
-    const fc = await api.getFeatures();
-    setFeatures((fc.features || []) as Feature[]);
-  }, []);
+  const loadFeatures = useCallback(async (withOpomr?: boolean) => {
+    const useFilter = withOpomr !== undefined ? withOpomr : opomrFilter;
+    const path = useFilter ? '/features?opomr=1' : '/features';
+    const fc = await api.get<GeoJSON.FeatureCollection>(path);
+    setFeatures(((fc as GeoJSON.FeatureCollection).features || []) as Feature[]);
+  }, [opomrFilter]);
 
   useEffect(() => { loadFeatures(); }, [loadFeatures]);
+
+  // Reload when OpOmr filter changes
+  useEffect(() => {
+    localStorage.setItem('opomrFilter', String(opomrFilter));
+    loadFeatures(opomrFilter);
+  }, [opomrFilter]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Socket.io real-time
   useEffect(() => {
@@ -92,6 +119,42 @@ export function MapView() {
     });
     map.addControl(new maplibregl.NavigationControl(), 'bottom-right');
     map.addControl(new maplibregl.ScaleControl({ unit: 'metric' }), 'bottom-left');
+    map.on('load', () => {
+      // Choropleth source + layers (rendered below all feature layers)
+      map.addSource('choropleth-src', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+      map.addLayer({
+        id: 'choropleth-fill', type: 'fill', source: 'choropleth-src',
+        layout: { visibility: 'none' },
+        paint: {
+          'fill-color': ['case',
+            ['==', ['get', 'level'], 2], 'rgba(231,76,60,0.3)',
+            ['==', ['get', 'level'], 1], 'rgba(230,126,34,0.25)',
+            'rgba(74,170,90,0.2)',
+          ],
+        },
+      });
+      map.addLayer({
+        id: 'choropleth-outline', type: 'line', source: 'choropleth-src',
+        layout: { visibility: 'none' },
+        paint: {
+          'line-color': ['case',
+            ['==', ['get', 'level'], 2], '#e74c3c',
+            ['==', ['get', 'level'], 1], '#e67e22',
+            '#4aaa5a',
+          ],
+          'line-width': 2, 'line-opacity': 0.8,
+        },
+      });
+      map.addLayer({
+        id: 'choropleth-label', type: 'symbol', source: 'choropleth-src',
+        layout: {
+          'text-field': ['get', 'name'],
+          'text-size': 11, 'text-anchor': 'center', visibility: 'none',
+        },
+        paint: { 'text-color': '#fff', 'text-halo-color': '#000', 'text-halo-width': 1.5 },
+      });
+      setMapLoaded(true);
+    });
     mapRef.current = map;
     return () => map.remove();
   }, []);
@@ -99,15 +162,97 @@ export function MapView() {
   // Sync features to map
   useEffect(() => {
     const map = mapRef.current;
-    if (!map || !map.isStyleLoaded()) return;
+    if (!map || !mapLoaded) return;
 
     LAYERS.forEach(layer => {
       const sourceId = `src-${layer.id}`;
-      const layerFeatures = features.filter(f => f.properties.layer === layer.id);
+      const cutoff48h = new Date(Date.now() - 48 * 3600 * 1000).toISOString();
+      const layerFeatures = features.filter(f => {
+        if (f.properties.layer !== layer.id) return false;
+        if (layer.id === 'police_events') {
+          const dt = f.properties.datetime || f.properties.scraped_at;
+          return dt && dt > cutoff48h;
+        }
+        return true;
+      });
       const geojson: GeoJSON.FeatureCollection = { type: 'FeatureCollection', features: layerFeatures };
 
       if (map.getSource(sourceId)) {
         (map.getSource(sourceId) as maplibregl.GeoJSONSource).setData(geojson);
+        return;
+      }
+
+      // Police events: clustered source so stacked county-centroid dots show a count
+      if (layer.id === 'police_events') {
+        map.addSource(sourceId, { type: 'geojson', data: geojson, cluster: true, clusterMaxZoom: 12, clusterRadius: 40 });
+        // Cluster circle
+        map.addLayer({ id: `lyr-${layer.id}-cluster`, type: 'circle', source: sourceId,
+          filter: ['has', 'point_count'],
+          paint: { 'circle-radius': ['step', ['get', 'point_count'], 14, 5, 18, 20, 22],
+            'circle-color': layer.color, 'circle-stroke-color': '#fff', 'circle-stroke-width': 2, 'circle-opacity': 0.9 } });
+        // Cluster count label
+        map.addLayer({ id: `lyr-${layer.id}-cluster-count`, type: 'symbol', source: sourceId,
+          filter: ['has', 'point_count'],
+          layout: { 'text-field': ['get', 'point_count_abbreviated'], 'text-size': 12, 'text-font': ['Open Sans Bold', 'Arial Unicode MS Bold'] },
+          paint: { 'text-color': '#fff' } });
+        // Individual unclustered point
+        map.addLayer({ id: `lyr-${layer.id}`, type: 'circle', source: sourceId,
+          filter: ['!', ['has', 'point_count']],
+          paint: { 'circle-radius': 9, 'circle-color': layer.color,
+            'circle-stroke-color': '#fff', 'circle-stroke-width': 2, 'circle-opacity': 0.85 } });
+        map.on('mouseenter', `lyr-${layer.id}-cluster`, () => { map.getCanvas().style.cursor = 'pointer'; });
+        map.on('mouseleave', `lyr-${layer.id}-cluster`, () => { map.getCanvas().style.cursor = ''; });
+        map.on('mouseenter', `lyr-${layer.id}`, () => { map.getCanvas().style.cursor = 'pointer'; });
+        map.on('mouseleave', `lyr-${layer.id}`, () => { map.getCanvas().style.cursor = ''; });
+        return;
+      }
+
+      // Road situations: colour-coded by event_type
+      if (layer.id === 'road_situations') {
+        map.addSource(sourceId, { type: 'geojson', data: geojson });
+        map.addLayer({
+          id: `lyr-${layer.id}`,
+          type: 'circle', source: sourceId,
+          layout: { visibility: 'visible' },
+          paint: {
+            'circle-radius': 10,
+            'circle-color': ['match', ['get', 'event_type'],
+              'Olycka',              '#e74c3c',
+              'Vägarbete',           '#f39c12',
+              'Hinder',              '#f1c40f',
+              'Halka',               '#3498db',
+              'Väglag',              '#3498db',
+              'Brobegränsning',      '#9b59b6',
+              'Körfältsrestriktion', '#9b59b6',
+              'Restriktion',         '#9b59b6',
+              '#888',
+            ] as maplibregl.ExpressionSpecification,
+            'circle-stroke-color': '#fff',
+            'circle-stroke-width': 2,
+            'circle-opacity': 0.9,
+          },
+        });
+        map.addLayer({
+          id: `crit-${layer.id}`,
+          type: 'circle', source: sourceId,
+          filter: ['in', ['get', 'criticality'], ['literal', ['rod', 'gul']]],
+          layout: { visibility: 'visible' },
+          paint: {
+            'circle-radius': 14, 'circle-color': 'rgba(0,0,0,0)',
+            'circle-stroke-width': 3, 'circle-stroke-opacity': 0.85,
+            'circle-stroke-color': ['match', ['get', 'criticality'],
+              'rod', '#e74c3c', 'gul', '#f39c12', '#888',
+            ] as maplibregl.ExpressionSpecification,
+          },
+        });
+        map.addLayer({
+          id: `lbl-${layer.id}`,
+          type: 'symbol', source: sourceId,
+          layout: { 'text-field': ['get', 'event_type'], 'text-size': 10, 'text-offset': [0, 1.6], 'text-anchor': 'top', visibility: 'visible' },
+          paint: { 'text-color': '#fff', 'text-halo-color': '#000', 'text-halo-width': 1 },
+        });
+        map.on('mouseenter', `lyr-${layer.id}`, () => { map.getCanvas().style.cursor = 'pointer'; });
+        map.on('mouseleave', `lyr-${layer.id}`, () => { map.getCanvas().style.cursor = ''; });
         return;
       }
 
@@ -180,6 +325,22 @@ export function MapView() {
             'circle-stroke-color': '#fff', 'circle-stroke-width': 2, 'circle-opacity': 0.9,
           },
         });
+        // Criticality ring — outer halo for Röd/Gul classified features
+        map.addLayer({
+          id: `crit-${layer.id}`,
+          type: 'circle', source: sourceId,
+          filter: ['in', ['get', 'criticality'], ['literal', ['rod', 'gul']]],
+          layout: { visibility: 'visible' },
+          paint: {
+            'circle-radius': 14,
+            'circle-color': 'rgba(0,0,0,0)',
+            'circle-stroke-width': 3,
+            'circle-stroke-color': ['match', ['get', 'criticality'],
+              'rod', '#e74c3c', 'gul', '#f39c12', '#888',
+            ] as maplibregl.ExpressionSpecification,
+            'circle-stroke-opacity': 0.85,
+          },
+        });
         map.addLayer({
           id: `lbl-${layer.id}`,
           type: 'symbol', source: sourceId,
@@ -188,14 +349,20 @@ export function MapView() {
         });
       }
 
-      map.on('mouseenter', `lyr-${layer.id}`, () => { map.getCanvas().style.cursor = 'pointer'; });
-      map.on('mouseleave', `lyr-${layer.id}`, () => { map.getCanvas().style.cursor = addMode ? 'crosshair' : ''; });
-      if (map.getLayer(`hit-${layer.id}`)) {
-        map.on('mouseenter', `hit-${layer.id}`, () => { map.getCanvas().style.cursor = 'pointer'; });
-        map.on('mouseleave', `hit-${layer.id}`, () => { map.getCanvas().style.cursor = addMode ? 'crosshair' : ''; });
+      const setCursor = (c: string) => () => { map.getCanvas().style.cursor = c; };
+      for (const lid of [`lyr-${layer.id}`, `hit-${layer.id}`]) {
+        if (map.getLayer(lid)) {
+          map.on('mouseenter', lid, setCursor('pointer'));
+          map.on('mouseleave', lid, setCursor(addMode ? 'crosshair' : ''));
+        }
       }
     });
-  }, [features, addMode]);
+
+    // Bridges must sit above road lines so their click area isn't swallowed by hit-roads
+    for (const lid of ['lyr-bridges', 'crit-bridges', 'lbl-bridges']) {
+      if (map.getLayer(lid)) map.moveLayer(lid);
+    }
+  }, [features, addMode, mapLoaded]);
 
   // Visibility toggle
   useEffect(() => {
@@ -203,10 +370,13 @@ export function MapView() {
     if (!map || !map.isStyleLoaded()) return;
     LAYERS.forEach(layer => {
       const vis = visible.has(layer.id) ? 'visible' : 'none';
-      if (map.getLayer(`hit-${layer.id}`))         map.setLayoutProperty(`hit-${layer.id}`,         'visibility', vis);
-      if (map.getLayer(`lyr-${layer.id}`))         map.setLayoutProperty(`lyr-${layer.id}`,         'visibility', vis);
-      if (map.getLayer(`lyr-${layer.id}-outline`)) map.setLayoutProperty(`lyr-${layer.id}-outline`, 'visibility', vis);
-      if (map.getLayer(`lbl-${layer.id}`))         map.setLayoutProperty(`lbl-${layer.id}`,         'visibility', vis);
+      if (map.getLayer(`hit-${layer.id}`))                map.setLayoutProperty(`hit-${layer.id}`,                'visibility', vis);
+      if (map.getLayer(`lyr-${layer.id}`))                map.setLayoutProperty(`lyr-${layer.id}`,                'visibility', vis);
+      if (map.getLayer(`lyr-${layer.id}-outline`))        map.setLayoutProperty(`lyr-${layer.id}-outline`,        'visibility', vis);
+      if (map.getLayer(`crit-${layer.id}`))               map.setLayoutProperty(`crit-${layer.id}`,               'visibility', vis);
+      if (map.getLayer(`lbl-${layer.id}`))                map.setLayoutProperty(`lbl-${layer.id}`,                'visibility', vis);
+      if (map.getLayer(`lyr-${layer.id}-cluster`))        map.setLayoutProperty(`lyr-${layer.id}-cluster`,        'visibility', vis);
+      if (map.getLayer(`lyr-${layer.id}-cluster-count`))  map.setLayoutProperty(`lyr-${layer.id}-cluster-count`,  'visibility', vis);
     });
   }, [visible]);
 
@@ -227,6 +397,86 @@ export function MapView() {
     if (map.getLayer('wms-hillshade')) map.setLayoutProperty('wms-hillshade', 'visibility', vis('hillshade'));
     if (map.getLayer('wms-svk'))       map.setLayoutProperty('wms-svk',       'visibility', vis('svk'));
   }, [wmsOverlays]);
+
+  // Choropleth overlay — hämta och rendera kommuners störningsindex
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapLoaded) return;
+    const isOn = wmsOverlays.has('choropleth');
+    const v = isOn ? 'visible' : 'none';
+    ['choropleth-fill', 'choropleth-outline', 'choropleth-label'].forEach(id => {
+      if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', v);
+    });
+    if (isOn) {
+      api.get<GeoJSON.FeatureCollection>('/api/analysis/choropleth').then(fc => {
+        const src = map.getSource('choropleth-src') as maplibregl.GeoJSONSource | undefined;
+        if (src) src.setData(fc);
+      });
+    }
+  }, [wmsOverlays, mapLoaded]);
+
+  // Choropleth mouseover popup — mousemove so it updates when crossing municipality borders
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapLoaded) return;
+
+    const popup = new maplibregl.Popup({ closeButton: false, closeOnClick: false, offset: 12, maxWidth: '230px' });
+
+    const buildPopup = (lngLat: maplibregl.LngLat, props: Record<string, unknown>) => {
+      // Use Number() with fallback to guard against undefined/NaN coming through MapLibre's tile pipeline
+      const roadCount   = Number(props.road_count)   || 0;
+      const policeCount = Number(props.police_count)  || 0;
+      const avbrott     = Number(props.elavbrott)     || 0;
+      const score       = Number(props.score)         || 0;
+      const rawScore    = Number(props.raw_score)     || 0;
+      const level       = Number(props.level)         || 0;
+      const name        = String(props.name || '');
+      const levelColor  = level === 2 ? '#e74c3c' : level === 1 ? '#e67e22' : '#4aaa5a';
+
+      const rows = [
+        { icon: '🚔', label: 'Polis (48h)', value: policeCount },
+        { icon: '🚧', label: 'Trafik',      value: roadCount   },
+        { icon: '⚡', label: 'Elavbrott',   value: avbrott     },
+      ];
+
+      const rowHtml = rows.map(r => `
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:3px 0;border-bottom:1px solid #333;font-size:11px">
+          <span style="color:#aaa">${r.icon} ${r.label}</span>
+          <b style="color:${r.value > 0 ? '#eee' : '#555'}">${r.value}</b>
+        </div>`).join('');
+
+      popup.setLngLat(lngLat).setHTML(`
+        <div style="font-size:12px">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+            <b>${name}</b>
+            <span style="background:${levelColor}22;color:${levelColor};border:1px solid ${levelColor}66;border-radius:4px;padding:1px 7px;font-size:10px;font-weight:700">
+              ${score}/tkap
+            </span>
+          </div>
+          ${rowHtml}
+          <div style="color:#555;font-size:10px;margin-top:5px;text-align:right">råpoäng ${rawScore}</div>
+        </div>`);
+      if (!popup.isOpen()) popup.addTo(map);
+    };
+
+    const onMove = (e: maplibregl.MapMouseEvent) => {
+      // queryRenderedFeatures is more reliable than e.features for complex polygon sources
+      const hits = map.queryRenderedFeatures(e.point, { layers: ['choropleth-fill'] });
+      if (!hits.length) { popup.remove(); return; }
+      buildPopup(e.lngLat, hits[0].properties as Record<string, unknown>);
+      map.getCanvas().style.cursor = 'default';
+    };
+
+    const onLeave = () => { popup.remove(); map.getCanvas().style.cursor = ''; };
+
+    map.on('mousemove', 'choropleth-fill', onMove);
+    map.on('mouseleave', 'choropleth-fill', onLeave);
+    return () => {
+      map.off('mousemove', 'choropleth-fill', onMove);
+      map.off('mouseleave', 'choropleth-fill', onLeave);
+      popup.remove();
+    };
+  }, [mapLoaded]);
 
   // Draw in-progress polygon preview
   useEffect(() => {
@@ -261,21 +511,116 @@ export function MapView() {
   // Single map-level click handler — picks topmost feature (point > line) via queryRenderedFeatures
   useEffect(() => {
     const map = mapRef.current;
-    if (!map || !map.isStyleLoaded()) return;
+    if (!map || !mapLoaded) return;
     const handleClick = (e: maplibregl.MapMouseEvent) => {
       if (addMode) return;
-      const layerIds = LAYERS.flatMap(l => [`lyr-${l.id}`, `lyr-${l.id}-outline`, `hit-${l.id}`])
-        .filter(id => !!map.getLayer(id));
-      const hits = map.queryRenderedFeatures(e.point, { layers: layerIds });
-      if (!hits.length) return;
-      const uid = hits[0].properties?.uid;
-      if (!uid) return;
-      const feat = features.find(f => f.properties.uid === uid);
-      if (feat) setSelected(feat);
+      try {
+        // Build clickable layer list — include cluster layer only if it exists
+        const clusterLayerId = 'lyr-police_events-cluster';
+        const extraLayers = map.getLayer(clusterLayerId) ? [clusterLayerId] : [];
+        const layerIds = [
+          ...extraLayers,
+          ...LAYERS.flatMap(l => [`lyr-${l.id}`, `lyr-${l.id}-outline`, `hit-${l.id}`])
+            .filter(id => !!map.getLayer(id)),
+        ];
+
+        const hits = map.queryRenderedFeatures(e.point, { layers: layerIds });
+        if (!hits.length) { setSelected(null); setSelectedGroup([]); return; }
+
+        // Police cluster → zoom in and show event list
+        if (hits[0].properties?.cluster) {
+          const src = map.getSource('src-police_events') as maplibregl.GeoJSONSource;
+          const clusterId = hits[0].properties.cluster_id as number;
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          (src as any).getClusterExpansionZoom(clusterId, (_err: unknown, zoom: number) => {
+            const coords = (hits[0].geometry as GeoJSON.Point).coordinates as [number, number];
+            map.easeTo({ center: coords, zoom: Math.min(zoom + 1, 14) });
+          });
+          const cutoff48h = new Date(Date.now() - 48 * 3600 * 1000).toISOString();
+          const policeFeats = features.filter(f => {
+            if (f.properties.layer !== 'police_events') return false;
+            const dt = f.properties.datetime || f.properties.scraped_at;
+            return dt && dt > cutoff48h;
+          });
+          if (policeFeats.length) { setSelected(policeFeats[0]); setSelectedGroup(policeFeats); }
+          return;
+        }
+
+        // Regular feature — collect all distinct at this point
+        const uids = [...new Set(hits.map(h => h.properties?.uid).filter(Boolean))] as string[];
+        const hitFeatures = uids.map(uid => features.find(f => f.properties.uid === uid)).filter(Boolean) as Feature[];
+        if (!hitFeatures.length) { setSelected(null); setSelectedGroup([]); return; }
+        setSelected(hitFeatures[0]);
+        setSelectedGroup(hitFeatures);
+      } catch (err) {
+        console.error('Map click error:', err);
+      }
     };
     map.on('click', handleClick);
     return () => { map.off('click', handleClick); };
-  }, [features, addMode]);
+  }, [features, addMode, mapLoaded]);
+
+  // Fuel station hover popup with capacity/level bars
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapLoaded) return;
+
+    const popup = new maplibregl.Popup({ closeButton: false, closeOnClick: false, offset: 14, maxWidth: '220px' });
+
+    const onEnter = (e: maplibregl.MapMouseEvent & { features?: maplibregl.MapGeoJSONFeature[] }) => {
+      const uid = e.features?.[0]?.properties?.uid as string | undefined;
+      if (!uid) return;
+      const feat = features.find(f => f.properties.uid === uid);
+      if (!feat) return;
+      const p = feat.properties;
+
+      const TYPES = [
+        { label: 'Diesel', cap: Number(p.diesel_cap_l) || 0,  pct: p.diesel_level_pct != null && p.diesel_level_pct !== '' ? Number(p.diesel_level_pct) : null },
+        { label: 'Bensin', cap: Number(p.bensin_cap_l) || 0,  pct: p.bensin_level_pct != null && p.bensin_level_pct !== '' ? Number(p.bensin_level_pct) : null },
+        { label: 'HVO',    cap: Number(p.hvo_cap_l) || 0,     pct: p.hvo_level_pct    != null && p.hvo_level_pct    !== '' ? Number(p.hvo_level_pct)    : null },
+      ].filter(t => t.cap > 0 || t.pct !== null);
+
+      if (!TYPES.length) return;
+
+      const bars = TYPES.map(t => {
+        const pct = t.pct ?? 0;
+        const color = pct > 50 ? '#27ae60' : pct > 20 ? '#f39c12' : '#e74c3c';
+        const capTxt = t.cap ? `<span style="color:#555;font-size:10px"> · ${t.cap.toLocaleString('sv')} L</span>` : '';
+        const pctTxt = t.pct !== null ? `<b style="color:${color}">${pct}%</b>` : '<span style="color:#444">–</span>';
+        return `
+          <div style="margin-bottom:5px">
+            <div style="display:flex;justify-content:space-between;font-size:11px;margin-bottom:2px">
+              <span>${t.label}${capTxt}</span>${pctTxt}
+            </div>
+            <div style="background:#2a2a40;border-radius:3px;height:5px">
+              <div style="background:${color};border-radius:3px;height:5px;width:${Math.min(pct,100)}%"></div>
+            </div>
+          </div>`;
+      }).join('');
+
+      const date = p.data_date ? `<div style="font-size:10px;color:#555;margin-top:6px">Uppdaterat: ${String(p.data_date)}</div>` : '';
+
+      popup
+        .setLngLat(e.lngLat)
+        .setHTML(`<div style="font-size:12px;font-weight:600;margin-bottom:8px">⛽ ${String(p.name)}</div>${bars}${date}`)
+        .addTo(map);
+    };
+
+    const onLeave = () => popup.remove();
+
+    if (map.getLayer('lyr-fuel')) {
+      map.on('mouseenter', 'lyr-fuel', onEnter);
+      map.on('mouseleave', 'lyr-fuel', onLeave);
+    }
+
+    return () => {
+      popup.remove();
+      if (map.getLayer('lyr-fuel')) {
+        map.off('mouseenter', 'lyr-fuel', onEnter);
+        map.off('mouseleave', 'lyr-fuel', onLeave);
+      }
+    };
+  }, [features, mapLoaded]);
 
   // Add mode: cursor + click/dblclick handlers
   useEffect(() => {
@@ -309,6 +654,7 @@ export function MapView() {
     setVisible(prev => {
       const next = new Set(prev);
       next.has(id) ? next.delete(id) : next.add(id);
+      localStorage.setItem('layerVisible', JSON.stringify([...next]));
       return next;
     });
   };
@@ -317,6 +663,7 @@ export function MapView() {
     setVisible(prev => {
       const next = new Set(prev);
       ids.forEach(id => show ? next.add(id) : next.delete(id));
+      localStorage.setItem('layerVisible', JSON.stringify([...next]));
       return next;
     });
   };
@@ -325,6 +672,7 @@ export function MapView() {
     setWmsOverlays(prev => {
       const next = new Set(prev);
       next.has(id) ? next.delete(id) : next.add(id);
+      localStorage.setItem('wmsOverlays', JSON.stringify([...next]));
       return next;
     });
   };
@@ -377,8 +725,9 @@ export function MapView() {
         display: 'flex', alignItems: 'center', padding: '0 14px', gap: 10, zIndex: 20,
         backdropFilter: 'blur(8px)',
       }}>
-        <span style={{ fontWeight: 700, fontSize: 15, color: '#fff', marginRight: 8 }}>🗺 Resursläge</span>
+        <OdinLogo size="md" />
         <button className="btn-ghost btn-sm" onClick={() => setShowDash(d => !d)}>📊 Dashboard</button>
+        <button className="btn-ghost btn-sm" onClick={() => setShowAnalysis(a => !a)}>📊 Analys</button>
         {canEdit && (
           <button
             className={addMode ? 'btn-danger btn-sm' : 'btn-primary btn-sm'}
@@ -388,7 +737,9 @@ export function MapView() {
           </button>
         )}
         {canEdit && <button className="btn-ghost btn-sm" onClick={() => setShowImport(true)}>⬆ Importera</button>}
-        {canEdit && <button className="btn-ghost btn-sm" onClick={() => setShowTrv(t => !t)}>🟡 Trafikverket</button>}
+        {user?.role === 'admin' && (
+          <button className="btn-ghost btn-sm" onClick={() => setShowSettings(true)}>⚙ Inställningar</button>
+        )}
         <div style={{ flex: 1 }} />
         <a href="/api/export/kmz" style={{ fontSize: 12, color: '#888', textDecoration: 'none', padding: '4px 8px', border: '1px solid #444', borderRadius: 4 }} download>⬇ KMZ</a>
         <span style={{ fontSize: 12, color: '#888' }}>
@@ -400,22 +751,11 @@ export function MapView() {
       <Sidebar
         open={sidebarOpen} onOpenChange={v => { setSidebarOpen(v); localStorage.setItem('sidebarOpen', String(v)); }}
         visible={visible} onToggle={toggleLayer} onSetAll={setAllLayers} counts={counts}
-        baseMap={baseMap} overlays={wmsOverlays} onBaseMap={setBaseMap} onOverlay={toggleOverlay}
+        baseMap={baseMap} overlays={wmsOverlays} onBaseMap={b => { setBaseMap(b); localStorage.setItem('baseMap', b); }} onOverlay={toggleOverlay}
+        opomrFilter={opomrFilter} onOpomrFilter={setOpomrFilter}
       />
 
-      {showDash && (
-        <div style={{ position: 'absolute', top: 58, left: 190, zIndex: 10 }}>
-          <Dashboard onClose={() => setShowDash(false)} />
-        </div>
-      )}
-
-      {showTrv && (
-        <TrafikverketPanel
-          mapRef={mapRef}
-          onClose={() => setShowTrv(false)}
-          onImported={loadFeatures}
-        />
-      )}
+      {showDash && <Dashboard onClose={() => setShowDash(false)} />}
 
       <HarvestSidebar
         open={harvestOpen}
@@ -423,15 +763,22 @@ export function MapView() {
         onImported={loadFeatures}
       />
 
+      {showSettings && <SettingsModal onClose={() => setShowSettings(false)} />}
+
+      {showAnalysis && <AnalysisPanel onClose={() => setShowAnalysis(false)} />}
+
       {(selected || addMode) && (
         <FeaturePanel
           feature={selected}
-          onClose={cancelAdd}
+          group={selectedGroup}
+          onSelectFromGroup={f => setSelected(f)}
+          onClose={() => { cancelAdd(); setSelected(null); setSelectedGroup([]); }}
           onSaved={f => setSelected(f)}
-          onDeleted={uid => { setFeatures(p => p.filter(f => f.properties.uid !== uid)); setSelected(null); }}
+          onDeleted={uid => { setFeatures(p => p.filter(f => f.properties.uid !== uid)); setSelected(null); setSelectedGroup([]); }}
           addMode={addMode && !showDialog}
           addLayer={addLayer}
           onAddLayerChange={id => { setAddLayer(id); setPolygonPoints([]); setPolygonReady(false); }}
+          rightOffset={harvestOpen ? 230 : 10}
         />
       )}
 

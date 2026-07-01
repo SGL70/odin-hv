@@ -302,6 +302,420 @@ async function saveFeatures(features, userId) {
   return { imported, skipped };
 }
 
+// ── Trafikverket — delade hjälpfunktioner ────────────────────────────────────
+
+const TRV_HARVEST_URL = 'https://api.trafikinfo.trafikverket.se/v2/data.json';
+
+async function trvQuery(objecttype, schemaversion, filter, include, limit = 500, namespace = '', datex = false) {
+  const key = datex ? process.env.TRAFIKVERKET_DATEX_KEY : process.env.TRAFIKVERKET_API_KEY;
+  const nsAttr = namespace ? ` namespace="${namespace}"` : '';
+  const xml = `<REQUEST>
+  <LOGIN authenticationkey="${key}"/>
+  <QUERY objecttype="${objecttype}"${nsAttr} schemaversion="${schemaversion}" limit="${limit}">
+    <FILTER>${filter}</FILTER>
+    ${include ? `<INCLUDE>${include}</INCLUDE>` : ''}
+  </QUERY>
+</REQUEST>`;
+  const res = await fetch(TRV_HARVEST_URL, {
+    method: 'POST', headers: { 'Content-Type': 'text/xml' }, body: xml,
+    signal: AbortSignal.timeout(25000),
+  });
+  const json = await res.json();
+  return json?.RESPONSE?.RESULT?.[0]?.[objecttype] || [];
+}
+
+function trvBbox(field, b) {
+  return `<WITHIN name="${field}" shape="box" value="${b.minlng} ${b.minlat}, ${b.maxlng} ${b.maxlat}"/>`;
+}
+
+function parseTrvWKT(wkt) {
+  if (!wkt || typeof wkt !== 'string') return null;
+  const s = wkt.trim().replace(/\b(LINESTRING|MULTILINESTRING)\s+Z\s+/i, '$1 ');
+  const pt = s.match(/^POINT\s*\(\s*([^\s)]+)\s+([^\s)]+)/i);
+  if (pt) return { type: 'Point', coordinates: [parseFloat(pt[1]), parseFloat(pt[2])] };
+  const ls = s.match(/^LINESTRING\s*\(([^)]+)\)/i);
+  if (ls) return { type: 'LineString', coordinates: ls[1].split(',').map(p => p.trim().split(/\s+/).slice(0,2).map(Number)) };
+  const mls = s.match(/^MULTILINESTRING\s*\((.+)\)\s*$/i);
+  if (mls) {
+    const rings = mls[1].match(/\(([^)]+)\)/g) || [];
+    return { type: 'MultiLineString', coordinates: rings.map(r => r.replace(/[()]/g,'').trim().split(',').map(p => p.trim().split(/\s+/).map(Number))) };
+  }
+  return null;
+}
+
+async function getOpOmrBbox() {
+  const { rows } = await db.query("SELECT value FROM settings WHERE key='op_municipalities'");
+  const munis = rows[0]?.value || [];
+  if (!munis.length) throw new Error('Inga OpOmr-kommuner konfigurerade');
+  const r = await db.query(
+    `SELECT ST_XMin(e) as minlng, ST_YMin(e) as minlat, ST_XMax(e) as maxlng, ST_YMax(e) as maxlat
+     FROM (SELECT ST_Extent(geom) as e FROM municipalities WHERE short_name = ANY($1)) sub`,
+    [munis]
+  );
+  return r.rows[0];
+}
+
+async function fetchTrvCameras(bbox) {
+  const now = new Date().toISOString();
+  const items = await trvQuery('Camera', '1', trvBbox('Geometry.WGS84', bbox), 'Id,Name,Type,Direction,Status,PhotoUrl,Geometry');
+  return items.map(c => ({
+    type: 'Feature', geometry: parseTrvWKT(c?.Geometry?.WGS84),
+    properties: { layer: 'cameras', name: c.Name || c.Id, source: 'Trafikverket/Camera',
+      camera_type: c.Type || 'Trafikkamera', owner: 'Trafikverket',
+      direction: c.Direction ?? null, status: c.Status || 'Operativ',
+      photo_url: c.PhotoUrl || null, scraped_at: now },
+  })).filter(f => f.geometry);
+}
+
+async function fetchTrvAtk(bbox) {
+  const now = new Date().toISOString();
+  const items = await trvQuery('TrafficSafetyCamera', '1', trvBbox('Geometry.WGS84', bbox), 'Id,Name,RoadNumber,Bearing,Geometry');
+  return items.map(c => ({
+    type: 'Feature', geometry: parseTrvWKT(c?.Geometry?.WGS84),
+    properties: { layer: 'cameras', name: c.Name || `ATK ${c.RoadNumber || c.Id}`, source: 'Trafikverket/ATK',
+      camera_type: 'ATK/Fartkamera', owner: 'Trafikverket',
+      direction: c.Bearing ?? null, scraped_at: now },
+  })).filter(f => f.geometry);
+}
+
+async function fetchTrvRoads(bbox) {
+  const now = new Date().toISOString();
+  const BK_TON = { 'BK 1': 10, 'BK 2': 10, 'BK 3': 8, 'BK 4': 6, 'Undantag': null };
+  const items = await trvQuery('Bärighet', '1.2', trvBbox('Geometry.WKT-WGS84-3D', bbox),
+    'GID,Bärighetsklass,Bärighetsklass_vinterperiod,Geometry', 500, 'vägdata.nvdb_dk_o');
+  return items.map(r => {
+    const geom = parseTrvWKT(r?.Geometry?.['WKT-WGS84-3D']);
+    if (!geom) return null;
+    const bk = r.Bärighetsklass || 'BK 1';
+    return { type: 'Feature', geometry: geom,
+      properties: { layer: 'roads', name: bk, source: 'Trafikverket/NVDB',
+        bk_class: bk, bk_winter: r.Bärighetsklass_vinterperiod || null,
+        max_axle_ton: BK_TON[bk] ?? null, scraped_at: now } };
+  }).filter(Boolean);
+}
+
+async function fetchTrvFerries(bbox) {
+  const now = new Date().toISOString();
+  const items = await trvQuery('Färjeled', '1.2', trvBbox('Geometry.WKT-WGS84-3D', bbox),
+    'GID,Färjeledsnamn,Geometry', 200, 'vägdata.nvdb_dk_o');
+  return items.map(f => ({
+    type: 'Feature', geometry: parseTrvWKT(f?.Geometry?.['WKT-WGS84-3D']),
+    properties: { layer: 'ports', name: f.Färjeledsnamn || `Färjeled ${f.GID}`,
+      source: 'Trafikverket/NVDB', port_type: 'Färjeled', scraped_at: now },
+  })).filter(f => f.geometry);
+}
+
+async function fetchTrvTraffic(bbox) {
+  const now = new Date().toISOString();
+  const SIDE = { northBound: 'N', southBound: 'S', eastBound: 'Ö', westBound: 'V', anyDirection: '' };
+  const items = await trvQuery('TrafficFlow', '1.5', trvBbox('Geometry.WGS84', bbox),
+    'SiteId,AverageVehicleSpeed,VehicleFlowRate,VehicleType,MeasurementSide,MeasurementTime,Geometry', 500, '', true);
+  const bysite = {};
+  for (const r of items) if (!bysite[r.SiteId] || r.VehicleType === 'anyVehicle') bysite[r.SiteId] = r;
+  return Object.values(bysite).map(r => {
+    const geom = parseTrvWKT(r?.Geometry?.WGS84);
+    if (!geom) return null;
+    const speed = r.AverageVehicleSpeed != null ? Math.round(r.AverageVehicleSpeed) : null;
+    const dir   = SIDE[r.MeasurementSide] ?? '';
+    return { type: 'Feature', geometry: geom,
+      properties: { layer: 'roads', name: speed != null ? `${speed} km/h${dir ? ' '+dir : ''}` : `Mätpunkt ${r.SiteId}`,
+        source: 'Trafikverket/Traffic', avg_speed_kmh: speed,
+        flow_per_hour: r.VehicleFlowRate != null ? Math.round(r.VehicleFlowRate) : null,
+        measured_at: r.MeasurementTime || null, scraped_at: now } };
+  }).filter(Boolean);
+}
+
+function makeTrvScrapeRoute(sourceId, fetchFn, layer, clearPattern) {
+  router.get(`/${sourceId}/preview`, requireAuth, async (_req, res) => {
+    try {
+      const bbox = await getOpOmrBbox();
+      const features = await fetchFn(bbox);
+      res.json({ source: sourceId, total: features.length });
+    } catch (err) { res.status(502).json({ error: err.message }); }
+  });
+
+  router.post(`/${sourceId}/scrape`, requireAuth, requireRole('editor', 'admin'), async (req, res) => {
+    const ctrl = startJob(sourceId);
+    res.json({ started: true });
+    const io = req.io;
+    io.emit('harvest:progress', { source: sourceId, phase: 'Hämtar från Trafikverket…', done: 0, total: 1 });
+    try {
+      if (ctrl.signal.aborted) throw cancelledError(sourceId);
+      const bbox = await getOpOmrBbox();
+      const features = await fetchFn(bbox);
+      if (ctrl.signal.aborted) throw cancelledError(sourceId);
+      io.emit('harvest:progress', { source: sourceId, phase: 'Sparar…', done: 1, total: 1 });
+      await clearHarvested(layer, clearPattern);
+      const { imported, skipped } = await saveFeatures(features, req.user?.id || 0);
+      io.emit('harvest:done', { source: sourceId, imported, skipped });
+      if (imported > 0) io.emit('features:reloaded', {});
+    } catch (err) {
+      io.emit('harvest:done', { source: sourceId, imported: 0, skipped: 0, error: err.message });
+    } finally { activeJobs.delete(sourceId); }
+  });
+}
+
+makeTrvScrapeRoute('trv-cameras', fetchTrvCameras, 'cameras', 'Trafikverket/Camera');
+makeTrvScrapeRoute('trv-atk',     fetchTrvAtk,     'cameras', 'Trafikverket/ATK');
+makeTrvScrapeRoute('trv-roads',   fetchTrvRoads,   'roads',   'Trafikverket/NVDB');
+makeTrvScrapeRoute('trv-ferries', fetchTrvFerries, 'ports',   'Trafikverket/NVDB');
+makeTrvScrapeRoute('trv-traffic', fetchTrvTraffic, 'roads',   'Trafikverket/Traffic');
+
+// ── Broar (OSM Overpass) ──────────────────────────────────────────────────────
+
+async function fetchBridges() {
+  const query = `[out:json][timeout:90];
+way["bridge"="yes"]["highway"](65.0,17.0,68.5,24.5);
+out center tags qt;`;
+
+  let lastErr;
+  for (const endpoint of OVERPASS_ENDPOINTS) {
+    try {
+      const res = await httpsPost(endpoint, `data=${encodeURIComponent(query)}`, 120000);
+      if (res.status !== 200) { lastErr = new Error(`Overpass HTTP ${res.status}`); continue; }
+      const json = res.json();
+      if (!json.elements) { lastErr = new Error('Tomt svar från Overpass'); continue; }
+      return buildBridgeFeatures(json.elements);
+    } catch (err) { lastErr = err; }
+  }
+  throw lastErr || new Error('Alla Overpass-noder misslyckades');
+}
+
+function buildBridgeFeatures(elements) {
+  return elements.map(e => {
+    const tags = e.tags || {};
+    const lat = e.center?.lat ?? e.lat;
+    const lon = e.center?.lon ?? e.lon;
+    if (!lat || !lon) return null;
+
+    const roadRef = tags.ref || tags.int_ref || '';
+    const name = tags['bridge:name'] || tags.name || (roadRef ? `Bro ${roadRef}` : 'Bro');
+
+    return {
+      type: 'Feature',
+      geometry: { type: 'Point', coordinates: [lon, lat] },
+      properties: {
+        layer: 'bridges',
+        name,
+        source: 'OSM',
+        highway: tags.highway || '',
+        road_ref: roadRef,
+        maxweight: tags.maxweight || null,
+        maxaxleload: tags.maxaxleload || null,
+        osm_id: `way/${e.id}`,
+        scraped_at: new Date().toISOString(),
+      },
+    };
+  }).filter(Boolean);
+}
+
+// ── Polishändelser ────────────────────────────────────────────────────────────
+
+// Kommuncentroider för Norrbottens kommuner (WGS84 lon,lat)
+// Används för att ge händelser bättre GPS än länscentroid
+const MUNI_COORDS = {
+  'luleå':       [22.1567, 65.5842],
+  'kalix':       [23.1618, 65.8534],
+  'boden':       [21.6835, 65.8247],
+  'piteå':       [21.5000, 65.3167],
+  'älvsbyn':     [21.0036, 65.6792],
+  'överkalix':   [22.8292, 66.3397],
+  'övertorneå':  [23.6667, 66.3833],
+  'haparanda':   [24.1167, 65.8333],
+  'kiruna':      [20.2253, 67.8558],
+  'gällivare':   [20.6667, 67.1333],
+  'jokkmokk':    [19.8167, 66.6000],
+  'arvidsjaur':  [19.1667, 65.5833],
+  'arjeplog':    [17.8833, 66.0500],
+  'pajala':      [23.3667, 67.2167],
+};
+
+function resolveCoords(eventName, fallbackLat, fallbackLon) {
+  const lower = (eventName || '').toLowerCase();
+  for (const [muni, coords] of Object.entries(MUNI_COORDS)) {
+    if (lower.includes(muni)) return coords;
+  }
+  return [fallbackLon, fallbackLat];
+}
+
+async function policeEvents(municipalities) {
+  const res = await fetch('https://polisen.se/api/events', {
+    headers: { 'User-Agent': UA, 'Accept': 'application/json' },
+    signal: AbortSignal.timeout(15000),
+  });
+  if (!res.ok) throw new Error(`Polisen HTTP ${res.status}`);
+  const events = await res.json();
+
+  const muniLower = municipalities.map(m => m.toLowerCase());
+
+  return events
+    .filter(e => {
+      const loc = (e.location?.name || '').toLowerCase();
+      const title = (e.name || '').toLowerCase();
+      return muniLower.some(m => loc.includes(m) || title.includes(m));
+    })
+    .map(e => {
+      const [fallbackLat, fallbackLon] = (e.location?.gps || '0,0').split(',').map(Number);
+      if (!fallbackLat || !fallbackLon) return null;
+      const [lon, lat] = resolveCoords(e.name, fallbackLat, fallbackLon);
+      return {
+        type: 'Feature',
+        geometry: { type: 'Point', coordinates: [lon, lat] },
+        properties: {
+          layer: 'police_events',
+          name: e.name,
+          event_type: e.type,
+          datetime: e.datetime,
+          summary: e.summary || '',
+          location: e.location?.name || '',
+          url: `https://polisen.se${e.url}`,
+          source: 'Polisen',
+          police_id: String(e.id),
+          scraped_at: new Date().toISOString(),
+        },
+      };
+    })
+    .filter(Boolean);
+}
+
+// ── Trafikhändelser (Trafikverket Situation API) ──────────────────────────────
+
+const TRV_SIT_URL = 'https://api.trafikinfo.trafikverket.se/v2/data.json';
+const NORRBOTTEN_BBOX = '17.0 65.0, 24.5 68.5';
+
+function parseWKT2D(wkt) {
+  if (!wkt || typeof wkt !== 'string') return null;
+  const s = wkt.trim();
+  const pt = s.match(/^POINT\s*\(\s*([^\s)]+)\s+([^\s)]+)/i);
+  if (pt) return { type: 'Point', coordinates: [parseFloat(pt[1]), parseFloat(pt[2])] };
+  const ls = s.replace(/\b(LINESTRING)\s+Z\s+/i, 'LINESTRING ').match(/^LINESTRING\s*\(([^)]+)\)/i);
+  if (ls) return { type: 'LineString', coordinates: ls[1].split(',').map(p => p.trim().split(/\s+/).slice(0,2).map(Number)) };
+  return null;
+}
+
+const SIT_TYPE_SV = {
+  'Olycka': 'Olycka', 'Vägarbete': 'Vägarbete', 'Hinder': 'Hinder',
+  'LaneRestrictions': 'Körfältsrestriktion', 'WeatherCondition': 'Väglag',
+  'BridgeRestriction': 'Brobegränsning', 'TrafficInformation': 'Trafikinformation',
+  'IcyRoad': 'Halka', 'Restriktion': 'Restriktion', 'DangerousSlowdown': 'Farlig köbildning',
+};
+
+async function fetchSituations() {
+  const xml = `<REQUEST>
+  <LOGIN authenticationkey="${process.env.TRAFIKVERKET_API_KEY}"/>
+  <QUERY objecttype="Situation" namespace="road.trafficinfo" schemaversion="1.6" limit="500">
+    <FILTER>
+      <WITHIN name="Deviation.Geometry.WGS84" shape="box" value="${NORRBOTTEN_BBOX}"/>
+    </FILTER>
+  </QUERY>
+</REQUEST>`;
+
+  const res = await fetch(TRV_SIT_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'text/xml' },
+    body: xml,
+    signal: AbortSignal.timeout(20000),
+  });
+  const json = await res.json();
+  if (!res.ok) {
+    const err = json?.RESPONSE?.RESULT?.[0]?.ERROR;
+    throw new Error(`TRV Situation HTTP ${res.status}: ${err?.MESSAGE || err?.SOURCE || JSON.stringify(err)}`);
+  }
+  return json?.RESPONSE?.RESULT?.[0]?.Situation || [];
+}
+
+function buildSituationFeatures(situations) {
+  const features = [];
+  for (const s of situations) {
+    const devs = Array.isArray(s.Deviation) ? s.Deviation : s.Deviation ? [s.Deviation] : [];
+    for (const d of devs) {
+      const geom = parseWKT2D(d?.Geometry?.WGS84);
+      if (!geom) continue;
+      const typeSv = SIT_TYPE_SV[d.MessageType] || d.MessageType || 'Trafikhändelse';
+      const name = d.Header || `${typeSv}${d.RoadNumber ? ' ' + d.RoadNumber : ''}`;
+      features.push({
+        type: 'Feature',
+        geometry: geom,
+        properties: {
+          layer: 'road_situations',
+          name,
+          event_type: typeSv,
+          severity: d.SeverityCode != null ? String(d.SeverityCode) : '',
+          start_time: d.StartTime || '',
+          end_time:   d.EndTime   || '',
+          road_number: d.RoadNumber || '',
+          description: d.Message || '',
+          source: 'Trafikverket',
+          scraped_at: new Date().toISOString(),
+        },
+      });
+    }
+  }
+  return features;
+}
+
+router.get('/situations/preview', requireAuth, async (_req, res) => {
+  try {
+    const sits = await fetchSituations();
+    const features = buildSituationFeatures(sits);
+    res.json({ count: features.length, features });
+  } catch (err) {
+    res.status(502).json({ error: err.message });
+  }
+});
+
+router.post('/situations/scrape', requireAuth, async (req, res) => {
+  const ctrl = startJob('situations');
+  const io = req.io;
+  io.emit('harvest:progress', { source: 'situations', phase: 'Hämtar från Trafikverket…', done: 0, total: 1 });
+  try {
+    if (ctrl.signal.aborted) throw new Error('Avbrutet');
+    const sits = await fetchSituations();
+    const features = buildSituationFeatures(sits);
+    // Purge closed situations and stale data older than 4h
+    await db.query(`
+      DELETE FROM features WHERE layer = 'road_situations' AND (
+        (attributes->>'end_time' <> '' AND (attributes->>'end_time')::timestamptz < NOW()) OR
+        (attributes->>'scraped_at')::timestamptz < NOW() - INTERVAL '4 hours'
+      )`);
+    await clearHarvested('road_situations');
+    io.emit('harvest:progress', { source: 'situations', phase: 'Sparar…', done: 1, total: 1 });
+    const { imported, skipped } = await saveFeatures(features, req.user?.id || 0);
+    io.emit('harvest:done', { source: 'situations', imported, skipped });
+    io.emit('features:reloaded', {});
+    res.json({ imported, skipped });
+  } catch (err) {
+    io.emit('harvest:done', { source: 'situations', imported: 0, skipped: 0, error: err.message });
+    res.status(500).json({ error: err.message });
+  } finally { activeJobs.delete('situations'); }
+});
+
+router.get('/bridges/preview', requireAuth, async (_req, res) => {
+  try {
+    const features = await fetchBridges();
+    res.json({ source: 'bridges', total: features.length, sample: features.slice(0, 3) });
+  } catch (err) { res.status(502).json({ error: err.message }); }
+});
+
+router.post('/bridges/scrape', requireAuth, requireRole('editor', 'admin'), async (req, res) => {
+  const ctrl = startJob('bridges');
+  res.json({ started: true });
+  const io = req.io;
+  io.emit('harvest:progress', { source: 'bridges', phase: 'Hämtar från OSM…', done: 0, total: 1 });
+  try {
+    if (ctrl.signal.aborted) throw cancelledError('bridges');
+    const features = await fetchBridges();
+    if (ctrl.signal.aborted) throw cancelledError('bridges');
+    io.emit('harvest:progress', { source: 'bridges', phase: 'Sparar…', done: 1, total: 1 });
+    await clearHarvested('bridges');
+    const { imported, skipped } = await saveFeatures(features, req.user?.id || 0);
+    io.emit('harvest:done', { source: 'bridges', imported, skipped });
+    if (imported > 0) io.emit('features:reloaded', {});
+  } catch (err) {
+    io.emit('harvest:done', { source: 'bridges', imported: 0, skipped: 0, error: err.message });
+  } finally { activeJobs.delete('bridges'); }
+});
+
 // ── Routes ────────────────────────────────────────────────────────────────────
 
 function startJob(source) {
@@ -321,18 +735,26 @@ router.get('/status', requireAuth, async (_req, res) => {
     const { rows } = await db.query(`
       SELECT
         CASE
-          WHEN attributes->>'source' ILIKE 'OSM%' THEN 'osm'
-          WHEN attributes->>'source' = 'OKQ8'     THEN 'okq8'
-          WHEN attributes->>'source' = 'Skoogs'   THEN 'skoogs'
+          WHEN layer = 'fuel' AND attributes->>'source' ILIKE 'OSM%' THEN 'osm'
+          WHEN layer = 'fuel' AND attributes->>'source' = 'OKQ8'     THEN 'okq8'
+          WHEN layer = 'fuel' AND attributes->>'source' = 'Skoogs'   THEN 'skoogs'
+          WHEN layer = 'police_events'   THEN 'police'
+          WHEN layer = 'road_situations' THEN 'situations'
+          WHEN layer = 'power_outages'   THEN 'power'
+          WHEN layer = 'bridges'         THEN 'bridges'
+          WHEN layer = 'cameras' AND attributes->>'source' = 'Trafikverket/Camera'  THEN 'trv-cameras'
+          WHEN layer = 'cameras' AND attributes->>'source' = 'Trafikverket/ATK'     THEN 'trv-atk'
+          WHEN layer = 'roads'   AND attributes->>'source' = 'Trafikverket/NVDB'    THEN 'trv-roads'
+          WHEN layer = 'roads'   AND attributes->>'source' = 'Trafikverket/Traffic' THEN 'trv-traffic'
+          WHEN layer = 'ports'   AND attributes->>'source' = 'Trafikverket/NVDB'    THEN 'trv-ferries'
         END AS src,
         MAX(attributes->>'scraped_at') AS last_at
       FROM features
-      WHERE layer = 'fuel' AND attributes->>'scraped_at' IS NOT NULL
+      WHERE attributes->>'scraped_at' IS NOT NULL
       GROUP BY 1
     `);
     const status = {};
     for (const r of rows) if (r.src) status[r.src] = r.last_at;
-    // combined = oldest of the individual sources (all must have run)
     const times = [status.osm, status.okq8, status.skoogs].filter(Boolean);
     if (times.length > 0) status.combined = times.sort()[0];
     res.json(status);
@@ -486,6 +908,149 @@ router.post('/combined/scrape', requireAuth, requireRole('editor', 'admin'), asy
   } catch (err) {
     io.emit('harvest:done', { source: 'combined', imported: 0, skipped: 0, error: err.message });
   } finally { activeJobs.delete('combined'); }
+});
+
+// ── Polishändelser routes ────────────────────────────────────────────────────
+
+router.get('/police/preview', requireAuth, async (_req, res) => {
+  try {
+    const { rows } = await db.query("SELECT value FROM settings WHERE key='op_municipalities'");
+    const municipalities = rows[0]?.value || [];
+    const r = await fetch('https://polisen.se/api/events', {
+      headers: { 'User-Agent': UA, 'Accept': 'application/json' },
+      signal: AbortSignal.timeout(10000),
+    });
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const all = await r.json();
+    const muniLower = municipalities.map(m => m.toLowerCase());
+    const filtered = all.filter(e => {
+      const loc = (e.location?.name || '').toLowerCase();
+      const title = (e.name || '').toLowerCase();
+      return muniLower.some(m => loc.includes(m) || title.includes(m));
+    });
+    res.json({ source: 'police', total: filtered.length, of: all.length, municipalities });
+  } catch (err) { res.status(502).json({ error: err.message }); }
+});
+
+router.post('/police/scrape', requireAuth, requireRole('editor', 'admin'), async (req, res) => {
+  const ctrl = startJob('police');
+  res.json({ started: true });
+  const io = req.io;
+  io.emit('harvest:progress', { source: 'police', phase: 'Hämtar händelser…', done: 0, total: 1 });
+  try {
+    const { rows } = await db.query("SELECT value FROM settings WHERE key='op_municipalities'");
+    const municipalities = rows[0]?.value || [];
+    if (ctrl.signal.aborted) throw cancelledError('police');
+
+    const features = await policeEvents(municipalities);
+    if (ctrl.signal.aborted) throw cancelledError('police');
+
+    // Purge events older than 30 days
+    await db.query(
+      `DELETE FROM features WHERE layer='police_events' AND (attributes->>'scraped_at')::timestamptz < NOW() - INTERVAL '30 days'`
+    );
+    // Clear previous harvest of same events (by police_id to avoid duplicates)
+    await clearHarvested('police_events');
+    io.emit('harvest:progress', { source: 'police', phase: 'Sparar…', done: 1, total: 1 });
+    const { imported, skipped } = await saveFeatures(features, req.user?.id || 0);
+    io.emit('harvest:done', { source: 'police', imported, skipped });
+    if (imported > 0) io.emit('features:reloaded', {});
+  } catch (err) {
+    io.emit('harvest:done', { source: 'police', imported: 0, skipped: 0, error: err.message });
+  } finally { activeJobs.delete('police'); }
+});
+
+// ── EL-AVBROTT (avbrott.se) ────────────────────────────────────────────────────
+// Covers 27 Swedish grid operators incl. Vattenfall (inland BD) + PiteEnergi
+const AVBROTT_URL = 'https://avbrott.se/api/outages';
+// Norrbotten bounding box
+const BD_LAT = [65.0, 68.5];
+const BD_LNG = [17.0, 24.5];
+
+function inNorrbotten(o) {
+  const county = (o.county || '').toLowerCase();
+  if (county.includes('norrbotten')) return true;
+  // Providers that don't set county — fall back to coordinates
+  if (o.lat && o.lng) {
+    return o.lat >= BD_LAT[0] && o.lat <= BD_LAT[1] &&
+           o.lng >= BD_LNG[0] && o.lng <= BD_LNG[1];
+  }
+  return false;
+}
+
+async function fetchPowerOutages() {
+  const res = await fetch(AVBROTT_URL, {
+    headers: { 'User-Agent': UA },
+    signal: AbortSignal.timeout(15000),
+  });
+  if (!res.ok) throw new Error(`avbrott.se HTTP ${res.status}`);
+  const data = await res.json();
+  const now = new Date().toISOString();
+
+  return (data.outages || [])
+    .filter(o => !o.is_ended && inNorrbotten(o))
+    .map(o => {
+      let geom;
+      if (o.has_polygon && Array.isArray(o.polygon) && o.polygon.length >= 3) {
+        const coords = o.polygon.map(([lng, lat]) => [lng, lat]);
+        // Close ring if needed
+        const first = coords[0], last = coords[coords.length - 1];
+        if (first[0] !== last[0] || first[1] !== last[1]) coords.push(first);
+        geom = { type: 'Polygon', coordinates: [coords] };
+      } else if (o.lat && o.lng) {
+        geom = { type: 'Point', coordinates: [o.lng, o.lat] };
+      } else {
+        return null;
+      }
+
+      const label = o.is_planned ? 'Planerat avbrott' : 'Elavbrott';
+      return {
+        type: 'Feature', geometry: geom,
+        properties: {
+          layer: 'power_outages',
+          name: `${label}${o.municipality ? ' – ' + o.municipality : ''}${o.placenames && o.placenames !== o.municipality ? ' (' + o.placenames + ')' : ''}`,
+          provider: o.provider || '',
+          municipality: o.municipality || '',
+          affected_customers: o.affected_customers != null ? String(o.affected_customers) : '',
+          status: o.status_label || '',
+          description: o.free_text || o.description || '',
+          is_planned: o.is_planned ? 'true' : 'false',
+          start_time: o.start_time || '',
+          completion_time: o.completion_time || '',
+          source: 'avbrott.se',
+          scraped_at: now,
+          _source_id: o.id || '',
+        },
+      };
+    })
+    .filter(Boolean);
+}
+
+router.get('/power/preview', requireAuth, async (_req, res) => {
+  try {
+    const features = await fetchPowerOutages();
+    res.json({ source: 'power', total: features.length, features });
+  } catch (err) {
+    res.status(502).json({ error: err.message });
+  }
+});
+
+router.post('/power/scrape', requireAuth, async (req, res) => {
+  const ctrl = startJob('power');
+  const io = req.io;
+  io.emit('harvest:progress', { source: 'power', phase: 'Hämtar från avbrott.se…', done: 0, total: 1 });
+  try {
+    const features = await fetchPowerOutages();
+    if (ctrl.signal.aborted) throw cancelledError('power');
+    await clearHarvested('power_outages');
+    io.emit('harvest:progress', { source: 'power', phase: 'Sparar…', done: 1, total: 1 });
+    const { imported, skipped } = await saveFeatures(features, req.user?.id || 0);
+    io.emit('harvest:done', { source: 'power', imported, skipped });
+    res.json({ imported, skipped });
+  } catch (err) {
+    io.emit('harvest:done', { source: 'power', imported: 0, skipped: 0, error: err.message });
+    res.status(502).json({ error: err.message });
+  } finally { activeJobs.delete('power'); }
 });
 
 module.exports = router;

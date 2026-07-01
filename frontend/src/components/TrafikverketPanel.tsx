@@ -1,5 +1,4 @@
 import { useState } from 'react';
-import maplibregl from 'maplibre-gl';
 
 interface DataSource {
   id: string;
@@ -14,11 +13,13 @@ const SOURCES: DataSource[] = [
   { id: 'atk',     label: 'ATK-kameror (fart)',     layer: 'cameras', icon: '🚨', endpoint: '/api/trafikverket/atk'     },
   { id: 'roads',   label: 'Vägbärighet (BK-klass)', layer: 'roads',   icon: '🛣',  endpoint: '/api/trafikverket/roads'   },
   { id: 'traffic', label: 'Trafikflöde (hastighet)', layer: 'roads',  icon: '🚗', endpoint: '/api/trafikverket/traffic'  },
-  { id: 'ferries', label: 'Färjeleder',              layer: 'ports',   icon: '⛴',  endpoint: '/api/trafikverket/ferries' },
+  { id: 'ferries',     label: 'Färjeleder',                          layer: 'ports',          icon: '⛴',  endpoint: '/api/trafikverket/ferries'     },
+  { id: 'situations', label: 'Trafikhändelser (olyckor, vägarbeten)', layer: 'road_situations', icon: '⚠', endpoint: '/api/trafikverket/situations' },
 ];
 
+interface Bbox { minlng: string; minlat: string; maxlng: string; maxlat: string; }
+
 interface Props {
-  mapRef: React.RefObject<maplibregl.Map | null>;
   onClose: () => void;
   onImported: () => void;
 }
@@ -35,8 +36,8 @@ interface SourceResult {
   error?: string;
 }
 
-export function TrafikverketPanel({ mapRef, onClose, onImported }: Props) {
-  const [selected, setSelected] = useState<Set<string>>(new Set(['cameras', 'atk', 'roads', 'traffic', 'ferries']));
+export function TrafikverketPanel({ onClose, onImported }: Props) {
+  const [selected, setSelected] = useState<Set<string>>(new Set(['cameras', 'atk', 'roads', 'traffic', 'ferries', 'situations']));
   const [results, setResults] = useState<Record<string, SourceResult>>({});
   const [loading, setLoading] = useState(false);
   const [importing, setImporting] = useState(false);
@@ -44,27 +45,24 @@ export function TrafikverketPanel({ mapRef, onClose, onImported }: Props) {
 
   const token = localStorage.getItem('token');
 
-  function getBbox() {
-    const bounds = mapRef.current?.getBounds();
-    if (!bounds) return null;
-    return {
-      minlng: bounds.getWest().toFixed(6),
-      minlat: bounds.getSouth().toFixed(6),
-      maxlng: bounds.getEast().toFixed(6),
-      maxlat: bounds.getNorth().toFixed(6),
-    };
+  async function getOpOmrBbox(): Promise<Bbox | null> {
+    try {
+      const r = await fetch('/api/settings/opomr-bbox', { headers: { Authorization: `Bearer ${token}` } });
+      if (!r.ok) return null;
+      return await r.json();
+    } catch { return null; }
   }
 
   async function preview() {
-    const bbox = getBbox();
-    if (!bbox) return;
+    const bbox = await getOpOmrBbox();
+    if (!bbox) { alert('Inga OpOmr-kommuner konfigurerade — välj kommuner i Inställningar.'); return; }
     setLoading(true);
     setResults({});
     setPhase('preview');
 
     const fetchSource = async (src: DataSource) => {
       if (!selected.has(src.id)) return;
-      const params = new URLSearchParams(bbox as Record<string, string>);
+      const params = new URLSearchParams(bbox as unknown as Record<string, string>);
       try {
         const r = await fetch(`${src.endpoint}?${params}`, {
           headers: { Authorization: `Bearer ${token}` },
@@ -129,7 +127,7 @@ export function TrafikverketPanel({ mapRef, onClose, onImported }: Props) {
         ) : (
           <>
             <p style={{ fontSize: 12, color: '#888', marginBottom: 12 }}>
-              Hämtar data för <strong style={{ color: '#fff' }}>synligt kartområde</strong>. Zooma in för snabbare och mer precisa resultat.
+              Hämtar data för <strong style={{ color: '#fff' }}>OpOmr-kommunerna</strong>. Konfigurera kommuner under Inställningar.
             </p>
 
             <div style={{ marginBottom: 14 }}>

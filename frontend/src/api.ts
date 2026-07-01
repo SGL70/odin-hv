@@ -52,6 +52,8 @@ export const api = {
     }).then(r => r.json());
   },
 
+  get: <T = unknown>(path: string) => req<T>('GET', path.replace(/^\/api/, '')),
+
   users: {
     list: () => req<{ id: number; username: string; role: string; created_at: string }[]>('GET', '/auth/users'),
     create: (data: { username: string; password: string; role: string }) => req('POST', '/auth/users', data),

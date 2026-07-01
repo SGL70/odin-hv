@@ -39,9 +39,25 @@ const BASE_QUERY = `
 
 router.get('/', requireAuth, async (req, res) => {
   try {
-    const { layer } = req.query;
-    const where = layer ? `WHERE f.layer = $1` : '';
-    const params = layer ? [layer] : [];
+    const { layer, opomr } = req.query;
+    const conditions = [];
+    const params = [];
+
+    if (layer) {
+      params.push(layer);
+      conditions.push(`f.layer = $${params.length}`);
+    }
+
+    if (opomr === '1') {
+      conditions.push(`EXISTS (
+        SELECT 1 FROM municipalities m
+        JOIN settings s ON s.key = 'op_municipalities'
+        WHERE m.short_name = ANY(ARRAY(SELECT jsonb_array_elements_text(s.value)))
+          AND ST_Within(f.geom, m.geom)
+      )`);
+    }
+
+    const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
     const { rows } = await db.query(`${BASE_QUERY} ${where} ORDER BY f.updated_at DESC`, params);
     res.json(toGeoJSON(rows));
   } catch (err) {

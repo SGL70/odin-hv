@@ -24,6 +24,11 @@ app.use('/api/export', require('./routes/export'));
 app.use('/api/dashboard', require('./routes/dashboard'));
 app.use('/api/trafikverket', require('./routes/trafikverket'));
 app.use('/api/harvest', require('./routes/harvest'));
+app.use('/api/settings', require('./routes/settings'));
+app.use('/api/sms', require('./routes/sms'));
+
+const analysisRouter = require('./routes/analysis');
+app.use('/api/analysis', analysisRouter);
 
 app.get('/api/health', (_req, res) => res.json({ ok: true }));
 
@@ -42,6 +47,25 @@ async function ensureAdmin() {
   console.log('Admin user ready (username: admin)');
 }
 
+async function ensureSettings() {
+  await db.query(`
+    INSERT INTO settings (key, value) VALUES ('snapshot_retention_days', '30')
+    ON CONFLICT (key) DO NOTHING
+  `);
+}
+
+// Daglig snapshot-schemaläggare — sparar vid 00:05 varje natt
+function scheduleDailySnapshot() {
+  const now = new Date();
+  const nextRun = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 0, 5, 0);
+  const msUntilNext = nextRun.getTime() - now.getTime();
+  console.log(`Nästa analysögonblick om ${Math.round(msUntilNext / 60000)} minuter (${nextRun.toISOString()})`);
+  setTimeout(() => {
+    analysisRouter.saveSnapshot();
+    setInterval(() => analysisRouter.saveSnapshot(), 24 * 60 * 60 * 1000);
+  }, msUntilNext);
+}
+
 const PORT = process.env.PORT || 3000;
 
 async function start() {
@@ -57,6 +81,8 @@ async function start() {
     }
   }
   await ensureAdmin();
+  await ensureSettings();
+  scheduleDailySnapshot();
   server.listen(PORT, () => console.log(`Resursläge backend på port ${PORT}`));
 }
 

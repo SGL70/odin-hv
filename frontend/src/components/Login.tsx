@@ -1,5 +1,6 @@
 import { useState, FormEvent } from 'react';
 import { useAuth } from '../contexts/AuthContext';
+import { OdinLogo } from './OdinLogo';
 
 export function Login() {
   const { login } = useAuth();
@@ -31,9 +32,9 @@ export function Login() {
         padding: 40, width: 340, boxShadow: '0 20px 60px #0008',
       }}>
         <div style={{ textAlign: 'center', marginBottom: 28 }}>
-          <div style={{ fontSize: 40, marginBottom: 8 }}>🗺</div>
-          <h1 style={{ fontSize: 20, fontWeight: 700, color: '#fff' }}>Resursläge</h1>
-          <p style={{ color: '#888', fontSize: 13, marginTop: 4 }}>Hemvärnet</p>
+          <img src="/korp.png" alt="Korp" style={{ height: 90, width: 'auto', display: 'block', margin: '0 auto 16px' }} />
+          <OdinLogo size="lg" />
+          <p style={{ color: '#556', fontSize: 12, marginTop: 10, letterSpacing: 2, textTransform: 'uppercase' }}>Situational awareness</p>
         </div>
         <form onSubmit={submit}>
           <div className="field-row">

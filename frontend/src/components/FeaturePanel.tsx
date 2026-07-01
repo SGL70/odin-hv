@@ -6,15 +6,18 @@ import { useAuth } from '../contexts/AuthContext';
 
 interface Props {
   feature: Feature | null;
+  group?: Feature[];
+  onSelectFromGroup?: (f: Feature) => void;
   onClose: () => void;
   onSaved: (f: Feature) => void;
   onDeleted: (uid: string) => void;
   addMode: boolean;
   addLayer: LayerId;
   onAddLayerChange: (l: LayerId) => void;
+  rightOffset?: number;
 }
 
-export function FeaturePanel({ feature, onClose, onSaved, onDeleted, addMode, addLayer, onAddLayerChange }: Props) {
+export function FeaturePanel({ feature, group = [], onSelectFromGroup, onClose, onSaved, onDeleted, addMode, addLayer, onAddLayerChange, rightOffset = 10 }: Props) {
   const { user } = useAuth();
   const canEdit = user?.role === 'editor' || user?.role === 'admin';
 
@@ -24,16 +27,18 @@ export function FeaturePanel({ feature, onClose, onSaved, onDeleted, addMode, ad
   const [error, setError] = useState('');
   const [imgTs, setImgTs] = useState(() => Date.now());
   const refreshRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const originalFields = useRef<Record<string, string>>({});
 
   useEffect(() => {
-    if (!feature) { setName(''); setFields({}); return; }
+    if (!feature) { setName(''); setFields({}); originalFields.current = {}; return; }
     const { name, uid: _uid, layer: _l, cot_type: _c, created_by: _cb, updated_by: _ub, created_at: _ca, updated_at: _ua, ...rest } = feature.properties;
+    const parsed = Object.fromEntries(Object.entries(rest).map(([k, v]) => [k, String(v ?? '')]));
     setName(String(name || ''));
-    setFields(Object.fromEntries(Object.entries(rest).map(([k, v]) => [k, String(v ?? '')])));
+    setFields(parsed);
+    originalFields.current = parsed;
     setImgTs(Date.now());
   }, [feature]);
 
-  // Auto-refresh camera image every 30 seconds
   useEffect(() => {
     const photoUrl = feature?.properties?.photo_url as string | undefined;
     if (!photoUrl) { if (refreshRef.current) clearInterval(refreshRef.current); return; }
@@ -41,15 +46,22 @@ export function FeaturePanel({ feature, onClose, onSaved, onDeleted, addMode, ad
     return () => { if (refreshRef.current) clearInterval(refreshRef.current); };
   }, [feature?.properties?.photo_url]);
 
-
   const layerCfg = getLayer(feature ? feature.properties.layer : addLayer);
+
+  const FUEL_DATA_KEYS = ['diesel_cap_l', 'diesel_level_pct', 'bensin_cap_l', 'bensin_level_pct', 'hvo_cap_l', 'hvo_level_pct'];
+  const MULTILINE_KEYS = new Set(['description', 'summary', 'location', 'road_name', 'location_description']);
 
   const save = async () => {
     if (!feature || !canEdit) return;
     setSaving(true); setError('');
     try {
+      const saveFields = { ...fields };
+      if (feature.properties.layer === 'fuel') {
+        const fuelChanged = FUEL_DATA_KEYS.some(k => saveFields[k] !== (originalFields.current[k] ?? ''));
+        if (fuelChanged) saveFields.data_date = new Date().toISOString().slice(0, 10);
+      }
       const saved = await api.updateFeature(feature.properties.uid, {
-        name, geometry: feature.geometry, cot_type: feature.properties.cot_type, ...fields,
+        name, geometry: feature.geometry, cot_type: feature.properties.cot_type, ...saveFields,
       });
       onSaved(saved as Feature);
     } catch (e: unknown) {
@@ -66,7 +78,7 @@ export function FeaturePanel({ feature, onClose, onSaved, onDeleted, addMode, ad
 
   if (addMode) {
     return (
-      <div style={panelStyle}>
+      <div style={{ ...panelStyle, right: rightOffset }}>
         <div style={headerStyle}>
           <span style={{ fontSize: 14, fontWeight: 600 }}>Lägg till objekt</span>
           <button className="btn-ghost btn-sm" onClick={onClose}>✕</button>
@@ -88,38 +100,80 @@ export function FeaturePanel({ feature, onClose, onSaved, onDeleted, addMode, ad
 
   if (!feature) return null;
 
+  // Group navigation (multiple features at same click point)
+  const groupIdx = group.length > 1 ? group.findIndex(f => f.properties.uid === feature.properties.uid) : -1;
+
   return (
-    <div style={panelStyle}>
+    <div style={{ ...panelStyle, right: rightOffset }}>
       <div style={headerStyle}>
         <span style={{ fontSize: 14, fontWeight: 600 }}>
           {layerCfg?.icon} {feature.properties.name}
         </span>
         <button className="btn-ghost btn-sm" onClick={onClose}>✕</button>
       </div>
+
+      {/* Group navigation */}
+      {groupIdx >= 0 && (
+        <div style={{ padding: '4px 12px', borderBottom: '1px solid #2a2a40', display: 'flex', alignItems: 'center', gap: 6, background: '#16162a' }}>
+          <span style={{ fontSize: 10, color: '#666', flex: 1 }}>{groupIdx + 1} / {group.length} händelser</span>
+          <button disabled={groupIdx === 0} onClick={() => onSelectFromGroup?.(group[groupIdx - 1])}
+            style={{ background: 'none', border: '1px solid #333', borderRadius: 3, color: groupIdx === 0 ? '#333' : '#888', fontSize: 11, padding: '1px 6px', cursor: groupIdx === 0 ? 'default' : 'pointer' }}>◀</button>
+          <button disabled={groupIdx === group.length - 1} onClick={() => onSelectFromGroup?.(group[groupIdx + 1])}
+            style={{ background: 'none', border: '1px solid #333', borderRadius: 3, color: groupIdx === group.length - 1 ? '#333' : '#888', fontSize: 11, padding: '1px 6px', cursor: groupIdx === group.length - 1 ? 'default' : 'pointer' }}>▶</button>
+        </div>
+      )}
+
       <div style={{ padding: 14, overflowY: 'auto', flex: 1 }}>
         <div className="field-row">
           <label>Namn</label>
           <input value={name} onChange={e => setName(e.target.value)} disabled={!canEdit} />
         </div>
+
+        {/* Kritikalitet — universellt fält på alla features */}
+        <div className="field-row">
+          <label>Kritikalitet</label>
+          {canEdit ? (
+            <select
+              value={fields.criticality || 'normal'}
+              onChange={e => setFields(p => ({ ...p, criticality: e.target.value }))}
+            >
+              <option value="normal">🟢 Normal</option>
+              <option value="gul">🟡 Viktig</option>
+              <option value="rod">🔴 Kritisk</option>
+            </select>
+          ) : (
+            <CriticalityBadge value={fields.criticality || 'normal'} />
+          )}
+        </div>
         {layerCfg?.fields.map(f => {
           const val = fields[f.key];
-          if (!val && val !== '0') return null;
+          if (!canEdit && !val && val !== '0') return null;
+          const isMultiline = MULTILINE_KEYS.has(f.key) || (val && val.length > 80);
           if (!canEdit) {
             return (
-              <div key={f.key} className="field-row">
+              <div key={f.key} className="field-row" style={isMultiline ? { alignItems: 'flex-start' } : undefined}>
                 <label>{f.label}{f.unit ? ` (${f.unit})` : ''}</label>
-                <span style={{ fontSize: 13, color: '#e0e0e0', padding: '4px 0' }}>{val}</span>
+                <span style={{ fontSize: 13, color: '#e0e0e0', padding: '4px 0', whiteSpace: isMultiline ? 'pre-wrap' : undefined, wordBreak: 'break-word', display: 'block', flex: 1 }}>
+                  {renderVal(f.key, val)}
+                </span>
               </div>
             );
           }
           return (
-            <div key={f.key} className="field-row">
+            <div key={f.key} className="field-row" style={isMultiline ? { alignItems: 'flex-start' } : undefined}>
               <label>{f.label}{f.unit ? ` (${f.unit})` : ''}</label>
               {f.type === 'select' ? (
                 <select value={val} onChange={e => setFields(p => ({ ...p, [f.key]: e.target.value }))}>
                   <option value="">Välj...</option>
                   {f.options?.map(o => <option key={o} value={o}>{o}</option>)}
                 </select>
+              ) : f.type === 'text' && isMultiline ? (
+                <textarea
+                  rows={3}
+                  value={val}
+                  onChange={e => setFields(p => ({ ...p, [f.key]: e.target.value }))}
+                  style={{ resize: 'vertical', minHeight: 60 }}
+                />
               ) : (
                 <input
                   type={f.type === 'number' ? 'number' : f.type === 'date' ? 'date' : 'text'}
@@ -131,11 +185,11 @@ export function FeaturePanel({ feature, onClose, onSaved, onDeleted, addMode, ad
           );
         })}
 
-        {/* Extra attributes not in layer config (imported data) */}
+        {/* Extra attributes not in layer config */}
         {(() => {
           const HIDDEN = new Set([
-            'uid', 'layer', 'cot_type', 'name', 'created_by', 'updated_by', 'created_at', 'updated_at',
-            'photo_url', 'station_url', 'scraped_at', 'trv_source_id', 'osm_id', '_source_id',
+            'uid', 'layer', 'cot_type', 'name', 'criticality', 'created_by', 'updated_by', 'created_at', 'updated_at',
+            'photo_url', 'station_url', 'scraped_at', 'trv_source_id', 'osm_id', '_source_id', 'police_id',
             ...(layerCfg?.fields.map(f => f.key) || []),
           ]);
           const LABELS: Record<string, string> = {
@@ -144,7 +198,8 @@ export function FeaturePanel({ feature, onClose, onSaved, onDeleted, addMode, ad
             direction: 'Riktning', status: 'Status', avg_speed_kmh: 'Hastighet (km/h)',
             flow_per_hour: 'Flöde (fordon/h)', measured_at: 'Mätt', data_quality: 'Datakvalitet',
             port_type: 'Hamntyp', bk_class: 'BK-klass', bk_winter: 'Vinterbärighet',
-            max_axle_ton: 'Max axellast (ton)',
+            max_axle_ton: 'Max axellast (ton)', event_type: 'Typ', datetime: 'Tid',
+            summary: 'Sammanfattning', location: 'Plats', url: 'Länk',
           };
           const extra = Object.entries(fields).filter(
             ([k, v]) => !HIDDEN.has(k) && v && v !== 'null' && v !== 'undefined' && v !== ''
@@ -152,21 +207,27 @@ export function FeaturePanel({ feature, onClose, onSaved, onDeleted, addMode, ad
           if (!extra.length) return null;
           return (
             <div style={{ marginTop: 8, paddingTop: 8, borderTop: '1px solid #2a2a40' }}>
-              {extra.map(([k, v]) => (
-                <div key={k} className="field-row">
-                  <label style={{ color: '#666', fontSize: 11 }}>
-                    {LABELS[k] || k.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())}
-                  </label>
-                  <span style={{ fontSize: 12, color: '#aaa' }}>{v}</span>
-                </div>
-              ))}
+              {extra.map(([k, v]) => {
+                const long = MULTILINE_KEYS.has(k) || v.length > 80;
+                return (
+                  <div key={k} className="field-row" style={long ? { alignItems: 'flex-start' } : undefined}>
+                    <label style={{ color: '#666', fontSize: 11 }}>
+                      {LABELS[k] || k.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())}
+                    </label>
+                    <span style={{ fontSize: 12, color: '#aaa', whiteSpace: long ? 'pre-wrap' : undefined, wordBreak: 'break-word', display: 'block', flex: 1 }}>
+                      {renderVal(k, v)}
+                    </span>
+                  </div>
+                );
+              })}
             </div>
           );
         })()}
+
         {fields.photo_url && (
           <div style={{ marginTop: 12 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
-              <span style={{ fontSize: 11, color: '#888' }}>📷 Live-bild (uppdateras var 30 s)</span>
+              <span style={{ fontSize: 11, color: '#888' }}>📷 Live-bild (var 30 s)</span>
               <a href={`${fields.photo_url}?t=${imgTs}`} target="_blank" rel="noreferrer"
                 style={{ fontSize: 11, color: '#5b8cff', textDecoration: 'none' }}>↗ Öppna</a>
             </div>
@@ -180,12 +241,14 @@ export function FeaturePanel({ feature, onClose, onSaved, onDeleted, addMode, ad
             />
           </div>
         )}
+
         <div style={{ fontSize: 11, color: '#666', marginTop: 8 }}>
           {feature.properties.updated_by != null && <span>Ändrad av {String(feature.properties.updated_by)} · </span>}
-          {feature.properties.updated_at && <span>{new Date(feature.properties.updated_at).toLocaleString('sv')}</span>}
+          {feature.properties.updated_at && <span>{new Date(String(feature.properties.updated_at)).toLocaleString('sv')}</span>}
         </div>
         {error && <p style={{ color: '#e74c3c', fontSize: 12, marginTop: 8 }}>{error}</p>}
       </div>
+
       {canEdit && (
         <div style={{ padding: 14, borderTop: '1px solid #333', display: 'flex', gap: 8 }}>
           <button className="btn-primary btn-sm" onClick={save} disabled={saving} style={{ flex: 1 }}>
@@ -198,8 +261,33 @@ export function FeaturePanel({ feature, onClose, onSaved, onDeleted, addMode, ad
   );
 }
 
+function CriticalityBadge({ value }: { value: string }) {
+  const cfg: Record<string, { label: string; color: string }> = {
+    rod:    { label: 'Kritisk', color: '#e74c3c' },
+    gul:    { label: 'Viktig',  color: '#f39c12' },
+    normal: { label: 'Normal',  color: '#27ae60' },
+  };
+  const { label, color } = cfg[value] || cfg.normal;
+  return (
+    <span style={{
+      fontSize: 12, fontWeight: 600, padding: '2px 10px', borderRadius: 4,
+      background: color + '22', color, border: `1px solid ${color}55`,
+    }}>{label}</span>
+  );
+}
+
+function renderVal(key: string, val: string) {
+  if (key === 'url' && val.startsWith('http')) {
+    return <a href={val} target="_blank" rel="noreferrer" style={{ color: '#5b8cff', fontSize: 12, wordBreak: 'break-all' }}>{val.replace(/^https?:\/\//, '')}</a>;
+  }
+  if (key === 'datetime') {
+    try { return new Date(val).toLocaleString('sv-SE', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }); } catch { return val; }
+  }
+  return val;
+}
+
 const panelStyle: React.CSSProperties = {
-  position: 'absolute', right: 10, top: 10, bottom: 10, zIndex: 10,
+  position: 'absolute', top: 10, bottom: 10, zIndex: 20,
   width: 280, background: '#1e1e30', border: '1px solid #333',
   borderRadius: 8, display: 'flex', flexDirection: 'column',
   boxShadow: '0 4px 20px #0006',

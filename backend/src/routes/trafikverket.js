@@ -247,6 +247,54 @@ router.get('/traffic', requireAuth, async (req, res) => {
   }
 });
 
+// ── TRAFIKHÄNDELSER (Situation) ───────────────────────────────────────────────
+const SIT_TYPE_SV = {
+  'Olycka': 'Olycka', 'Vägarbete': 'Vägarbete', 'Hinder': 'Hinder',
+  'LaneRestrictions': 'Körfältsrestriktion', 'WeatherCondition': 'Väglag',
+  'BridgeRestriction': 'Brobegränsning', 'TrafficInformation': 'Trafikinformation',
+  'IcyRoad': 'Halka', 'Restriktion': 'Restriktion', 'DangerousSlowdown': 'Farlig köbildning',
+};
+
+router.get('/situations', requireAuth, async (req, res) => {
+  const { minlng, minlat, maxlng, maxlat } = req.query;
+  try {
+    const items = await trvQuery(
+      'Situation', '1.6',
+      `<WITHIN name="Deviation.Geometry.WGS84" shape="box" value="${minlng} ${minlat}, ${maxlng} ${maxlat}"/>`,
+      '',
+      500,
+      'road.trafficinfo'
+    );
+    const features = [];
+    for (const s of items) {
+      const devs = Array.isArray(s.Deviation) ? s.Deviation : s.Deviation ? [s.Deviation] : [];
+      for (const d of devs) {
+        const geom = parseWKT(d?.Geometry?.WGS84);
+        if (!geom) continue;
+        const typeSv = SIT_TYPE_SV[d.MessageType] || d.MessageType || 'Trafikhändelse';
+        features.push({
+          type: 'Feature', geometry: geom,
+          properties: {
+            layer: 'road_situations',
+            name: d.Header || `${typeSv}${d.RoadNumber ? ' ' + d.RoadNumber : ''}`,
+            event_type: typeSv,
+            severity:    d.SeverityCode != null ? String(d.SeverityCode) : '',
+            start_time:  d.StartTime  || '',
+            end_time:    d.EndTime    || '',
+            road_number: d.RoadNumber || '',
+            description: d.Message   || '',
+            source: 'Trafikverket',
+            _source_id: `${s.Id}_${d.Id || ''}`,
+          },
+        });
+      }
+    }
+    res.json({ count: features.length, features });
+  } catch (err) {
+    res.status(502).json({ error: err.message });
+  }
+});
+
 // ── IMPORT: Write fetched features to DB ──────────────────────────────────────
 router.post('/import', requireAuth, requireRole('editor', 'admin'), async (req, res) => {
   const { features } = req.body;
