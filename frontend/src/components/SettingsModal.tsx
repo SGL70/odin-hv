@@ -1,9 +1,32 @@
 import { useEffect, useState } from 'react';
 
-const ALL_NORRBOTTEN_MUNICIPALITIES = [
-  'Arjeplog', 'Arvidsjaur', 'Boden', 'Gällivare', 'Haparanda',
-  'Jokkmokk', 'Kalix', 'Kiruna', 'Luleå', 'Pajala',
-  'Piteå', 'Älvsbyn', 'Överkalix', 'Övertorneå',
+interface County {
+  name: string;
+  municipalities: string[];
+}
+
+const SWEDEN: County[] = [
+  { name: 'Stockholms län', municipalities: ['Botkyrka','Danderyd','Ekerö','Haninge','Huddinge','Järfälla','Lidingö','Nacka','Norrtälje','Nykvarn','Nynäshamn','Salem','Sigtuna','Sollentuna','Solna','Stockholm','Sundbyberg','Södertälje','Tyresö','Täby','Upplands-Bro','Upplands Väsby','Vallentuna','Vaxholm','Värmdö','Österåker'] },
+  { name: 'Uppsala län', municipalities: ['Enköping','Heby','Håbo','Knivsta','Tierp','Uppsala','Älvkarleby','Östhammar'] },
+  { name: 'Södermanlands län', municipalities: ['Eskilstuna','Flen','Gnesta','Katrineholm','Nyköping','Oxelösund','Strängnäs','Trosa','Vingåker'] },
+  { name: 'Östergötlands län', municipalities: ['Boxholm','Finspång','Kinda','Linköping','Mjölby','Motala','Norrköping','Söderköping','Vadstena','Valdemarsvik','Ydre','Åtvidaberg','Ödeshög'] },
+  { name: 'Jönköpings län', municipalities: ['Aneby','Eksjö','Gislaved','Gnosjö','Habo','Jönköping','Mullsjö','Nässjö','Sävsjö','Tranås','Vaggeryd','Vetlanda','Värnamo'] },
+  { name: 'Kronobergs län', municipalities: ['Alvesta','Lessebo','Ljungby','Markaryd','Tingsryd','Uppvidinge','Växjö','Älmhult'] },
+  { name: 'Kalmar län', municipalities: ['Borgholm','Emmaboda','Hultsfred','Högsby','Kalmar','Mönsterås','Mörbylånga','Nybro','Oskarshamn','Torsås','Vimmerby','Västervik'] },
+  { name: 'Gotlands län', municipalities: ['Gotland'] },
+  { name: 'Blekinge län', municipalities: ['Karlshamn','Karlskrona','Olofström','Ronneby','Sölvesborg'] },
+  { name: 'Skåne län', municipalities: ['Bjuv','Bromölla','Burlöv','Båstad','Eslöv','Helsingborg','Hässleholm','Höganäs','Hörby','Höör','Klippan','Kristianstad','Kävlinge','Landskrona','Lomma','Lund','Malmö','Osby','Perstorp','Simrishamn','Sjöbo','Skurup','Staffanstorp','Svalöv','Svedala','Tomelilla','Trelleborg','Vellinge','Ystad','Åstorp','Ängelholm','Örkelljunga','Östra Göinge'] },
+  { name: 'Hallands län', municipalities: ['Falkenberg','Halmstad','Hylte','Kungsbacka','Laholm','Varberg'] },
+  { name: 'Västra Götalands län', municipalities: ['Ale','Alingsås','Bengtsfors','Bollebygd','Borås','Dals-Ed','Essunga','Falköping','Färgelanda','Grästorp','Gullspång','Göteborg','Götene','Herrljunga','Hjo','Härryda','Karlsborg','Kungälv','Lerum','Lidköping','Lilla Edet','Lysekil','Mariestad','Mark','Mellerud','Munkedal','Mölndal','Orust','Partille','Skara','Skövde','Sotenäs','Stenungsund','Strömstad','Svenljunga','Tanum','Tibro','Tidaholm','Tjörn','Tranemo','Trollhättan','Töreboda','Uddevalla','Ulricehamn','Vara','Vårgårda','Åmål','Öckerö'] },
+  { name: 'Värmlands län', municipalities: ['Arvika','Eda','Filipstad','Forshaga','Grums','Hagfors','Hammarö','Karlstad','Kil','Kristinehamn','Munkfors','Storfors','Sunne','Säffle','Torsby','Årjäng'] },
+  { name: 'Örebro län', municipalities: ['Askersund','Degerfors','Hallsberg','Hällefors','Karlskoga','Kumla','Laxå','Lekeberg','Lindesberg','Ljusnarsberg','Nora','Örebro'] },
+  { name: 'Västmanlands län', municipalities: ['Arboga','Fagersta','Hallstahammar','Kungsör','Köping','Norberg','Sala','Skinnskatteberg','Surahammar','Västerås'] },
+  { name: 'Dalarnas län', municipalities: ['Avesta','Borlänge','Falun','Gagnef','Hedemora','Leksand','Ludvika','Malung-Sälen','Mora','Orsa','Rättvik','Smedjebacken','Säter','Vansbro','Älvdalen'] },
+  { name: 'Gävleborgs län', municipalities: ['Bollnäs','Gävle','Hofors','Hudiksvall','Ljusdal','Nordanstig','Ockelbo','Ovanåker','Sandviken','Söderhamn'] },
+  { name: 'Västernorrlands län', municipalities: ['Härnösand','Kramfors','Sollefteå','Sundsvall','Timrå','Ånge','Örnsköldsvik'] },
+  { name: 'Jämtlands län', municipalities: ['Berg','Bräcke','Härjedalen','Krokom','Ragunda','Strömsund','Åre','Östersund'] },
+  { name: 'Västerbottens län', municipalities: ['Bjurholm','Dorotea','Lycksele','Malå','Nordmaling','Norsjö','Robertsfors','Skellefteå','Sorsele','Storuman','Umeå','Vilhelmina','Vindeln','Vännäs','Åsele'] },
+  { name: 'Norrbottens län', municipalities: ['Arjeplog','Arvidsjaur','Boden','Gällivare','Haparanda','Jokkmokk','Kalix','Kiruna','Luleå','Pajala','Piteå','Älvsbyn','Överkalix','Övertorneå'] },
 ];
 
 interface Props {
@@ -16,6 +39,7 @@ export function SettingsModal({ onClose }: Props) {
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [snapshotting, setSnapshotting] = useState(false);
+  const [expanded, setExpanded] = useState<Set<string>>(new Set(['Norrbottens län']));
   const token = localStorage.getItem('token');
 
   useEffect(() => {
@@ -27,11 +51,29 @@ export function SettingsModal({ onClose }: Props) {
       });
   }, [token]);
 
-  function toggle(name: string) {
+  function toggleMunicipality(name: string) {
     setMunicipalities(prev =>
       prev.includes(name) ? prev.filter(m => m !== name) : [...prev, name]
     );
     setSaved(false);
+  }
+
+  function toggleCounty(county: County) {
+    const allSelected = county.municipalities.every(m => municipalities.includes(m));
+    if (allSelected) {
+      setMunicipalities(prev => prev.filter(m => !county.municipalities.includes(m)));
+    } else {
+      setMunicipalities(prev => [...new Set([...prev, ...county.municipalities])]);
+    }
+    setSaved(false);
+  }
+
+  function toggleExpand(countyName: string) {
+    setExpanded(prev => {
+      const next = new Set(prev);
+      next.has(countyName) ? next.delete(countyName) : next.add(countyName);
+      return next;
+    });
   }
 
   async function save() {
@@ -63,31 +105,74 @@ export function SettingsModal({ onClose }: Props) {
 
   return (
     <div style={{ position: 'fixed', inset: 0, background: '#000a', zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={onClose}>
-      <div style={{ background: '#1e1e30', border: '1px solid #444', borderRadius: 10, padding: 24, width: 320, maxHeight: '85vh', overflowY: 'auto' }} onClick={e => e.stopPropagation()}>
+      <div style={{ background: '#1e1e30', border: '1px solid #444', borderRadius: 10, padding: 24, width: 360, maxHeight: '85vh', overflowY: 'auto' }} onClick={e => e.stopPropagation()}>
         <div style={{ display: 'flex', alignItems: 'center', marginBottom: 16 }}>
           <h3 style={{ fontSize: 14, fontWeight: 700, color: '#eee', flex: 1, margin: 0 }}>⚙ Inställningar</h3>
           <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#666', fontSize: 16, cursor: 'pointer' }}>✕</button>
         </div>
 
         {/* OpOmr */}
-        <div style={{ fontSize: 11, color: '#888', marginBottom: 10, textTransform: 'uppercase', letterSpacing: 0.5 }}>
-          Operativt Område (OpOmr) — kommuner
+        <div style={{ fontSize: 11, color: '#888', marginBottom: 6, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+          Operativt Område (OpOmr)
         </div>
-        <div style={{ fontSize: 11, color: '#555', marginBottom: 14 }}>
-          Polishändelser och kartfiltret begränsas till dessa kommuner.
+        <div style={{ fontSize: 11, color: '#555', marginBottom: 12 }}>
+          Kartfiltret och händelseskördare begränsas till valda kommuner.
+          {municipalities.length > 0 && <span style={{ color: '#5b8cff' }}> {municipalities.length} valda.</span>}
         </div>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 20 }}>
-          {ALL_NORRBOTTEN_MUNICIPALITIES.map(m => (
-            <label key={m} style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
-              <input
-                type="checkbox"
-                checked={municipalities.includes(m)}
-                onChange={() => toggle(m)}
-                style={{ width: 13, height: 13 }}
-              />
-              <span style={{ fontSize: 13, color: municipalities.includes(m) ? '#ddd' : '#666' }}>{m}</span>
-            </label>
-          ))}
+
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 2, marginBottom: 20 }}>
+          {SWEDEN.map(county => {
+            const selectedInCounty = county.municipalities.filter(m => municipalities.includes(m)).length;
+            const allSelected = selectedInCounty === county.municipalities.length;
+            const someSelected = selectedInCounty > 0 && !allSelected;
+            const isExpanded = expanded.has(county.name);
+
+            return (
+              <div key={county.name} style={{ border: '1px solid #2a2a40', borderRadius: 5, overflow: 'hidden' }}>
+                {/* County header */}
+                <div style={{ display: 'flex', alignItems: 'center', padding: '6px 8px', background: '#16162a', gap: 8, cursor: 'pointer' }}>
+                  <input
+                    type="checkbox"
+                    checked={allSelected}
+                    ref={el => { if (el) el.indeterminate = someSelected; }}
+                    onChange={() => toggleCounty(county)}
+                    onClick={e => e.stopPropagation()}
+                    style={{ width: 13, height: 13, cursor: 'pointer' }}
+                  />
+                  <span
+                    onClick={() => toggleExpand(county.name)}
+                    style={{ flex: 1, fontSize: 12, color: selectedInCounty > 0 ? '#ccd' : '#667', fontWeight: selectedInCounty > 0 ? 600 : 400 }}
+                  >
+                    {county.name}
+                  </span>
+                  {selectedInCounty > 0 && (
+                    <span style={{ fontSize: 10, color: '#5b8cff', minWidth: 20, textAlign: 'right' }}>{selectedInCounty}</span>
+                  )}
+                  <span
+                    onClick={() => toggleExpand(county.name)}
+                    style={{ fontSize: 10, color: '#444', cursor: 'pointer', padding: '0 2px' }}
+                  >{isExpanded ? '▲' : '▼'}</span>
+                </div>
+
+                {/* Municipalities */}
+                {isExpanded && (
+                  <div style={{ padding: '6px 8px 8px 28px', display: 'flex', flexDirection: 'column', gap: 4, background: '#1a1a2e' }}>
+                    {county.municipalities.map(m => (
+                      <label key={m} style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
+                        <input
+                          type="checkbox"
+                          checked={municipalities.includes(m)}
+                          onChange={() => toggleMunicipality(m)}
+                          style={{ width: 12, height: 12 }}
+                        />
+                        <span style={{ fontSize: 12, color: municipalities.includes(m) ? '#ddd' : '#556' }}>{m}</span>
+                      </label>
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
 
         {/* Historikretention */}
@@ -103,10 +188,7 @@ export function SettingsModal({ onClose }: Props) {
               max={365}
               value={retentionDays}
               onChange={e => { setRetentionDays(Number(e.target.value)); setSaved(false); }}
-              style={{
-                width: 52, padding: '3px 6px', background: '#16162a', border: '1px solid #444',
-                borderRadius: 4, color: '#ddd', fontSize: 12, textAlign: 'right',
-              }}
+              style={{ width: 52, padding: '3px 6px', background: '#16162a', border: '1px solid #444', borderRadius: 4, color: '#ddd', fontSize: 12, textAlign: 'right' }}
             />
             <span style={{ fontSize: 12, color: '#666' }}>dagar</span>
           </label>
