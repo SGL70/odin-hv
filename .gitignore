@@ -3,3 +3,15 @@ dist/
 .env
 *.local
 .DS_Store
+
+# API-scheman och dokumentation (nedladdade referensfiler)
+*.zip
+datex.*
+road.*
+rail.*
+ols.*
+j_rnv_g.*
+v_gdata.*
+
+# Snapshots
+snapshots/
