@@ -20,7 +20,7 @@ Kartbaserat situationsmedvetenhetssystem för Hemvärnet. Realtidslägesbild av 
 ### Installation
 
 ```bash
-git clone https://github.com/SGL70/resurslage.git
+git clone https://github.com/SGL70/odin-hv.git
 cd resurslage
 
 cp .env.example .env
