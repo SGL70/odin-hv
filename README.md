@@ -13,6 +13,8 @@ ODIN hv är ett kartbaserat situationsmedvetenhetssystem för Hemvärnet. System
 
 ## Vad som är gjort
 
+![ODIN hv skärmbild](ODINhv.png)
+
 ### Karta & lägesbild
 - 27 kartlager (logistik, infrastruktur, händelser) — JWT-skyddade, WebSocket-realtid
 - Kritikalitetsmärkning på alla objekt: Normal / Viktig (gul) / Kritisk (röd) med visuell ring på kartan
