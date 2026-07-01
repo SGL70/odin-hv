@@ -7,7 +7,7 @@ export interface User {
   role: Role;
 }
 
-export type LayerId = 'fuel' | 'food' | 'water' | 'raw_materials' | 'vehicles' | 'roads' | 'bridges' | 'maintenance' | 'hygiene' | 'staging_areas' | 'transshipment' | 'cameras' | 'powerlines' | 'telecom' | 'railways' | 'ports' | 'airports' | 'medical' | 'emergency' | 'tunnels' | 'fording_points' | 'police_events' | 'road_situations' | 'power_outages' | 'sms_alerts';
+export type LayerId = 'fuel' | 'food' | 'water' | 'raw_materials' | 'vehicles' | 'firewood' | 'consumables' | 'roads' | 'bridges' | 'maintenance' | 'hygiene' | 'staging_areas' | 'transshipment' | 'cameras' | 'powerlines' | 'telecom' | 'railways' | 'ports' | 'airports' | 'medical' | 'emergency' | 'tunnels' | 'fording_points' | 'police_events' | 'road_situations' | 'power_outages' | 'sms_alerts';
 
 export interface LayerConfig {
   id: LayerId;
@@ -139,6 +139,35 @@ export const LAYERS: LayerConfig[] = [
       { key: 'max_load_ton', label: 'Maxlast', type: 'number', unit: 'ton' },
       { key: 'width_m', label: 'Bredd', type: 'number', unit: 'm' },
       { key: 'height_m', label: 'Höjd', type: 'number', unit: 'm' },
+    ],
+  },
+  {
+    id: 'firewood',
+    label: 'Ved',
+    color: '#6d4c41',
+    icon: '🪵',
+    group: 'resources',
+    fields: [
+      { key: 'wood_type', label: 'Träslag', type: 'select', options: ['Björk', 'Gran', 'Tall', 'Blandved', 'Övrigt'] },
+      { key: 'quantity_m3', label: 'Mängd', type: 'number', unit: 'm³' },
+      { key: 'moisture_pct', label: 'Fuktighet', type: 'number', unit: '%' },
+      { key: 'owner', label: 'Ägare', type: 'text' },
+      { key: 'status', label: 'Status', type: 'select', options: ['Tillgänglig', 'Reserverad', 'Ej tillgänglig'] },
+    ],
+  },
+  {
+    id: 'consumables',
+    label: 'Förbrukningsart',
+    color: '#78909c',
+    icon: '📦',
+    group: 'resources',
+    fields: [
+      { key: 'item_type', label: 'Typ', type: 'text' },
+      { key: 'quantity', label: 'Antal/Mängd', type: 'number' },
+      { key: 'unit', label: 'Enhet', type: 'select', options: ['st', 'kg', 'liter', 'förp', 'kartong'] },
+      { key: 'expiry', label: 'Hållbarhet', type: 'date' },
+      { key: 'owner', label: 'Ägare/Förband', type: 'text' },
+      { key: 'status', label: 'Status', type: 'select', options: ['Tillgänglig', 'Lågt lager', 'Slut'] },
     ],
   },
   {
