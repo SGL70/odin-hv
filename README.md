@@ -115,17 +115,17 @@ Prioriteringen nedan väger även mot ABI-pelarna (se Metodik ovan) — t.ex. st
 
 3. **Videoströmmar från drönare** — realtids- eller nära-realtidsvideo i FeaturePanel (nytt lager, samma mönster som dagens `photo_url`-kameror men video i stället för stillbild). Kräver en självhostad relay (RTSP/RTMP → WebRTC eller HLS, t.ex. MediaMTX/go2rtc) som ny docker-compose-tjänst, eftersom webbläsare inte kan spela råa drönarströmmar direkt. Ingen drönare tillgänglig för test i nuläget — se separat plan innan implementation påbörjas
 
+4. **Persistent identitet vid skördning** — skördade lager (broar, vägar m.fl.) raderar och återskapar alla rader vid varje körning (`clearHarvested()` + `saveFeatures()` utan matchning), så ett nytt `uid` skapas varje gång. Namnändringar, kritikalitetsmärkning och `target_uid`-varningsregler mot skördade objekt går därför förlorade vid nästa skördning av samma lager. Lösning: matcha mot en stabil extern nyckel som redan hämtas men slängs idag (`osm_id` för broar, `GID` för NVDB-vägar) och bevara `uid`/kritikalitet/ev. eget namn vid omskördning i stället för att radera blint
+
 ### Backlog
 
-4. **Mobil fältrapportering (PWA)** — avskalad vy `/report` för rapportering i fält
+5. **Mobil fältrapportering (PWA)** — avskalad vy `/report` för rapportering i fält
    - Auto-GPS, kamerabild, touch-vänligt formulär
    - Rapporterar in händelser och resurser med positionsdata
 
-5. **Mobildata-integration** — självkonfigurabel via inställningar (URL, nyckel, dokumentationslänk)
+6. **Mobildata-integration** — självkonfigurabel via inställningar (URL, nyckel, dokumentationslänk)
 
-6. **Trendvisning** — linjediagram i analyspanelen (snapshot-historik finns, UI saknas)
-
-7. **Lantmäteriet Topo WMTS** (kräver gratis token)
+7. **Trendvisning** — linjediagram i analyspanelen (snapshot-historik finns, UI saknas)
 
 8. **Rutting** med fordonsklassbegränsning (OpenRouteService)
 
