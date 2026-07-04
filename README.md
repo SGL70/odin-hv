@@ -135,7 +135,7 @@ Prioriteringen nedan väger även mot ABI-pelarna (se Metodik ovan) — t.ex. st
 
 11. **Kommentarsfuntktion på objekt** - Genom att kommentera (och tagga kollegor??) flaggar man upp saker som behöver flera ögon och hjärnor.
 
-12. **Ta fram user guide**
+12. **Ta fram utbildningsmaterial** — filmer/screencasts och genomgångar utöver den befintliga textbaserade användarguiden (`/docs`), för onboarding av nya användare
 
 13. **Ta fram API endpoints för integration mot överordnade system** - Skapa möjligheten att framtida system och för andra delar av FM och blåsljusverksamheten att ta del av informationen digital. Detta omfattar även API-dokumentationen.
 
