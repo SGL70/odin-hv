@@ -22,7 +22,7 @@ async function req<T>(method: string, path: string, body?: unknown): Promise<T> 
 
 export const api = {
   login: (username: string, password: string) =>
-    req<{ token: string; user: { id: number; username: string; role: string } }>('POST', '/auth/login', { username, password }),
+    req<{ token: string; user: { id: number; username: string; role: string }; previousLoginAt: string | null }>('POST', '/auth/login', { username, password }),
 
   me: () => req<{ id: number; username: string; role: string }>('GET', '/auth/me'),
 
@@ -92,8 +92,8 @@ export const api = {
       req<AlertRule>('PUT', `/alerts/rules/${id}`, data),
     deleteRule: (id: number) => req<{ ok: boolean }>('DELETE', `/alerts/rules/${id}`),
 
-    listEvents: (status: AlertStatus | 'all' = 'open') =>
-      req<AlertEvent[]>('GET', `/alerts/events?status=${status}`),
+    listEvents: (status: AlertStatus | 'all' = 'open', since?: string) =>
+      req<AlertEvent[]>('GET', `/alerts/events?status=${status}${since ? `&since=${encodeURIComponent(since)}` : ''}`),
     acknowledge: (id: number) => req<AlertEvent>('POST', `/alerts/events/${id}/acknowledge`),
 
     evaluateNow: () => req<{ ok: boolean }>('POST', '/alerts/evaluate'),

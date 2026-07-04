@@ -14,12 +14,14 @@ router.post('/login', async (req, res) => {
     const user = rows[0];
     if (!user || !(await bcrypt.compare(password, user.password_hash)))
       return res.status(401).json({ error: 'Felaktigt användarnamn eller lösenord' });
+    const previousLoginAt = user.last_login_at;
+    await db.query('UPDATE users SET last_login_at = NOW() WHERE id = $1', [user.id]);
     const token = jwt.sign(
       { id: user.id, username: user.username, role: user.role },
       process.env.JWT_SECRET,
       { expiresIn: '24h' }
     );
-    res.json({ token, user: { id: user.id, username: user.username, role: user.role } });
+    res.json({ token, user: { id: user.id, username: user.username, role: user.role }, previousLoginAt });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

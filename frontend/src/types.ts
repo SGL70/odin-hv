@@ -1,3 +1,5 @@
+import type { ChangelogEntry } from './changelog';
+
 export type Role = 'reader' | 'editor' | 'admin';
 export type LayerGroup = 'events' | 'resources' | 'layers' | 'basemap';
 
@@ -66,6 +68,11 @@ export interface AlertEvent {
   acknowledged_by_name?: string;
   acknowledged_at: string | null;
   created_at: string;
+}
+
+export interface CatchupData {
+  alerts: AlertEvent[];
+  changelogEntries: ChangelogEntry[];
 }
 
 export type LayerId = 'fuel' | 'food' | 'water' | 'raw_materials' | 'vehicles' | 'firewood' | 'consumables' | 'roads' | 'bridges' | 'maintenance' | 'hygiene' | 'staging_areas' | 'transshipment' | 'cameras' | 'powerlines' | 'telecom' | 'railways' | 'ports' | 'airports' | 'medical' | 'emergency' | 'tunnels' | 'fording_points' | 'police_events' | 'road_situations' | 'power_outages' | 'sms_alerts' | 'intelligence_reports' | 'railway_situations';

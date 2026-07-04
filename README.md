@@ -88,6 +88,13 @@ Konsoliderat designsystem framtaget via Claude Design, implementerat rakt igenom
 - `FeaturePanel` + `HarvestSidebar` slogs ihop till en tabbad högerpanel (Objekt / Skördare) — båda hålls monterade så en pågående skördning inte avbryts vid flikbyte
 - "+ 7S"-knapp (tidigare "+ Lägg till") väljer Underrättelserapporter som förvalt lager; en nålmarkör visas på platsen tills objektet sparats
 
+### Catch-up-modal vid inloggning (2026-07-04)
+Loggar man in efter mer än 8 timmar sedan förra inloggningen visas en modal med två sektioner, i prioriteringsordning:
+- **🔔 Larm du missat** — öppna varningar skapade sedan förra inloggningen, kvitterbara direkt i modalen
+- **🆕 Nytt i appen** — handskriven changelog över funktioner som tillkommit sedan dess
+
+Går att avfärda med ✕ men kan öppnas igen under sessionen via en knapp i topheadern. Första inloggningen någonsin visar aldrig modalen.
+
 ### SMS-aviseringar & Tips via SMS (2026-07-04)
 46elks-webhooken (`POST /api/sms/incoming`) delar nu upp inkommande SMS i två flöden i stället för att auto-placera allt:
 - **SMS-aviseringar** — kända avsändare (kommunala VA-/elbolag m.fl.) auto-placeras som en `sms_alerts`-feature på sin registrerade plats, precis som tidigare
@@ -222,7 +229,8 @@ odin-hv/
     ├── public/
     │   └── korp.png                # Korpsilhuett (logotypbild)
     └── src/
-        ├── types.ts                # Lagerdefinitioner (28 lager) + Alert-/Sms-typer
+        ├── types.ts                # Lagerdefinitioner (28 lager) + Alert-/Sms-/Catchup-typer
+        ├── changelog.ts            # Handskriven lista över nya app-funktioner (catch-up-modal)
         ├── styles/
         │   └── tokens.ts           # Designtokens (färg, typografi, radius, spacing)
         ├── lib/
@@ -233,6 +241,7 @@ odin-hv/
             ├── MapView.tsx         # Huvudkartkomponent
             ├── Sidebar.tsx         # Vänster sidebar (inkl. Varningar-sektion)
             ├── RightPanel.tsx      # Tabbad högerpanel: Objekt (FeaturePanel) / Skördare (HarvestSidebar)
+            ├── CatchupModal.tsx    # "Sedan du var inne senast" — missade larm + changelog
             ├── HarvestSidebar.tsx  # Dataskördare inkl. TRV
             ├── AnalysisPanel.tsx   # Störningsanalys med drill-down
             ├── FeaturePanel.tsx    # Objektpanel med kritikalitet

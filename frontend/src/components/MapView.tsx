@@ -11,6 +11,7 @@ import { SettingsModal } from './SettingsModal';
 import { AnalysisPanel } from './AnalysisPanel';
 import { AlertRulesModal } from './AlertRulesModal';
 import { AlertBanner } from './AlertBanner';
+import { CatchupModal } from './CatchupModal';
 import { OdinLogo } from './OdinLogo';
 import { ReportListPanel } from './ReportListPanel';
 import { SmsTipsPanel } from './SmsTipsPanel';
@@ -47,7 +48,7 @@ const DRAW_LAYERS: LayerId[] = [...POLYGON_LAYERS, ...LINE_LAYERS];
 
 
 export function MapView() {
-  const { user, logout } = useAuth();
+  const { user, logout, catchupData, catchupOpen, openCatchup, closeCatchup } = useAuth();
   const mapRef = useRef<maplibregl.Map | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -938,6 +939,11 @@ export function MapView() {
           <button className="btn-ghost btn-sm" onClick={() => setShowSettings(true)}>⚙ Inställningar</button>
         )}
         <div style={{ flex: 1 }} />
+        {catchupData && (catchupData.alerts.length + catchupData.changelogEntries.length > 0) && (
+          <button className="btn-ghost btn-sm" onClick={openCatchup}>
+            📋 {catchupData.alerts.length + catchupData.changelogEntries.length}
+          </button>
+        )}
         <a href="/docs/00-index.html" target="_blank" rel="noreferrer" style={{ fontSize: 12, color: '#888', textDecoration: 'none', padding: '4px 8px', border: '1px solid #444', borderRadius: 4 }}>📖 Hjälp</a>
         <a href="/api/export/kmz" style={{ fontSize: 12, color: '#888', textDecoration: 'none', padding: '4px 8px', border: '1px solid #444', borderRadius: 4 }} download>⬇ KMZ</a>
         <span style={{ fontSize: 12, color: '#888' }}>
@@ -960,6 +966,10 @@ export function MapView() {
         onDismiss={id => setBannerAlerts(prev => prev.filter(e => e.id !== id))}
         onAcknowledge={acknowledgeAlert}
       />
+
+      {catchupOpen && catchupData && (
+        <CatchupModal data={catchupData} onClose={closeCatchup} onAcknowledgeAlert={acknowledgeAlert} />
+      )}
 
       {showDash && <Dashboard onClose={() => setShowDash(false)} />}
 
