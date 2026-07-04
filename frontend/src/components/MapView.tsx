@@ -48,6 +48,21 @@ const POLYGON_LAYERS: LayerId[] = ['staging_areas', 'airports'];
 const LINE_LAYERS: LayerId[] = ['roads', 'railways', 'tunnels', 'powerlines'];
 const DRAW_LAYERS: LayerId[] = [...POLYGON_LAYERS, ...LINE_LAYERS];
 
+function geometryCenter(geometry: GeoJSON.Geometry): [number, number] | null {
+  if (geometry.type === 'Point') return geometry.coordinates as [number, number];
+  if (geometry.type === 'LineString') {
+    const coords = geometry.coordinates as [number, number][];
+    return coords[Math.floor(coords.length / 2)] ?? null;
+  }
+  if (geometry.type === 'Polygon') {
+    const ring = geometry.coordinates[0] as [number, number][];
+    if (!ring.length) return null;
+    const sum = ring.reduce((acc, c) => [acc[0] + c[0], acc[1] + c[1]], [0, 0]);
+    return [sum[0] / ring.length, sum[1] / ring.length];
+  }
+  return null;
+}
+
 
 export function MapView() {
   const { user, logout, catchupData, catchupOpen, openCatchup, closeCatchup } = useAuth();
@@ -905,6 +920,13 @@ export function MapView() {
 
   const counts = Object.fromEntries(LAYERS.map(l => [l.id, features.filter(f => f.properties.layer === l.id).length]));
 
+  const centerOnFeature = (f: Feature) => {
+    const map = mapRef.current;
+    const center = geometryCenter(f.geometry);
+    if (!map || !center) return;
+    map.easeTo({ center, zoom: Math.max(map.getZoom(), 13) });
+  };
+
   const submitNew = async () => {
     if (!newName.trim()) return;
 
@@ -1061,7 +1083,7 @@ export function MapView() {
         <CriticalityPanel
           features={features}
           onClose={() => setShowCriticality(false)}
-          onSelect={f => setSelected(f)}
+          onSelect={f => { setSelected(f); centerOnFeature(f); }}
         />
       )}
 
