@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useCallback } from 'react';
+import { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import maplibregl from 'maplibre-gl';
 import { api } from '../api';
 import { LAYERS, getLayer } from '../types';
@@ -17,6 +17,7 @@ import { ReportListPanel } from './ReportListPanel';
 import { SmsTipsPanel } from './SmsTipsPanel';
 import { registerReportIcons, buildReportIconExpression } from '../lib/reportSymbols';
 import { useAuth } from '../contexts/AuthContext';
+import { STATUS } from '../styles/tokens';
 import { io } from 'socket.io-client';
 
 const LM_TOPO_URL = 'https://minkarta.lantmateriet.se/map/topowebb/?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=topowebbkartan&BBOX={bbox-epsg-3857}&WIDTH=256&HEIGHT=256&SRS=EPSG:3857&FORMAT=image/png';
@@ -481,6 +482,72 @@ export function MapView() {
       if (map.getLayer(lid)) map.moveLayer(lid);
     }
   }, [features, addMode, mapLoaded]);
+
+  // Pulserande markering vid platsen för öppna larm — källobjektet (feature_uid) och,
+  // för proximity-regler, det närliggande kritiska objektet (details.target_uid) samt
+  // för cluster-regler alla klustrade objekt (details.uids). Egen effekt separat från
+  // den stora features-effekten ovan, men måste ändå moveLayer:as till toppen varje
+  // gång den kör — annars kan en features:reloaded-omkörning av den andra effekten
+  // täcka pulsen igen.
+  const alertPulsePoints = useMemo(() => {
+    const points: GeoJSON.Feature[] = [];
+    const seen = new Set<string>();
+    const addPoint = (uid?: string | null) => {
+      if (!uid || seen.has(uid)) return;
+      seen.add(uid);
+      const f = features.find(x => x.properties.uid === uid);
+      if (f?.geometry.type === 'Point') points.push({ type: 'Feature', geometry: f.geometry, properties: {} });
+    };
+    for (const a of openAlerts) {
+      addPoint(a.feature_uid);
+      const d = a.details as { target_uid?: string; uids?: string[] };
+      addPoint(d.target_uid);
+      (d.uids || []).forEach(addPoint);
+    }
+    return points;
+  }, [openAlerts, features]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapLoaded) return;
+    const geojson = { type: 'FeatureCollection' as const, features: alertPulsePoints };
+    const src = map.getSource('src-alert-pulse') as maplibregl.GeoJSONSource | undefined;
+    if (src) {
+      src.setData(geojson);
+    } else {
+      map.addSource('src-alert-pulse', { type: 'geojson', data: geojson });
+      map.addLayer({
+        id: 'alert-pulse-ring', type: 'circle', source: 'src-alert-pulse',
+        paint: { 'circle-radius': 10, 'circle-color': 'transparent', 'circle-stroke-color': STATUS.critical.fg, 'circle-stroke-width': 2, 'circle-stroke-opacity': 0.9 },
+      });
+      map.addLayer({
+        id: 'alert-pulse-dot', type: 'circle', source: 'src-alert-pulse',
+        paint: { 'circle-radius': 4, 'circle-color': STATUS.critical.fg },
+      });
+    }
+    for (const lid of ['alert-pulse-ring', 'alert-pulse-dot']) {
+      if (map.getLayer(lid)) map.moveLayer(lid);
+    }
+  }, [alertPulsePoints, mapLoaded]);
+
+  // Animationsloop för alert-pulse-ring — en "radar ping" (växande ring som tonar bort),
+  // startar/stoppar baserat på om det finns några pulserbara punkter just nu.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapLoaded || !map.getLayer('alert-pulse-ring')) return;
+    if (alertPulsePoints.length === 0) return;
+
+    let raf: number;
+    const start = performance.now();
+    const tick = (now: number) => {
+      const t = ((now - start) / 1200) % 1; // 1.2s periodtid
+      map.setPaintProperty('alert-pulse-ring', 'circle-radius', 8 + t * 14);
+      map.setPaintProperty('alert-pulse-ring', 'circle-stroke-opacity', 1 - t);
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [alertPulsePoints, mapLoaded]);
 
   // Visibility toggle
   useEffect(() => {

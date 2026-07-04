@@ -1,6 +1,7 @@
 const express = require('express');
 const db = require('../db');
 const { requireAuth, requireRole } = require('../middleware/auth');
+const { evaluateAlerts } = require('../services/alertEngine');
 
 const router = express.Router();
 
@@ -163,6 +164,10 @@ router.post('/', requireAuth, requireRole('editor', 'admin'), async (req, res) =
     );
     const feature = toGeoJSON(feat).features[0];
     req.io.emit('feature:created', feature);
+    // Manuellt skapade objekt är en lika giltig signal som skördad data (ABI-dataneutralitet) —
+    // en ny/uppdaterad kritikalitetsmärkning eller rapport ska kunna trigga varningsregler direkt,
+    // inte bara vänta till nästa skördning (samma mönster som afterHarvest() i harvest.js).
+    evaluateAlerts(req.io).catch(err => console.error('Alert evaluation error:', err.message));
     res.status(201).json(feature);
   } catch (err) {
     res.status(400).json({ error: err.message });
@@ -185,6 +190,7 @@ router.put('/:uid', requireAuth, requireRole('editor', 'admin'), async (req, res
     );
     const feature = toGeoJSON(rows).features[0];
     req.io.emit('feature:updated', feature);
+    evaluateAlerts(req.io).catch(err => console.error('Alert evaluation error:', err.message));
     res.json(feature);
   } catch (err) {
     res.status(400).json({ error: err.message });
