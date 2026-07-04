@@ -145,7 +145,14 @@ async function ensureSmsTablesSchema() {
   console.log('sms_senders/sms_tips-schema klart');
 }
 
+// Catch-up vid inloggning ("larm du missat" + "nytt i appen") behöver veta när
+// användaren senast loggade in för att kunna avgränsa vad som är nytt sedan dess.
+async function ensureLastLoginColumn() {
+  await db.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS last_login_at TIMESTAMPTZ`);
+  console.log('users.last_login_at-kolumn klar');
+}
+
 module.exports = {
   ensureAlertSchema, ensureIntelligenceReportsLayer, ensureRailwaySituationsLayer, ensureFeatureHistorySchema,
-  ensureUserPreferencesColumn, ensureSmsTablesSchema,
+  ensureUserPreferencesColumn, ensureSmsTablesSchema, ensureLastLoginColumn,
 };

@@ -5,7 +5,7 @@ const cors = require('cors');
 const helmet = require('helmet');
 const bcrypt = require('bcryptjs');
 const db = require('./db');
-const { ensureAlertSchema, ensureIntelligenceReportsLayer, ensureRailwaySituationsLayer, ensureFeatureHistorySchema, ensureUserPreferencesColumn, ensureSmsTablesSchema } = require('./migrations');
+const { ensureAlertSchema, ensureIntelligenceReportsLayer, ensureRailwaySituationsLayer, ensureFeatureHistorySchema, ensureUserPreferencesColumn, ensureSmsTablesSchema, ensureLastLoginColumn } = require('./migrations');
 
 const app = express();
 const server = http.createServer(app);
@@ -98,6 +98,7 @@ async function start() {
   await ensureFeatureHistorySchema();
   await ensureUserPreferencesColumn();
   await ensureSmsTablesSchema();
+  await ensureLastLoginColumn();
   scheduleDailySnapshot();
   server.listen(PORT, () => console.log(`Resursläge backend på port ${PORT}`));
 }

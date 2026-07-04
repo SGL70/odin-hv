@@ -58,7 +58,7 @@ router.delete('/rules/:id', requireAuth, requireRole('admin'), async (req, res) 
 
 router.get('/events', requireAuth, async (req, res) => {
   try {
-    const { status } = req.query;
+    const { status, since } = req.query;
     const conditions = [];
     const params = [];
     if (status && status !== 'all') {
@@ -66,6 +66,10 @@ router.get('/events', requireAuth, async (req, res) => {
       conditions.push(`e.status = $${params.length}`);
     } else if (!status) {
       conditions.push(`e.status = 'open'`);
+    }
+    if (since) {
+      params.push(since);
+      conditions.push(`e.created_at > $${params.length}`);
     }
     const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
     const { rows } = await db.query(`
