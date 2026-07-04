@@ -148,6 +148,7 @@ function buildOsmFeatures(elements) {
         phone: tags.phone || tags['contact:phone'] || null,
         opening_hours: tags.opening_hours || null,
         osm_id: `${e.type}/${e.id}`,
+        external_id: `${e.type}/${e.id}`,
         scraped_at: new Date().toISOString(),
       },
     };
@@ -222,6 +223,7 @@ async function okq8Station(url) {
       phone: ld.telephone || null,
       opening_hours: hours,
       station_url: url,
+      external_id: url,
       scraped_at: new Date().toISOString(),
     },
   };
@@ -286,6 +288,24 @@ async function archiveAndDelete(whereSql, params, reason) {
   await db.query(`DELETE FROM features WHERE ${whereSql}`, params);
 }
 
+// Läser upp uid/kritikalitet/visningsnamn för rader som är på väg att raderas av clearHarvested(),
+// så saveFeatures() kan återanvända samma uid och bevara användarsatta fält vid omskördning i
+// stället för att varje körning skapar helt nya rader (se roadmap "Persistent identitet vid skördning").
+async function captureIdentity(layer, sourcePattern = null) {
+  const conditions = [`layer = $1`, `(attributes->>'scraped_at') IS NOT NULL`, `attributes ? 'external_id'`];
+  const params = [layer];
+  if (sourcePattern) { params.push(sourcePattern); conditions.push(`attributes->>'source' ILIKE $2`); }
+  const { rows } = await db.query(
+    `SELECT attributes->>'external_id' AS external_id, uid,
+            attributes->>'criticality' AS criticality, attributes->>'display_name' AS display_name
+     FROM features WHERE ${conditions.join(' AND ')}`,
+    params,
+  );
+  const map = new Map();
+  for (const r of rows) map.set(r.external_id, { uid: r.uid, criticality: r.criticality, display_name: r.display_name });
+  return map;
+}
+
 async function clearHarvested(layer, sourcePattern = null) {
   if (sourcePattern) {
     await archiveAndDelete(
@@ -310,19 +330,35 @@ function deriveOccurredAt(attrs) {
   return attrs.start_time || attrs.scheduled_time || attrs.measured_at || attrs.datetime || attrs.scraped_at || new Date().toISOString();
 }
 
-async function saveFeatures(features, userId) {
+async function saveFeatures(features, userId, identityMap = null) {
   let imported = 0, skipped = 0;
   for (const f of features) {
     const { layer, name, ...attrs } = f.properties;
     if (!layer || !name || !f.geometry) { skipped++; continue; }
     if (!attrs.occurred_at) attrs.occurred_at = deriveOccurredAt(attrs);
+
+    const identity = identityMap && attrs.external_id != null
+      ? identityMap.get(String(attrs.external_id))
+      : null;
+    if (identity) {
+      if (identity.criticality != null) attrs.criticality = identity.criticality;
+      if (identity.display_name != null) attrs.display_name = identity.display_name;
+    }
+
     try {
-      const result = await db.query(
-        `INSERT INTO features (layer, name, geom, cot_type, attributes, created_by, updated_by)
-         VALUES ($1, $2, ST_GeomFromGeoJSON($3), 'b-m-p-s-p', $4, $5, $5)
-         ON CONFLICT DO NOTHING`,
-        [layer, name, JSON.stringify(f.geometry), attrs, userId]
-      );
+      const result = identity
+        ? await db.query(
+            `INSERT INTO features (uid, layer, name, geom, cot_type, attributes, created_by, updated_by)
+             VALUES ($1, $2, $3, ST_GeomFromGeoJSON($4), 'b-m-p-s-p', $5, $6, $6)
+             ON CONFLICT DO NOTHING`,
+            [identity.uid, layer, name, JSON.stringify(f.geometry), attrs, userId]
+          )
+        : await db.query(
+            `INSERT INTO features (layer, name, geom, cot_type, attributes, created_by, updated_by)
+             VALUES ($1, $2, ST_GeomFromGeoJSON($3), 'b-m-p-s-p', $4, $5, $5)
+             ON CONFLICT DO NOTHING`,
+            [layer, name, JSON.stringify(f.geometry), attrs, userId]
+          );
       imported += result.rowCount || 0;
       if ((result.rowCount || 0) === 0) skipped++;
     } catch { skipped++; }
@@ -389,6 +425,7 @@ async function fetchTrvCameras(bbox) {
   return items.map(c => ({
     type: 'Feature', geometry: parseTrvWKT(c?.Geometry?.WGS84),
     properties: { layer: 'cameras', name: c.Name || c.Id, source: 'Trafikverket/Camera',
+      external_id: c.Id || undefined,
       camera_type: c.Type || 'Trafikkamera', owner: 'Trafikverket',
       direction: c.Direction ?? null, status: c.Status || 'Operativ',
       photo_url: c.PhotoUrl || null, scraped_at: now },
@@ -401,6 +438,7 @@ async function fetchTrvAtk(bbox) {
   return items.map(c => ({
     type: 'Feature', geometry: parseTrvWKT(c?.Geometry?.WGS84),
     properties: { layer: 'cameras', name: c.Name || `ATK ${c.RoadNumber || c.Id}`, source: 'Trafikverket/ATK',
+      external_id: c.Id || undefined,
       camera_type: 'ATK/Fartkamera', owner: 'Trafikverket',
       direction: c.Bearing ?? null, scraped_at: now },
   })).filter(f => f.geometry);
@@ -417,6 +455,7 @@ async function fetchTrvRoads(bbox) {
     const bk = r.Bärighetsklass || 'BK 1';
     return { type: 'Feature', geometry: geom,
       properties: { layer: 'roads', name: bk, source: 'Trafikverket/NVDB',
+        external_id: r.GID != null ? String(r.GID) : undefined,
         bk_class: bk, bk_winter: r.Bärighetsklass_vinterperiod || null,
         max_axle_ton: BK_TON[bk] ?? null, scraped_at: now } };
   }).filter(Boolean);
@@ -429,7 +468,8 @@ async function fetchTrvFerries(bbox) {
   return items.map(f => ({
     type: 'Feature', geometry: parseTrvWKT(f?.Geometry?.['WKT-WGS84-3D']),
     properties: { layer: 'ports', name: f.Färjeledsnamn || `Färjeled ${f.GID}`,
-      source: 'Trafikverket/NVDB', port_type: 'Färjeled', scraped_at: now },
+      source: 'Trafikverket/NVDB', external_id: f.GID != null ? String(f.GID) : undefined,
+      port_type: 'Färjeled', scraped_at: now },
   })).filter(f => f.geometry);
 }
 
@@ -447,7 +487,8 @@ async function fetchTrvTraffic(bbox) {
     const dir   = SIDE[r.MeasurementSide] ?? '';
     return { type: 'Feature', geometry: geom,
       properties: { layer: 'roads', name: speed != null ? `${speed} km/h${dir ? ' '+dir : ''}` : `Mätpunkt ${r.SiteId}`,
-        source: 'Trafikverket/Traffic', avg_speed_kmh: speed,
+        source: 'Trafikverket/Traffic', external_id: r.SiteId != null ? String(r.SiteId) : undefined,
+        avg_speed_kmh: speed,
         flow_per_hour: r.VehicleFlowRate != null ? Math.round(r.VehicleFlowRate) : null,
         measured_at: r.MeasurementTime || null, scraped_at: now } };
   }).filter(Boolean);
@@ -473,8 +514,9 @@ function makeTrvScrapeRoute(sourceId, fetchFn, layer, clearPattern) {
       const features = await fetchFn(bbox);
       if (ctrl.signal.aborted) throw cancelledError(sourceId);
       io.emit('harvest:progress', { source: sourceId, phase: 'Sparar…', done: 1, total: 1 });
+      const identityMap = await captureIdentity(layer, clearPattern);
       await clearHarvested(layer, clearPattern);
-      const { imported, skipped } = await saveFeatures(features, req.user?.id || 0);
+      const { imported, skipped } = await saveFeatures(features, req.user?.id || 0, identityMap);
       io.emit('harvest:done', { source: sourceId, imported, skipped });
       if (imported > 0) io.emit('features:reloaded', {});
       afterHarvest(io);
@@ -532,6 +574,7 @@ function buildBridgeFeatures(elements) {
         maxweight: tags.maxweight || null,
         maxaxleload: tags.maxaxleload || null,
         osm_id: `way/${e.id}`,
+        external_id: `way/${e.id}`,
         scraped_at: new Date().toISOString(),
       },
     };
@@ -600,6 +643,7 @@ async function policeEvents(municipalities) {
           url: `https://polisen.se${e.url}`,
           source: 'Polisen',
           police_id: String(e.id),
+          external_id: e.id != null ? String(e.id) : undefined,
           scraped_at: new Date().toISOString(),
         },
       };
@@ -711,9 +755,10 @@ router.post('/situations/scrape', requireAuth, async (req, res) => {
       [],
       'ttl_expired',
     );
+    const identityMap = await captureIdentity('road_situations', null);
     await clearHarvested('road_situations');
     io.emit('harvest:progress', { source: 'situations', phase: 'Sparar…', done: 1, total: 1 });
-    const { imported, skipped } = await saveFeatures(features, req.user?.id || 0);
+    const { imported, skipped } = await saveFeatures(features, req.user?.id || 0, identityMap);
     io.emit('harvest:done', { source: 'situations', imported, skipped });
     io.emit('features:reloaded', {});
     afterHarvest(io);
@@ -770,12 +815,16 @@ function buildRailwayFeatures(announcements, stations) {
     const st = stationBySig[a.LocationSignature];
     if (!st) continue;
     const devText = (a.Deviation || []).map(d => d.Description).join(', ');
+    const externalId = a.AdvertisedTrainIdent && a.LocationSignature && a.AdvertisedTimeAtLocation
+      ? `${a.AdvertisedTrainIdent}:${a.LocationSignature}:${a.AdvertisedTimeAtLocation}`
+      : undefined;
     features.push({
       type: 'Feature',
       geometry: { type: 'Point', coordinates: [st.lng, st.lat] },
       properties: {
         layer: 'railway_situations',
         name: `${a.Canceled ? 'Inställt tåg' : 'Tågstörning'} vid ${st.name}`,
+        external_id: externalId,
         event_type: devText || (a.Canceled ? 'Inställt' : 'Störning'),
         activity_type: a.ActivityType || '',
         scheduled_time: a.AdvertisedTimeAtLocation || '',
@@ -814,8 +863,9 @@ router.post('/railway-situations/scrape', requireAuth, requireRole('editor', 'ad
     const features = buildRailwayFeatures(anns, stations);
     if (ctrl.signal.aborted) throw cancelledError('railway-situations');
     io.emit('harvest:progress', { source: 'railway-situations', phase: 'Sparar…', done: 1, total: 1 });
+    const identityMap = await captureIdentity('railway_situations', null);
     await clearHarvested('railway_situations');
-    const { imported, skipped } = await saveFeatures(features, req.user?.id || 0);
+    const { imported, skipped } = await saveFeatures(features, req.user?.id || 0, identityMap);
     io.emit('harvest:done', { source: 'railway-situations', imported, skipped });
     if (imported > 0) io.emit('features:reloaded', {});
     afterHarvest(io);
@@ -841,8 +891,9 @@ router.post('/bridges/scrape', requireAuth, requireRole('editor', 'admin'), asyn
     const features = await fetchBridges();
     if (ctrl.signal.aborted) throw cancelledError('bridges');
     io.emit('harvest:progress', { source: 'bridges', phase: 'Sparar…', done: 1, total: 1 });
+    const identityMap = await captureIdentity('bridges', null);
     await clearHarvested('bridges');
-    const { imported, skipped } = await saveFeatures(features, req.user?.id || 0);
+    const { imported, skipped } = await saveFeatures(features, req.user?.id || 0, identityMap);
     io.emit('harvest:done', { source: 'bridges', imported, skipped });
     if (imported > 0) io.emit('features:reloaded', {});
     afterHarvest(io);
@@ -921,8 +972,9 @@ router.post('/osm/scrape', requireAuth, requireRole('editor', 'admin'), async (r
     const features = await osmFuelStations();
     if (ctrl.signal.aborted) throw cancelledError('osm');
     io.emit('harvest:progress', { source: 'osm', done: features.length, total: features.length });
+    const identityMap = await captureIdentity('fuel', 'OSM%');
     await clearHarvested('fuel', 'OSM%');
-    const { imported, skipped } = await saveFeatures(features, req.user?.id || 0);
+    const { imported, skipped } = await saveFeatures(features, req.user?.id || 0, identityMap);
     io.emit('harvest:done', { source: 'osm', imported, skipped });
     if (imported > 0) io.emit('features:reloaded', {});
     afterHarvest(io);
@@ -957,8 +1009,9 @@ router.post('/okq8/scrape', requireAuth, requireRole('editor', 'admin'), async (
         if (ctrl.signal.aborted) throw cancelledError('okq8');
         io.emit('harvest:progress', { source: 'okq8', done, total });
       });
+    const identityMap = await captureIdentity('fuel', 'OKQ8');
     await clearHarvested('fuel', 'OKQ8');
-    const { imported, skipped } = await saveFeatures(features, req.user?.id || 0);
+    const { imported, skipped } = await saveFeatures(features, req.user?.id || 0, identityMap);
     io.emit('harvest:done', { source: 'okq8', imported, skipped });
     if (imported > 0) io.emit('features:reloaded', {});
     afterHarvest(io);
@@ -986,8 +1039,9 @@ router.post('/skoogs/scrape', requireAuth, requireRole('editor', 'admin'), async
     if (ctrl.signal.aborted) throw cancelledError('skoogs');
     const features = await skoogsFuelStations();
     io.emit('harvest:progress', { source: 'skoogs', phase: 'Skoogs Bränsle…', done: 1, total: 1 });
+    const identityMap = await captureIdentity('fuel', 'Skoogs');
     await clearHarvested('fuel', 'Skoogs');
-    const { imported, skipped } = await saveFeatures(features, req.user?.id || 0);
+    const { imported, skipped } = await saveFeatures(features, req.user?.id || 0, identityMap);
     io.emit('harvest:done', { source: 'skoogs', imported, skipped });
     if (imported > 0) io.emit('features:reloaded', {});
     afterHarvest(io);
@@ -1039,8 +1093,9 @@ router.post('/combined/scrape', requireAuth, requireRole('editor', 'admin'), asy
     io.emit('harvest:progress', { source: 'combined', phase: 'Sammanfogar…', done: 0, total: 1 });
     const merged = [...mergeStations(osmFeatures, okq8Features), ...skoogsFeatures];
     io.emit('harvest:progress', { source: 'combined', phase: 'Sparar till karta…', done: 0, total: 1 });
+    const identityMap = await captureIdentity('fuel', null);
     await clearHarvested('fuel');
-    const { imported, skipped } = await saveFeatures(merged, req.user?.id || 0);
+    const { imported, skipped } = await saveFeatures(merged, req.user?.id || 0, identityMap);
     io.emit('harvest:done', { source: 'combined', imported, skipped });
     if (imported > 0) io.emit('features:reloaded', {});
     afterHarvest(io);
@@ -1090,10 +1145,11 @@ router.post('/police/scrape', requireAuth, requireRole('editor', 'admin'), async
       [],
       'ttl_expired',
     );
-    // Clear previous harvest of same events (by police_id to avoid duplicates)
+    // Clear previous harvest of same events (matchning mot police_id via external_id, se captureIdentity)
+    const identityMap = await captureIdentity('police_events', null);
     await clearHarvested('police_events');
     io.emit('harvest:progress', { source: 'police', phase: 'Sparar…', done: 1, total: 1 });
-    const { imported, skipped } = await saveFeatures(features, req.user?.id || 0);
+    const { imported, skipped } = await saveFeatures(features, req.user?.id || 0, identityMap);
     io.emit('harvest:done', { source: 'police', imported, skipped });
     if (imported > 0) io.emit('features:reloaded', {});
     afterHarvest(io);
@@ -1162,6 +1218,7 @@ async function fetchPowerOutages() {
           source: 'avbrott.se',
           scraped_at: now,
           _source_id: o.id || '',
+          external_id: o.id ? String(o.id) : undefined,
         },
       };
     })
@@ -1184,9 +1241,10 @@ router.post('/power/scrape', requireAuth, async (req, res) => {
   try {
     const features = await fetchPowerOutages();
     if (ctrl.signal.aborted) throw cancelledError('power');
+    const identityMap = await captureIdentity('power_outages', null);
     await clearHarvested('power_outages');
     io.emit('harvest:progress', { source: 'power', phase: 'Sparar…', done: 1, total: 1 });
-    const { imported, skipped } = await saveFeatures(features, req.user?.id || 0);
+    const { imported, skipped } = await saveFeatures(features, req.user?.id || 0, identityMap);
     io.emit('harvest:done', { source: 'power', imported, skipped });
     if (imported > 0) io.emit('features:reloaded', {});
     afterHarvest(io);
