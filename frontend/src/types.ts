@@ -515,7 +515,7 @@ export const LAYERS: LayerConfig[] = [
     icon: '🕵',
     group: 'events',
     fields: [
-      { key: 'datetime',       label: 'Stund (tidpunkt)',                       type: 'datetime' },
+      { key: 'datetime',       label: 'Stund (tidpunkt, lämna blank för NU)',   type: 'datetime' },
       { key: 'slag',           label: 'Slag (förbandstyp)',                     type: 'select', options: ['Infanteri', 'Mekaniserad/Pansar', 'Artilleri', 'Luftvärn', 'Ledning/Stab', 'Underrättelse/Spaning', 'Logistik/Trupptransport', 'Flyg', 'Marin', 'Civil/Okänd', 'Övrigt'] },
       { key: 'affiliation',    label: 'Symbol – Tillhörighet',                  type: 'select', options: ['Egen (Friendly)', 'Fientlig (Hostile)', 'Neutral', 'Okänd (Unknown)'] },
       { key: 'symbol_type',    label: 'Symbol – Typ',                           type: 'select', options: ['Markstyrka (allmän)', 'Mekaniserad/Fordon', 'Eldenhet/Beväpning', 'Ledning/Stab', 'Anläggning/Installation'] },
