@@ -109,36 +109,37 @@ Prioriteringen nedan väger även mot ABI-pelarna (se Metodik ovan) — t.ex. st
 
 ### Prioriterat
 
-~~1. Kritikalitetsviktad störningsscore~~ — KLART 2026-07-03: händelse nära Kritisk-märkt objekt ger nu en multiplikator (gul 1,5x / röd 3x, konfigurerbart avstånd) innan den summeras in i störningspoängen, se `computeDisruptionScores()` i `analysis.js`
+1. **Auto-skördning vid OpOmr-byte** — när operativt område ändras i Inställningar ska relevanta källor skördas om automatiskt, i stället för att kräva manuell "Skörda alla"
+
+2. **Krisinformation.se API:er** — utreda om Krisinformations öppna data har relevanta källor att integrera (liknande utredningen som gjordes för Sjöfartsverket)
+
+3. **Videoströmmar från drönare** — realtids- eller nära-realtidsvideo i FeaturePanel (nytt lager, samma mönster som dagens `photo_url`-kameror men video i stället för stillbild). Kräver en självhostad relay (RTSP/RTMP → WebRTC eller HLS, t.ex. MediaMTX/go2rtc) som ny docker-compose-tjänst, eftersom webbläsare inte kan spela råa drönarströmmar direkt. Ingen drönare tillgänglig för test i nuläget — se separat plan innan implementation påbörjas
 
 ### Backlog
 
-2. **Mobil fältrapportering (PWA)** — avskalad vy `/report` för rapportering i fält
+4. **Mobil fältrapportering (PWA)** — avskalad vy `/report` för rapportering i fält
    - Auto-GPS, kamerabild, touch-vänligt formulär
    - Rapporterar in händelser och resurser med positionsdata
 
-~~3. Underrättelserapport-modul~~ — KLART 2026-07-03: strukturerad loggning av inkomna tips
-   - De 7 S:en: Stund, Ställe, Styrka, Slag, Sysselsättning, Symbol, Sagesman
-   - Klassificering per STANAG 2511 (källvärde A–F × informationsvärde 1–6)
-   - Se "ABI-åtgärder"-avsnittet ovan för milsymbol.js-integrationen (punkt 7 nedan) och OPSEC-filtreringen
+5. **Mobildata-integration** — självkonfigurabel via inställningar (URL, nyckel, dokumentationslänk)
 
-4. **Mobildata-integration** — självkonfigurabel via inställningar (URL, nyckel, dokumentationslänk)
+6. **Trendvisning** — linjediagram i analyspanelen (snapshot-historik finns, UI saknas)
 
-5. **Trendvisning** — linjediagram i analyspanelen (snapshot-historik finns, UI saknas)
-
-6. **Lantmäteriet Topo WMTS** (kräver gratis token)
-
-~~7. milsymbol.js~~ — KLART 2026-07-03: APP-6/MIL-STD-2525-symbologi för Underrättelserapporter (`frontend/src/lib/reportSymbols.ts`). Fortfarande bara ett begränsat 5×4-ikonset (tillhörighet × typ), inte en fullständig SIDC-editor — utöka vid behov
+7. **Lantmäteriet Topo WMTS** (kräver gratis token)
 
 8. **Rutting** med fordonsklassbegränsning (OpenRouteService)
 
-9. ~~Cloudflare Access bypass för `/api/sms/incoming`~~ — KLART 2026-07-04: endpointen är inte blockerad (verifierat live), 46elks `sms_url` konfigurerad mot `https://resurslage.jv10.se/api/sms/incoming`. Kvarstår: fylla i riktiga avsändarnummer→koordinat i `KNOWN_SENDERS` (`backend/src/routes/sms.js`) i takt med att kommunala tjänster registreras, samt koppla på SMS som notiskanal för varningsregler
+9. **Polygon-verktyg** - Implementera ritverktyg för polygoner, för avgränsning av ytor.
 
-10. **Auto-skördning vid OpOmr-byte** — när operativt område ändras i Inställningar ska relevanta källor skördas om automatiskt, i stället för att kräva manuell "Skörda alla"
+10. **Mätverktyg med waypoints** - Enkelt mötverktyg för avstånd.
 
-11. **Krisinformation.se API:er** — utreda om Krisinformations öppna data har relevanta källor att integrera (liknande utredningen som gjordes för Sjöfartsverket)
+11. **Kommentarsfuntktion på objekt** - Genom att kommentera (och tagga kollegor??) flaggar man upp saker som behöver flera ögon och hjärnor.
 
-12. **Videoströmmar från drönare** — realtids- eller nära-realtidsvideo i FeaturePanel (nytt lager, samma mönster som dagens `photo_url`-kameror men video i stället för stillbild). Kräver en självhostad relay (RTSP/RTMP → WebRTC eller HLS, t.ex. MediaMTX/go2rtc) som ny docker-compose-tjänst, eftersom webbläsare inte kan spela råa drönarströmmar direkt. Ingen drönare tillgänglig för test i nuläget — se separat plan innan implementation påbörjas
+12. **Ta fram user guide**
+
+13. **Ta fram API endpoints för integration mot överordnade system** - Skapa möjligheten att framtida system och för andra delar av FM och blåsljusverksamheten att ta del av informationen digital. Detta omfattar även API-dokumentationen.
+
+14. **Förfina varningssystemet** - Idag kan tex en 7S-rapport skapa en varning givet hur regel och varningsfunktionen är uppsatt. En förfining kanske att _allt_ utom Egna ska trigga en varning, osv. Inleds med utredning.
 
 ---
 
