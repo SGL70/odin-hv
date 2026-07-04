@@ -109,7 +109,7 @@ Prioriteringen nedan väger även mot ABI-pelarna (se Metodik ovan) — t.ex. st
 
 ### Prioriterat
 
-1. **Kritikalitetsviktad störningsscore** — händelse nära Kritisk-märkt objekt ger en multiplikator innan den summeras in i störningspoängen (kan återanvända avståndslogiken från varningsregelmotorns proximity-regel)
+~~1. Kritikalitetsviktad störningsscore~~ — KLART 2026-07-03: händelse nära Kritisk-märkt objekt ger nu en multiplikator (gul 1,5x / röd 3x, konfigurerbart avstånd) innan den summeras in i störningspoängen, se `computeDisruptionScores()` i `analysis.js`
 
 ### Backlog
 
@@ -117,9 +117,10 @@ Prioriteringen nedan väger även mot ABI-pelarna (se Metodik ovan) — t.ex. st
    - Auto-GPS, kamerabild, touch-vänligt formulär
    - Rapporterar in händelser och resurser med positionsdata
 
-3. **Underrättelserapport-modul** — strukturerad loggning av inkomna tips
+~~3. Underrättelserapport-modul~~ — KLART 2026-07-03: strukturerad loggning av inkomna tips
    - De 7 S:en: Stund, Ställe, Styrka, Slag, Sysselsättning, Symbol, Sagesman
    - Klassificering per STANAG 2511 (källvärde A–F × informationsvärde 1–6)
+   - Se "ABI-åtgärder"-avsnittet ovan för milsymbol.js-integrationen (punkt 7 nedan) och OPSEC-filtreringen
 
 4. **Mobildata-integration** — självkonfigurabel via inställningar (URL, nyckel, dokumentationslänk)
 
@@ -127,7 +128,7 @@ Prioriteringen nedan väger även mot ABI-pelarna (se Metodik ovan) — t.ex. st
 
 6. **Lantmäteriet Topo WMTS** (kräver gratis token)
 
-7. **milsymbol.js** — APP-6/MIL-STD-2525 symbologi per lager
+~~7. milsymbol.js~~ — KLART 2026-07-03: APP-6/MIL-STD-2525-symbologi för Underrättelserapporter (`frontend/src/lib/reportSymbols.ts`). Fortfarande bara ett begränsat 5×4-ikonset (tillhörighet × typ), inte en fullständig SIDC-editor — utöka vid behov
 
 8. **Rutting** med fordonsklassbegränsning (OpenRouteService)
 
