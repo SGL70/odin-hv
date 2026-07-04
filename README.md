@@ -141,6 +141,10 @@ Prioriteringen nedan väger även mot ABI-pelarna (se Metodik ovan) — t.ex. st
 
 14. **Förfina varningssystemet** - Idag kan tex en 7S-rapport skapa en varning givet hur regel och varningsfunktionen är uppsatt. En förfining kanske att _allt_ utom Egna ska trigga en varning, osv. Inleds med utredning.
 
+15. **Precisionsnivå-tagg på objekt** — flera källor har grov positionsangivelse (polishändelser = läns-/ortcentroid, framtida mediebevakning = ingen riktig plats alls), men det syns inte på objektet idag; en spatial join mot en sådan "falsk" punkt kan ge missvisande resultat. Lägg till `attributes.location_precision` (`exact`/`kommun`/`lan`), satt per källa vid skördning, så framtida funktioner (t.ex. polygon-sökning, se nedan) kan välja rätt matchningslogik per objekt i stället för att anta att alla punkter är exakta
+
+16. **Polygon-sökning: händelser inom ritad yta** — kräver polygonverktyget (punkt 9) samt precisionsnivå-taggen (punkt 15) för att fungera korrekt. Tre träfftyper i samma modal: exakta träffar inuti polygonen (`ST_Within`), kommunnivå-träffar för objekt vars polygon skär en eller flera kommuner, länsnivå-träffar för det som bara har grov plats. Norrbottens kommunstorlekar gör kommunnivå-träffar potentiellt bullriga (en polygon i centrala Kiruna kan dra in händelser 15 mil bort) — bör visas nedtonat/separat från exakta träffar, inte blandat rakt av
+
 ---
 
 ## Teknisk dokumentation
