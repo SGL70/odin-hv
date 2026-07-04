@@ -216,6 +216,20 @@ export function FeaturePanel({
           <input value={name} onChange={e => setName(e.target.value)} disabled={!canEdit} />
         </div>
 
+        {/* Visningsnamn — överlever omskördning, till skillnad från Namn som skrivs över av källdata */}
+        <div className="field-row">
+          <label>Visningsnamn (valfritt)</label>
+          {canEdit ? (
+            <input
+              value={fields.display_name || ''}
+              onChange={e => setFields(p => ({ ...p, display_name: e.target.value }))}
+              placeholder="Överlever nästa skördning, till skillnad från Namn"
+            />
+          ) : (
+            <span style={{ fontSize: 13, color: '#e0e0e0', padding: '4px 0' }}>{fields.display_name || '—'}</span>
+          )}
+        </div>
+
         {/* Kritikalitet — universellt fält på alla features */}
         <div className="field-row">
           <label>Kritikalitet</label>
@@ -281,8 +295,8 @@ export function FeaturePanel({
         {/* Extra attributes not in layer config */}
         {(() => {
           const HIDDEN = new Set([
-            'uid', 'layer', 'cot_type', 'name', 'criticality', 'created_by', 'updated_by', 'created_at', 'updated_at',
-            'photo_url', 'station_url', 'scraped_at', 'trv_source_id', 'osm_id', '_source_id', 'police_id',
+            'uid', 'layer', 'cot_type', 'name', 'criticality', 'display_name', 'created_by', 'updated_by', 'created_at', 'updated_at',
+            'photo_url', 'station_url', 'scraped_at', 'trv_source_id', 'osm_id', '_source_id', 'police_id', 'external_id',
             ...(layerCfg?.fields.map(f => f.key) || []),
           ]);
           const LABELS: Record<string, string> = {

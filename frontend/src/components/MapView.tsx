@@ -36,8 +36,8 @@ const STYLE: maplibregl.StyleSpecification = {
     seamark:        { type: 'raster', tiles: [SEAMARK_URL], tileSize: 256, attribution: '© OpenSeaMap contributors' },
   },
   layers: [
-    { id: 'osm',             type: 'raster', source: 'osm' },
-    { id: 'lm-topo',         type: 'raster', source: 'lm-topo',       layout: { visibility: 'none' } },
+    { id: 'osm',             type: 'raster', source: 'osm',           layout: { visibility: 'none' } },
+    { id: 'lm-topo',         type: 'raster', source: 'lm-topo' },
     { id: 'wms-svk',         type: 'raster', source: 'wms-svk',       layout: { visibility: 'none' }, paint: { 'raster-opacity': 0.9 } },
     { id: 'wms-hillshade',   type: 'raster', source: 'wms-hillshade', layout: { visibility: 'none' }, paint: { 'raster-opacity': 0.55 } },
     { id: 'seamark',         type: 'raster', source: 'seamark',       layout: { visibility: 'none' } },
@@ -111,7 +111,7 @@ export function MapView() {
   const [openAlerts, setOpenAlerts] = useState<AlertEvent[]>([]);
   const [bannerAlerts, setBannerAlerts] = useState<AlertEvent[]>([]);
   const [opomrFilter, setOpomrFilter] = useState(() => localStorage.getItem('opomrFilter') === 'true');
-  const [baseMap, setBaseMap] = useState<'osm' | 'lm'>(() => (localStorage.getItem('baseMap') as 'osm' | 'lm') || 'osm');
+  const [baseMap, setBaseMap] = useState<'osm' | 'lm'>(() => (localStorage.getItem('baseMap') as 'osm' | 'lm') || 'lm');
   const [wmsOverlays, setWmsOverlays] = useState<Set<string>>(() => {
     try {
       const s = localStorage.getItem('wmsOverlays');
