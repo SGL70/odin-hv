@@ -104,4 +104,48 @@ async function ensureFeatureHistorySchema() {
   console.log('features_history-schema klart');
 }
 
-module.exports = { ensureAlertSchema, ensureIntelligenceReportsLayer, ensureRailwaySituationsLayer, ensureFeatureHistorySchema };
+// UI-inställningar (sidopanel, högerpanel-flik, kartunderlag, WMS-lager, synliga lager,
+// OpOmr-filter, skördningsintervall) per användare i stället för bara i webbläsarens
+// localStorage — annars följer inte preferenserna med mellan enheter eller efter cache-rensning.
+async function ensureUserPreferencesColumn() {
+  await db.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS preferences JSONB NOT NULL DEFAULT '{}'`);
+  console.log('users.preferences-kolumn klar');
+}
+
+// SMS-aviseringar (kända avsändare, auto-placeras) vs Tips via SMS (okända, kräver manuell
+// geotaggning innan de blir ett riktigt sms_alerts-objekt). sms_senders är registret över ALLA
+// nummer som någonsin hörts av, inte bara kända — annars går det inte att administrera dem i UI.
+async function ensureSmsTablesSchema() {
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS sms_senders (
+      phone VARCHAR(20) PRIMARY KEY,
+      status VARCHAR(20) NOT NULL DEFAULT 'unknown' CHECK (status IN ('unknown','known','blocked')),
+      label VARCHAR(200),
+      lat DOUBLE PRECISION,
+      lng DOUBLE PRECISION,
+      message_count INTEGER NOT NULL DEFAULT 0,
+      first_seen_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      last_seen_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_by INTEGER REFERENCES users(id)
+    )
+  `);
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS sms_tips (
+      id SERIAL PRIMARY KEY,
+      elks_id VARCHAR(100),
+      from_number VARCHAR(20) NOT NULL,
+      message TEXT NOT NULL,
+      received_at TIMESTAMPTZ NOT NULL,
+      status VARCHAR(20) NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','tagged','discarded')),
+      tagged_feature_uid UUID REFERENCES features(uid) ON DELETE SET NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+  await db.query(`CREATE INDEX IF NOT EXISTS sms_tips_status_idx ON sms_tips(status)`);
+  console.log('sms_senders/sms_tips-schema klart');
+}
+
+module.exports = {
+  ensureAlertSchema, ensureIntelligenceReportsLayer, ensureRailwaySituationsLayer, ensureFeatureHistorySchema,
+  ensureUserPreferencesColumn, ensureSmsTablesSchema,
+};

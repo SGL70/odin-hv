@@ -29,13 +29,13 @@ Kartlagren, dataskördarna och den enhetliga lägesbilden är redan uttryck för
 ![ODIN hv skärmbild](ODINhv.png)
 
 ### Karta & lägesbild
-- 27 kartlager (logistik, infrastruktur, händelser) — JWT-skyddade, WebSocket-realtid
+- 28 kartlager (logistik, infrastruktur, händelser) — JWT-skyddade, WebSocket-realtid
 - Kritikalitetsmärkning på alla objekt: Normal / Viktig (gul) / Kritisk (röd) med visuell ring på kartan
 - BK-klassfärger på vägar (grön/gul/orange/röd) från Trafikverkets NVDB
 - Live-kamerabild i objektpanelen med auto-refresh var 30 s
 - WMS-overlays: Lantmäteriet Terrängskuggning, SVK Kraftnät
 - CSV/GeoJSON-import, KMZ + CoT-export (ATAK/WinTAK-kompatibel)
-- UI-state persistent i localStorage
+- UI-inställningar (sidopanel, kartunderlag, synliga lager m.m.) sparade per användarkonto — följer med mellan enheter, inte bara i webbläsarens localStorage
 
 ### Dataskördare
 Automatisk insamling från öppna källor, konfigurerbar auto-refresh:
@@ -60,6 +60,7 @@ Automatisk insamling från öppna källor, konfigurerbar auto-refresh:
 
 ### Infrastruktur
 - JWT-autentisering med roller: läsare / redaktör / admin
+- Användarhantering direkt i appen (Inställningar → Användare) — skapa/ta bort konton utan databasåtkomst
 - Körs som Docker Compose i Debian 12 LXC (CT 217) bakom Cloudflare Tunnel
 - Tillgänglig på odinhv.se (publikt) och odin.lan (lokalt)
 
@@ -77,6 +78,21 @@ Fyra konkreta åtgärder mot gap identifierade i en ABI-bedömning (se Metodik o
 - **Dataneutralitet:** störningspoängen har en generisk, admin-konfigurerbar källviktning (`layer_weighting`-inställning) i stället för tre hårdkodade källor — railway_situations ingår nu som default
 - **Integration before exploitation:** ny "Relaterade objekt"-sektion i objektpanelen korrelerar det valda objektet mot andra features inom valbar radie (`GET /api/features/:uid/related`)
 - **Georeference to discover:** alla skördade objekt normaliseras till ett gemensamt `attributes.occurred_at` (härlett från källans egen tidsnyckel) för tvärlager-tidskorrelation
+
+### Designredesign (2026-07-04)
+Konsoliderat designsystem framtaget via Claude Design, implementerat rakt igenom UI:et:
+- Enhetliga designtokens (färg, typografi, radius, spacing) i stället för ad hoc-värden
+- Konsekvent SVG-linjeikonspråk för alla 28 kartlager i stället för emoji — löser bl.a. att ⚡ återanvändes för både Elkraft och Elavbrott
+- Choropleth (störningskarta) fick tre avgränsade kontrastfärger + legend i stället för en heltäckande halvtransparent ton
+- Läsbara svenska meningar i varningsregel-listan i stället för interna fältnamn (`police_events`, `rod`)
+- `FeaturePanel` + `HarvestSidebar` slogs ihop till en tabbad högerpanel (Objekt / Skördare) — båda hålls monterade så en pågående skördning inte avbryts vid flikbyte
+- "+ 7S"-knapp (tidigare "+ Lägg till") väljer Underrättelserapporter som förvalt lager; en nålmarkör visas på platsen tills objektet sparats
+
+### SMS-aviseringar & Tips via SMS (2026-07-04)
+46elks-webhooken (`POST /api/sms/incoming`) delar nu upp inkommande SMS i två flöden i stället för att auto-placera allt:
+- **SMS-aviseringar** — kända avsändare (kommunala VA-/elbolag m.fl.) auto-placeras som en `sms_alerts`-feature på sin registrerade plats, precis som tidigare
+- **Tips via SMS** — okända avsändare hamnar i en granskningsinkorg (📨 Tips-knapp med räknare i topbaren) i stället för att gissa en Norrbotten-mittpunkt. Geotaggas manuellt via Län/Kommun/Område-dropdowns, med valfri finjustering genom att klicka på kartan, innan de blir ett riktigt objekt
+- **Avsändarregister** — ny flik i Inställningar listar alla nummer som någonsin hörts av; admin kan sätta ett nummer som känt (etikett + kommun) eller blockera det, utan att koda om
 
 ---
 
@@ -108,7 +124,11 @@ Prioriteringen nedan väger även mot ABI-pelarna (se Metodik ovan) — t.ex. st
 
 8. **Rutting** med fordonsklassbegränsning (OpenRouteService)
 
-9. **Cloudflare Access bypass** för `/api/sms/incoming` → aktivera 46elks-webhook, sedan koppla på SMS som notiskanal för varningsregler
+9. ~~Cloudflare Access bypass för `/api/sms/incoming`~~ — KLART 2026-07-04: endpointen är inte blockerad (verifierat live), 46elks `sms_url` konfigurerad mot `https://resurslage.jv10.se/api/sms/incoming`. Kvarstår: fylla i riktiga avsändarnummer→koordinat i `KNOWN_SENDERS` (`backend/src/routes/sms.js`) i takt med att kommunala tjänster registreras, samt koppla på SMS som notiskanal för varningsregler
+
+10. **Auto-skördning vid OpOmr-byte** — när operativt område ändras i Inställningar ska relevanta källor skördas om automatiskt, i stället för att kräva manuell "Skörda alla"
+
+11. **Krisinformation.se API:er** — utreda om Krisinformations öppna data har relevanta källor att integrera (liknande utredningen som gjordes för Sjöfartsverket)
 
 ---
 
@@ -197,19 +217,27 @@ odin-hv/
 │           ├── alerts.js           # Varningsregler CRUD + events + kvittering
 │           ├── settings.js         # Inställnings-CRUD + opomr-bbox
 │           ├── trafikverket.js     # Trafikverket Open Data
-│           └── sms.js              # 46elks webhook
+│           └── sms.js              # 46elks webhook, Tips via SMS-inkorg, avsändarregister
 └── frontend/
     ├── public/
     │   └── korp.png                # Korpsilhuett (logotypbild)
     └── src/
-        ├── types.ts                # Lagerdefinitioner (27 lager) + Alert-typer
+        ├── types.ts                # Lagerdefinitioner (28 lager) + Alert-/Sms-typer
+        ├── styles/
+        │   └── tokens.ts           # Designtokens (färg, typografi, radius, spacing)
+        ├── lib/
+        │   ├── layerIcons.tsx      # SVG-linjeikoner per kartlager
+        │   ├── reportSymbols.ts    # milsymbol.js-SIDC för underrättelserapporter
+        │   └── sweden.ts           # Län + kommuner (OpOmr, Tips via SMS-geotaggning)
         └── components/
             ├── MapView.tsx         # Huvudkartkomponent
             ├── Sidebar.tsx         # Vänster sidebar (inkl. Varningar-sektion)
+            ├── RightPanel.tsx      # Tabbad högerpanel: Objekt (FeaturePanel) / Skördare (HarvestSidebar)
             ├── HarvestSidebar.tsx  # Dataskördare inkl. TRV
             ├── AnalysisPanel.tsx   # Störningsanalys med drill-down
             ├── FeaturePanel.tsx    # Objektpanel med kritikalitet
-            ├── SettingsModal.tsx   # OpOmr, retention, snapshot
+            ├── SmsTipsPanel.tsx    # Granskningsinkorg för Tips via SMS
+            ├── SettingsModal.tsx   # OpOmr, viktning, retention, användare, avsändarnummer
             ├── AlertRulesModal.tsx # Regelbyggare för varningar (admin)
             ├── AlertBanner.tsx     # Transient notisbanner för nya varningar
             ├── OdinLogo.tsx        # Logotyp (sm/md/lg)

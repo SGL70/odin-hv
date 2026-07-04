@@ -1,34 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
-
-interface County {
-  name: string;
-  municipalities: string[];
-}
-
-const SWEDEN: County[] = [
-  { name: 'Norrbottens län', municipalities: ['Arjeplog','Arvidsjaur','Boden','Gällivare','Haparanda','Jokkmokk','Kalix','Kiruna','Luleå','Pajala','Piteå','Älvsbyn','Överkalix','Övertorneå'] },
-  { name: 'Västerbottens län', municipalities: ['Bjurholm','Dorotea','Lycksele','Malå','Nordmaling','Norsjö','Robertsfors','Skellefteå','Sorsele','Storuman','Umeå','Vilhelmina','Vindeln','Vännäs','Åsele'] },
-  { name: 'Jämtlands län', municipalities: ['Berg','Bräcke','Härjedalen','Krokom','Ragunda','Strömsund','Åre','Östersund'] },
-  { name: 'Västernorrlands län', municipalities: ['Härnösand','Kramfors','Sollefteå','Sundsvall','Timrå','Ånge','Örnsköldsvik'] },
-  { name: 'Gävleborgs län', municipalities: ['Bollnäs','Gävle','Hofors','Hudiksvall','Ljusdal','Nordanstig','Ockelbo','Ovanåker','Sandviken','Söderhamn'] },
-  { name: 'Dalarnas län', municipalities: ['Avesta','Borlänge','Falun','Gagnef','Hedemora','Leksand','Ludvika','Malung-Sälen','Mora','Orsa','Rättvik','Smedjebacken','Säter','Vansbro','Älvdalen'] },
-  { name: 'Värmlands län', municipalities: ['Arvika','Eda','Filipstad','Forshaga','Grums','Hagfors','Hammarö','Karlstad','Kil','Kristinehamn','Munkfors','Storfors','Sunne','Säffle','Torsby','Årjäng'] },
-  { name: 'Örebro län', municipalities: ['Askersund','Degerfors','Hallsberg','Hällefors','Karlskoga','Kumla','Laxå','Lekeberg','Lindesberg','Ljusnarsberg','Nora','Örebro'] },
-  { name: 'Västmanlands län', municipalities: ['Arboga','Fagersta','Hallstahammar','Kungsör','Köping','Norberg','Sala','Skinnskatteberg','Surahammar','Västerås'] },
-  { name: 'Uppsala län', municipalities: ['Enköping','Heby','Håbo','Knivsta','Tierp','Uppsala','Älvkarleby','Östhammar'] },
-  { name: 'Stockholms län', municipalities: ['Botkyrka','Danderyd','Ekerö','Haninge','Huddinge','Järfälla','Lidingö','Nacka','Norrtälje','Nykvarn','Nynäshamn','Salem','Sigtuna','Sollentuna','Solna','Stockholm','Sundbyberg','Södertälje','Tyresö','Täby','Upplands-Bro','Upplands Väsby','Vallentuna','Vaxholm','Värmdö','Österåker'] },
-  { name: 'Södermanlands län', municipalities: ['Eskilstuna','Flen','Gnesta','Katrineholm','Nyköping','Oxelösund','Strängnäs','Trosa','Vingåker'] },
-  { name: 'Västra Götalands län', municipalities: ['Ale','Alingsås','Bengtsfors','Bollebygd','Borås','Dals-Ed','Essunga','Falköping','Färgelanda','Grästorp','Gullspång','Göteborg','Götene','Herrljunga','Hjo','Härryda','Karlsborg','Kungälv','Lerum','Lidköping','Lilla Edet','Lysekil','Mariestad','Mark','Mellerud','Munkedal','Mölndal','Orust','Partille','Skara','Skövde','Sotenäs','Stenungsund','Strömstad','Svenljunga','Tanum','Tibro','Tidaholm','Tjörn','Tranemo','Trollhättan','Töreboda','Uddevalla','Ulricehamn','Vara','Vårgårda','Åmål','Öckerö'] },
-  { name: 'Östergötlands län', municipalities: ['Boxholm','Finspång','Kinda','Linköping','Mjölby','Motala','Norrköping','Söderköping','Vadstena','Valdemarsvik','Ydre','Åtvidaberg','Ödeshög'] },
-  { name: 'Gotlands län', municipalities: ['Gotland'] },
-  { name: 'Jönköpings län', municipalities: ['Aneby','Eksjö','Gislaved','Gnosjö','Habo','Jönköping','Mullsjö','Nässjö','Sävsjö','Tranås','Vaggeryd','Vetlanda','Värnamo'] },
-  { name: 'Kalmar län', municipalities: ['Borgholm','Emmaboda','Hultsfred','Högsby','Kalmar','Mönsterås','Mörbylånga','Nybro','Oskarshamn','Torsås','Vimmerby','Västervik'] },
-  { name: 'Hallands län', municipalities: ['Falkenberg','Halmstad','Hylte','Kungsbacka','Laholm','Varberg'] },
-  { name: 'Kronobergs län', municipalities: ['Alvesta','Lessebo','Ljungby','Markaryd','Tingsryd','Uppvidinge','Växjö','Älmhult'] },
-  { name: 'Blekinge län', municipalities: ['Karlshamn','Karlskrona','Olofström','Ronneby','Sölvesborg'] },
-  { name: 'Skåne län', municipalities: ['Bjuv','Bromölla','Burlöv','Båstad','Eslöv','Helsingborg','Hässleholm','Höganäs','Hörby','Höör','Klippan','Kristianstad','Kävlinge','Landskrona','Lomma','Lund','Malmö','Osby','Perstorp','Simrishamn','Sjöbo','Skurup','Staffanstorp','Svalöv','Svedala','Tomelilla','Trelleborg','Vellinge','Ystad','Åstorp','Ängelholm','Örkelljunga','Östra Göinge'] },
-];
+import { SWEDEN, type County } from '../lib/sweden';
 
 interface Props {
   onClose: () => void;
@@ -60,7 +32,13 @@ export function SettingsModal({ onClose }: Props) {
   const [saved, setSaved] = useState(false);
   const [snapshotting, setSnapshotting] = useState(false);
   const [expanded, setExpanded] = useState<Set<string>>(new Set(['Norrbottens län']));
-  const [activeTab, setActiveTab] = useState<'opomr' | 'weighting' | 'retention' | 'users'>('opomr');
+  const [activeTab, setActiveTab] = useState<'opomr' | 'weighting' | 'retention' | 'users' | 'senders'>('opomr');
+  const [senders, setSenders] = useState<{ phone: string; status: string; label: string | null; message_count: number; last_seen_at: string }[]>([]);
+  const [sendersLoading, setSendersLoading] = useState(false);
+  const [editingSender, setEditingSender] = useState<string | null>(null);
+  const [senderLabel, setSenderLabel] = useState('');
+  const [senderCounty, setSenderCounty] = useState('');
+  const [senderMunicipality, setSenderMunicipality] = useState('');
   const token = localStorage.getItem('token');
 
   useEffect(() => {
@@ -178,6 +156,50 @@ export function SettingsModal({ onClose }: Props) {
     }
   }
 
+  async function loadSenders() {
+    setSendersLoading(true);
+    const r = await fetch('/api/sms/senders', { headers: { Authorization: `Bearer ${token}` } });
+    if (r.ok) setSenders(await r.json());
+    setSendersLoading(false);
+  }
+
+  useEffect(() => {
+    if (activeTab === 'senders') loadSenders();
+  }, [activeTab]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  function startEditSender(phone: string) {
+    setEditingSender(phone);
+    setSenderLabel('');
+    setSenderCounty('');
+    setSenderMunicipality('');
+    setUserError('');
+  }
+
+  async function saveSenderKnown(phone: string) {
+    if (!senderLabel.trim() || !senderMunicipality) { setUserError('Ange etikett och kommun'); return; }
+    const r = await fetch(`/api/sms/senders/${encodeURIComponent(phone)}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ status: 'known', label: senderLabel.trim(), municipality: senderMunicipality }),
+    });
+    if (r.ok) { setEditingSender(null); loadSenders(); }
+    else {
+      const err = await r.json().catch(() => ({ error: 'Kunde inte spara avsändaren' }));
+      setUserError(err.error || 'Kunde inte spara avsändaren');
+    }
+  }
+
+  async function setSenderStatus(phone: string, status: 'blocked' | 'unknown') {
+    await fetch(`/api/sms/senders/${encodeURIComponent(phone)}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ status }),
+    });
+    loadSenders();
+  }
+
+  const senderMunicipalities = SWEDEN.find(c => c.name === senderCounty)?.municipalities ?? [];
+
   return (
     <div style={{ position: 'fixed', inset: 0, background: '#000a', zIndex: 200, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', paddingTop: '8vh' }} onClick={onClose}>
       {/* Ankrad mot toppen (inte vertikalt centrerad) — annars flyttar sig hela modalen,
@@ -194,6 +216,7 @@ export function SettingsModal({ onClose }: Props) {
             { id: 'weighting', label: 'Viktning' },
             { id: 'retention', label: 'Retention' },
             { id: 'users', label: 'Användare' },
+            { id: 'senders', label: 'Avsändarnummer' },
           ] as const).map(t => (
             <button key={t.id} onClick={() => setActiveTab(t.id)} style={{
               flex: 1, padding: '7px 0', fontSize: 11, fontWeight: 700,
@@ -425,7 +448,74 @@ export function SettingsModal({ onClose }: Props) {
         </div>
         </>}
 
-        {activeTab !== 'users' && (
+        {activeTab === 'senders' && <>
+        {/* Avsändarnummer */}
+        <div style={{ marginBottom: 16 }}>
+          <div style={{ fontSize: 11, color: '#888', marginBottom: 10, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+            📨 Avsändarnummer
+          </div>
+          {sendersLoading ? (
+            <div style={{ fontSize: 12, color: '#666' }}>Laddar…</div>
+          ) : senders.length === 0 ? (
+            <div style={{ fontSize: 12, color: '#666' }}>Inga nummer har hörts av än.</div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {senders.map(s => (
+                <div key={s.phone}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 10px', background: '#16162a', border: '1px solid #2a2a40', borderRadius: 5 }}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 12, color: '#ddd' }}>{s.label || s.phone}</div>
+                      {s.label && <div style={{ fontSize: 10, color: '#666' }}>{s.phone}</div>}
+                    </div>
+                    <span className={`badge badge-${s.status === 'known' ? 'green' : s.status === 'blocked' ? 'red' : 'blue'}`}>
+                      {s.status === 'known' ? 'Känd' : s.status === 'blocked' ? 'Blockerad' : 'Okänd'}
+                    </span>
+                    <span style={{ fontSize: 10, color: '#555', minWidth: 50, textAlign: 'right' }}>{s.message_count} sms</span>
+                    {s.status !== 'known' && (
+                      <button className="btn-ghost btn-sm" onClick={() => startEditSender(s.phone)}>Sätt känd</button>
+                    )}
+                    {s.status === 'blocked' ? (
+                      <button className="btn-ghost btn-sm" onClick={() => setSenderStatus(s.phone, 'unknown')}>Avblockera</button>
+                    ) : (
+                      <button className="btn-danger btn-sm" onClick={() => setSenderStatus(s.phone, 'blocked')}>Blockera</button>
+                    )}
+                  </div>
+
+                  {editingSender === s.phone && (
+                    <div style={{ padding: 10, background: '#16162a', border: '1px solid #2a2a40', borderTop: 'none', borderRadius: '0 0 5px 5px' }}>
+                      <div className="field-row">
+                        <label>Etikett</label>
+                        <input value={senderLabel} onChange={e => setSenderLabel(e.target.value)} placeholder="T.ex. TVAB Kiruna" />
+                      </div>
+                      <div className="field-row">
+                        <label>Län</label>
+                        <select value={senderCounty} onChange={e => { setSenderCounty(e.target.value); setSenderMunicipality(''); }}>
+                          <option value="">Välj län...</option>
+                          {SWEDEN.map(c => <option key={c.name} value={c.name}>{c.name}</option>)}
+                        </select>
+                      </div>
+                      <div className="field-row">
+                        <label>Kommun</label>
+                        <select value={senderMunicipality} onChange={e => setSenderMunicipality(e.target.value)} disabled={!senderCounty}>
+                          <option value="">Välj kommun...</option>
+                          {senderMunicipalities.map(m => <option key={m} value={m}>{m}</option>)}
+                        </select>
+                      </div>
+                      {userError && <div style={{ fontSize: 11, color: '#c55', marginBottom: 8 }}>{userError}</div>}
+                      <div style={{ display: 'flex', gap: 8 }}>
+                        <button className="btn-primary btn-sm" onClick={() => saveSenderKnown(s.phone)} style={{ flex: 1 }}>Spara</button>
+                        <button className="btn-ghost btn-sm" onClick={() => setEditingSender(null)}>Avbryt</button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+        </>}
+
+        {activeTab !== 'users' && activeTab !== 'senders' && (
           <div style={{ display: 'flex', gap: 8, alignItems: 'center', borderTop: '1px solid #2a2a40', paddingTop: 16 }}>
             <button
               onClick={save}

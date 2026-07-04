@@ -1,4 +1,4 @@
-import type { AlertRule, AlertRuleType, AlertRuleConfig, AlertEvent, AlertStatus, Feature } from './types';
+import type { AlertRule, AlertRuleType, AlertRuleConfig, AlertEvent, AlertStatus, Feature, SmsTip, SmsSender } from './types';
 
 const BASE = '/api';
 
@@ -68,6 +68,20 @@ export const api = {
   preferences: {
     get: () => req<Record<string, unknown>>('GET', '/auth/preferences'),
     save: (value: Record<string, unknown>) => req<{ ok: boolean }>('PUT', '/auth/preferences', { value }),
+  },
+
+  sms: {
+    tips: {
+      list: (status: 'pending' | 'tagged' | 'discarded' = 'pending') => req<SmsTip[]>('GET', `/sms/tips?status=${status}`),
+      tag: (id: number, data: { municipality?: string; area?: string; lat?: number; lng?: number }) =>
+        req<{ ok: boolean; feature_uid: string }>('POST', `/sms/tips/${id}/tag`, data),
+      discard: (id: number) => req<{ ok: boolean }>('POST', `/sms/tips/${id}/discard`),
+    },
+    senders: {
+      list: () => req<SmsSender[]>('GET', '/sms/senders'),
+      update: (phone: string, data: { status: SmsSender['status']; label?: string; municipality?: string; lat?: number; lng?: number }) =>
+        req<{ ok: boolean }>('PUT', `/sms/senders/${encodeURIComponent(phone)}`, data),
+    },
   },
 
   alerts: {

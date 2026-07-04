@@ -13,6 +13,7 @@ import { AlertRulesModal } from './AlertRulesModal';
 import { AlertBanner } from './AlertBanner';
 import { OdinLogo } from './OdinLogo';
 import { ReportListPanel } from './ReportListPanel';
+import { SmsTipsPanel } from './SmsTipsPanel';
 import { registerReportIcons, buildReportIconExpression } from '../lib/reportSymbols';
 import { useAuth } from '../contexts/AuthContext';
 import { io } from 'socket.io-client';
@@ -84,6 +85,10 @@ export function MapView() {
   const [showAnalysis, setShowAnalysis] = useState(false);
   const [showReports, setShowReports] = useState(false);
   const [showAlertRules, setShowAlertRules] = useState(false);
+  const [showSmsTips, setShowSmsTips] = useState(false);
+  const [smsTipCount, setSmsTipCount] = useState(0);
+  const [tipPickMode, setTipPickMode] = useState(false);
+  const [tipPickResult, setTipPickResult] = useState<{ lat: number; lng: number } | null>(null);
   const [openAlerts, setOpenAlerts] = useState<AlertEvent[]>([]);
   const [bannerAlerts, setBannerAlerts] = useState<AlertEvent[]>([]);
   const [opomrFilter, setOpomrFilter] = useState(() => localStorage.getItem('opomrFilter') === 'true');
@@ -187,8 +192,17 @@ export function MapView() {
       setOpenAlerts(prev => prev.filter(e => e.id !== event.id));
       setBannerAlerts(prev => prev.filter(e => e.id !== event.id));
     });
+    socket.on('sms_tip:new', () => loadSmsTipCount());
     return () => { socket.disconnect(); };
-  }, [loadFeatures]);
+  }, [loadFeatures]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Tips via SMS — badge-räknare för väntande, okända avsändare (se SmsTipsPanel.tsx)
+  const loadSmsTipCount = useCallback(() => {
+    if (!canEdit) return;
+    api.sms.tips.list('pending').then(tips => setSmsTipCount(tips.length)).catch(() => {});
+  }, [canEdit]);
+
+  useEffect(() => { loadSmsTipCount(); }, [loadSmsTipCount]);
 
   // Init map
   useEffect(() => {
@@ -759,6 +773,31 @@ export function MapView() {
     return () => { marker.remove(); };
   }, [addDialog]);
 
+  // "Finjustera på karta" för Tips via SMS — engångsklick som fångar exakt lat/lng i stället
+  // för kommun-centroiden, se SmsTipsPanel.tsx.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    if (tipPickMode) map.getCanvas().style.cursor = 'crosshair';
+    const onClick = (e: maplibregl.MapMouseEvent) => {
+      if (!tipPickMode) return;
+      setTipPickResult({ lat: e.lngLat.lat, lng: e.lngLat.lng });
+      setTipPickMode(false);
+    };
+    map.on('click', onClick);
+    return () => {
+      map.off('click', onClick);
+      if (!addMode) map.getCanvas().style.cursor = '';
+    };
+  }, [tipPickMode, addMode]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !tipPickResult) return;
+    const marker = new maplibregl.Marker({ color: '#a878e0' }).setLngLat([tipPickResult.lng, tipPickResult.lat]).addTo(map);
+    return () => { marker.remove(); };
+  }, [tipPickResult]);
+
   const cancelAdd = () => {
     setAddMode(false);
     setSelected(null);
@@ -872,6 +911,17 @@ export function MapView() {
         <button className="btn-ghost btn-sm" onClick={() => setShowAnalysis(a => !a)}>📊 Analys</button>
         {canEdit && <button className="btn-ghost btn-sm" onClick={() => setShowReports(r => !r)}>🕵 Rapporter</button>}
         {canEdit && (
+          <button className="btn-ghost btn-sm" onClick={() => setShowSmsTips(s => !s)} style={{ position: 'relative' }}>
+            📨 Tips
+            {smsTipCount > 0 && (
+              <span style={{
+                position: 'absolute', top: -5, right: -5, background: '#f2545b', color: '#fff',
+                borderRadius: 999, fontSize: 9, fontWeight: 700, padding: '1px 5px', minWidth: 14, textAlign: 'center',
+              }}>{smsTipCount}</span>
+            )}
+          </button>
+        )}
+        {canEdit && (
           <button
             className={addMode ? 'btn-danger btn-sm' : 'btn-primary btn-sm'}
             onClick={() => {
@@ -926,6 +976,17 @@ export function MapView() {
       )}
 
       {showAlertRules && <AlertRulesModal onClose={() => setShowAlertRules(false)} />}
+
+      {showSmsTips && (
+        <SmsTipsPanel
+          onClose={() => { setShowSmsTips(false); setTipPickMode(false); }}
+          onTagged={loadSmsTipCount}
+          tipPickMode={tipPickMode}
+          onArmTipPick={() => setTipPickMode(true)}
+          tipPickResult={tipPickResult}
+          onConsumeTipPick={() => setTipPickResult(null)}
+        />
+      )}
 
       <RightPanel
         open={rightPanelOpen}

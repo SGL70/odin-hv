@@ -31,6 +31,27 @@ export interface AlertRule {
   updated_at: string;
 }
 
+export interface SmsTip {
+  id: number;
+  elks_id: string | null;
+  from_number: string;
+  message: string;
+  received_at: string;
+  status: 'pending' | 'tagged' | 'discarded';
+  created_at: string;
+}
+
+export interface SmsSender {
+  phone: string;
+  status: 'unknown' | 'known' | 'blocked';
+  label: string | null;
+  lat: number | null;
+  lng: number | null;
+  message_count: number;
+  first_seen_at: string;
+  last_seen_at: string;
+}
+
 export interface AlertEvent {
   id: number;
   rule_id: number | null;
