@@ -1,20 +1,23 @@
 import { useEffect, useState } from 'react';
 import { api } from '../api';
 import { LAYERS } from '../types';
-import type { AlertRule, AlertRuleType, AlertRuleConfig } from '../types';
+import type { AlertRule, AlertRuleType, AlertRuleConfig, Feature } from '../types';
+import { CriticalityObjectsList } from './CriticalityObjectsList';
 
 interface Props {
+  features: Feature[];
   onClose: () => void;
 }
 
 const EMPTY_CONFIG: AlertRuleConfig = {};
 
-export function AlertRulesModal({ onClose }: Props) {
+export function AlertRulesModal({ features, onClose }: Props) {
   const [rules, setRules] = useState<AlertRule[]>([]);
   const [loading, setLoading] = useState(true);
   const [name, setName] = useState('');
   const [type, setType] = useState<AlertRuleType>('threshold');
   const [config, setConfig] = useState<AlertRuleConfig>(EMPTY_CONFIG);
+  const [proximityMode, setProximityMode] = useState<'criticality' | 'target'>('criticality');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
@@ -29,10 +32,15 @@ export function AlertRulesModal({ onClose }: Props) {
     setName('');
     setType('threshold');
     setConfig(EMPTY_CONFIG);
+    setProximityMode('criticality');
   }
 
   async function createRule() {
     if (!name.trim()) return;
+    if (type === 'proximity' && proximityMode === 'target' && !config.target_uid) {
+      setError('Välj ett objekt');
+      return;
+    }
     setSaving(true);
     setError('');
     try {
@@ -72,6 +80,10 @@ export function AlertRulesModal({ onClose }: Props) {
       return <>Larma när störningspoängen är ≥ <b>{c.score_threshold ?? '?'}</b></>;
     }
     if (rule.type === 'proximity') {
+      if (c.target_uid) {
+        const targetName = features.find(f => f.properties.uid === c.target_uid)?.properties.name ?? c.target_uid;
+        return <>Larma när <b>{layerLabel(c.layer)}</b> inträffar inom <b>{c.distance_m ?? '?'} m</b> från <b>{String(targetName)}</b></>;
+      }
       const crit = CRITICALITY_LABELS[c.min_criticality ?? ''] ?? c.min_criticality ?? '?';
       return <>Larma när <b>{layerLabel(c.layer)}</b> inträffar inom <b>{c.distance_m ?? '?'} m</b> från ett objekt med kritikalitet <b>{crit}</b></>;
     }
@@ -82,7 +94,7 @@ export function AlertRulesModal({ onClose }: Props) {
   function rawConfigString(rule: AlertRule): string {
     const c = rule.config;
     if (rule.type === 'threshold') return `${rule.type} · ${c.score_threshold ?? '?'}`;
-    if (rule.type === 'proximity') return `${rule.type} · ${c.layer ?? '?'} · ${c.min_criticality ?? '?'}`;
+    if (rule.type === 'proximity') return `${rule.type} · ${c.layer ?? '?'} · ${c.target_uid ? `mål:${c.target_uid}` : (c.min_criticality ?? '?')}`;
     return `${rule.type} · ${c.layer ?? '?'} · ${c.min_count ?? '?'} · ${c.radius_m ?? '?'}`;
   }
 
@@ -124,7 +136,7 @@ export function AlertRulesModal({ onClose }: Props) {
 
           <div style={{ marginBottom: 10 }}>
             <span style={labelStyle}>Typ</span>
-            <select style={inputStyle} value={type} onChange={e => { setType(e.target.value as AlertRuleType); setConfig(EMPTY_CONFIG); }}>
+            <select style={inputStyle} value={type} onChange={e => { setType(e.target.value as AlertRuleType); setConfig(EMPTY_CONFIG); setProximityMode('criticality'); }}>
               <option value="threshold">Tröskel — störningspoäng per kommun</option>
               <option value="proximity">Proximity — nära kritiskt objekt</option>
               <option value="cluster">Kluster — flera händelser nära varandra</option>
@@ -141,6 +153,18 @@ export function AlertRulesModal({ onClose }: Props) {
 
           {type === 'proximity' && (
             <>
+              <div style={{ marginBottom: 10, display: 'flex', gap: 14 }}>
+                <label style={{ fontSize: 12, color: '#ccc', display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer' }}>
+                  <input type="radio" checked={proximityMode === 'criticality'}
+                    onChange={() => { setProximityMode('criticality'); setConfig({ layer: config.layer, distance_m: config.distance_m }); }} />
+                  Kritikalitet
+                </label>
+                <label style={{ fontSize: 12, color: '#ccc', display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer' }}>
+                  <input type="radio" checked={proximityMode === 'target'}
+                    onChange={() => { setProximityMode('target'); setConfig({ layer: config.layer, distance_m: config.distance_m }); }} />
+                  Specifikt objekt
+                </label>
+              </div>
               <div style={{ marginBottom: 10 }}>
                 <span style={labelStyle}>Lager</span>
                 <select style={inputStyle} value={config.layer ?? ''} onChange={e => setConfig({ ...config, layer: e.target.value as AlertRuleConfig['layer'] })}>
@@ -148,14 +172,32 @@ export function AlertRulesModal({ onClose }: Props) {
                   {LAYERS.map(l => <option key={l.id} value={l.id}>{l.label}</option>)}
                 </select>
               </div>
-              <div style={{ marginBottom: 10 }}>
-                <span style={labelStyle}>Lägsta kritikalitet på kritiskt objekt</span>
-                <select style={inputStyle} value={config.min_criticality ?? ''} onChange={e => setConfig({ ...config, min_criticality: e.target.value as AlertRuleConfig['min_criticality'] })}>
-                  <option value="">Välj…</option>
-                  <option value="gul">Viktig (gul) eller högre</option>
-                  <option value="rod">Kritisk (röd)</option>
-                </select>
-              </div>
+              {proximityMode === 'criticality' && (
+                <div style={{ marginBottom: 10 }}>
+                  <span style={labelStyle}>Lägsta kritikalitet på kritiskt objekt</span>
+                  <select style={inputStyle} value={config.min_criticality ?? ''} onChange={e => setConfig({ ...config, min_criticality: e.target.value as AlertRuleConfig['min_criticality'] })}>
+                    <option value="">Välj…</option>
+                    <option value="gul">Viktig (gul) eller högre</option>
+                    <option value="rod">Kritisk (röd)</option>
+                  </select>
+                </div>
+              )}
+              {proximityMode === 'target' && (
+                <div style={{ marginBottom: 10 }}>
+                  <span style={labelStyle}>Objekt</span>
+                  {config.target_uid ? (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, ...inputStyle, padding: '5px 8px' }}>
+                      <span style={{ flex: 1, fontSize: 12, color: '#ddd' }}>
+                        {String(features.find(f => f.properties.uid === config.target_uid)?.properties.name ?? config.target_uid)}
+                      </span>
+                      <button onClick={() => setConfig({ ...config, target_uid: undefined })}
+                        style={{ background: 'none', border: 'none', color: '#7aaeff', fontSize: 11, cursor: 'pointer' }}>Byt</button>
+                    </div>
+                  ) : (
+                    <CriticalityObjectsList features={features} onSelect={f => setConfig({ ...config, target_uid: f.properties.uid })} />
+                  )}
+                </div>
+              )}
               <div style={{ marginBottom: 10 }}>
                 <span style={labelStyle}>Avstånd (m)</span>
                 <input type="number" style={inputStyle} value={config.distance_m ?? ''}

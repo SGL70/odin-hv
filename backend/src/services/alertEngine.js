@@ -29,10 +29,30 @@ async function evaluateThreshold(io, rule) {
   }
 }
 
+function isValidProximityConfig(config) {
+  if (!config || !config.layer || !config.distance_m) return false;
+  if (config.target_uid) return typeof config.target_uid === 'string';
+  return config.min_criticality in CRITICALITY_ORDER;
+}
+
 async function evaluateProximity(io, rule) {
+  if (rule.config && rule.config.target_uid) await evaluateProximityTarget(io, rule);
+  else await evaluateProximityCriticality(io, rule);
+}
+
+async function evaluateProximityCriticality(io, rule) {
   const { layer, min_criticality, distance_m } = rule.config;
   if (!layer || !distance_m || !(min_criticality in CRITICALITY_ORDER)) return;
   const allowed = Object.keys(CRITICALITY_ORDER).filter(c => CRITICALITY_ORDER[c] >= CRITICALITY_ORDER[min_criticality] && c !== 'normal');
+
+  // "Mer specifik vinner": objekt som redan har en egen aktiverad target_uid-regel
+  // exkluderas ur bas-regelns träffmängd, så samma händelse inte larmar två gånger
+  // under två olika rule_id (dedup är per rad, inte cross-rule).
+  const { rows: exclRows } = await db.query(
+    `SELECT DISTINCT config->>'target_uid' AS uid FROM alert_rules
+     WHERE type = 'proximity' AND enabled = true AND config ? 'target_uid'`
+  );
+  const excludedUids = exclRows.map(r => r.uid).filter(Boolean);
 
   const { rows } = await db.query(`
     SELECT DISTINCT ON (src.uid)
@@ -46,14 +66,41 @@ async function evaluateProximity(io, rule) {
      AND ST_DWithin(src.geom::geography, tgt.geom::geography, $2)
     WHERE src.layer = $1
       AND tgt.attributes->>'criticality' = ANY($3::text[])
+      AND NOT (tgt.uid = ANY($4::uuid[]))
     ORDER BY src.uid, distance_m ASC
-  `, [layer, distance_m, allowed]);
+  `, [layer, distance_m, allowed, excludedUids]);
 
   for (const r of rows) {
     await insertEvent(
       io, rule, r.source_uid,
       `${r.source_name} (${layer}) är inom ${Math.round(r.distance_m)} m från kritiskt objekt ${r.target_name} (${r.target_criticality})`,
       { source_uid: r.source_uid, source_name: r.source_name, target_uid: r.target_uid, target_name: r.target_name, target_criticality: r.target_criticality, distance_m: Math.round(r.distance_m) },
+      r.source_uid,
+    );
+  }
+}
+
+async function evaluateProximityTarget(io, rule) {
+  // Framtida utökningspunkt: extra filter (t.ex. exclude_bearing_deg) kan läggas
+  // som ytterligare valfria nycklar i config och läsas ut här — bygg inte nu.
+  const { layer, distance_m, target_uid } = rule.config;
+  if (!layer || !distance_m || !target_uid) return;
+
+  const { rows } = await db.query(`
+    SELECT src.uid AS source_uid, src.name AS source_name,
+           tgt.uid AS target_uid, tgt.name AS target_name,
+           ST_Distance(src.geom::geography, tgt.geom::geography) AS distance_m
+    FROM features src
+    JOIN features tgt ON tgt.uid = $3
+    WHERE src.layer = $1 AND src.uid <> tgt.uid
+      AND ST_DWithin(src.geom::geography, tgt.geom::geography, $2)
+  `, [layer, distance_m, target_uid]);
+
+  for (const r of rows) {
+    await insertEvent(
+      io, rule, r.source_uid,
+      `${r.source_name} (${layer}) är inom ${Math.round(r.distance_m)} m från ${r.target_name}`,
+      { source_uid: r.source_uid, source_name: r.source_name, target_uid: r.target_uid, target_name: r.target_name, distance_m: Math.round(r.distance_m) },
       r.source_uid,
     );
   }
@@ -100,4 +147,4 @@ async function evaluateAlerts(io) {
   }
 }
 
-module.exports = { evaluateAlerts };
+module.exports = { evaluateAlerts, isValidProximityConfig };
