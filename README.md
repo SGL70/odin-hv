@@ -141,6 +141,8 @@ Prioriteringen nedan väger även mot ABI-pelarna (se Metodik ovan) — t.ex. st
 
 14. **Förfina varningssystemet** - Idag kan tex en 7S-rapport skapa en varning givet hur regel och varningsfunktionen är uppsatt. En förfining kanske att _allt_ utom Egna ska trigga en varning, osv. Inleds med utredning.
 
+15. **Mediabevakning (dagstidningar, TV, radio)** — skörda lokala nyhetskällor (t.ex. NSD, Kuriren, SVT Nyheter Norrbotten, SR Norrbotten) som ytterligare underrättelsekälla vid sidan av Trafikverket/polisen/Krisinformation.se. Ingen enhetlig öppen API finns för detta till skillnad från övriga källor — troligen RSS-flöden där sådana finns plus riktad webbskrapning per utgivare, med manuell granskning/taggning innan ett nyhetsinslag blir ett riktigt objekt (liknande mönstret för Tips via SMS). Inleds med en utredning av vilka källor som faktiskt har RSS/strukturerad data kontra kräver skrapning
+
 ---
 
 ## Teknisk dokumentation
