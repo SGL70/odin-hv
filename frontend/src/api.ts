@@ -1,3 +1,5 @@
+import type { AlertRule, AlertRuleType, AlertRuleConfig, AlertEvent, AlertStatus, Feature } from './types';
+
 const BASE = '/api';
 
 function authHeaders(): HeadersInit {
@@ -39,6 +41,9 @@ export const api = {
   clearLayer: (layer: string) =>
     req<{ deleted: number }>('DELETE', `/features/layer/${layer}`),
 
+  getRelatedFeatures: (uid: string, radiusM: number) =>
+    req<Feature[]>('GET', `/features/${uid}/related?radius_m=${radiusM}`),
+
   dashboard: () =>
     req<{ totals: unknown[]; alerts: unknown[]; activity: unknown[] }>('GET', '/dashboard'),
 
@@ -58,5 +63,20 @@ export const api = {
     list: () => req<{ id: number; username: string; role: string; created_at: string }[]>('GET', '/auth/users'),
     create: (data: { username: string; password: string; role: string }) => req('POST', '/auth/users', data),
     delete: (id: number) => req('DELETE', `/auth/users/${id}`),
+  },
+
+  alerts: {
+    listRules: () => req<AlertRule[]>('GET', '/alerts/rules'),
+    createRule: (data: { name: string; type: AlertRuleType; config: AlertRuleConfig; enabled?: boolean }) =>
+      req<AlertRule>('POST', '/alerts/rules', data),
+    updateRule: (id: number, data: { name: string; type: AlertRuleType; config: AlertRuleConfig; enabled?: boolean }) =>
+      req<AlertRule>('PUT', `/alerts/rules/${id}`, data),
+    deleteRule: (id: number) => req<{ ok: boolean }>('DELETE', `/alerts/rules/${id}`),
+
+    listEvents: (status: AlertStatus | 'all' = 'open') =>
+      req<AlertEvent[]>('GET', `/alerts/events?status=${status}`),
+    acknowledge: (id: number) => req<AlertEvent>('POST', `/alerts/events/${id}/acknowledge`),
+
+    evaluateNow: () => req<{ ok: boolean }>('POST', '/alerts/evaluate'),
   },
 };

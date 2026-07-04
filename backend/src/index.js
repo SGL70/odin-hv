@@ -5,6 +5,7 @@ const cors = require('cors');
 const helmet = require('helmet');
 const bcrypt = require('bcryptjs');
 const db = require('./db');
+const { ensureAlertSchema, ensureIntelligenceReportsLayer, ensureRailwaySituationsLayer, ensureFeatureHistorySchema } = require('./migrations');
 
 const app = express();
 const server = http.createServer(app);
@@ -26,6 +27,7 @@ app.use('/api/trafikverket', require('./routes/trafikverket'));
 app.use('/api/harvest', require('./routes/harvest'));
 app.use('/api/settings', require('./routes/settings'));
 app.use('/api/sms', require('./routes/sms'));
+app.use('/api/alerts', require('./routes/alerts'));
 
 const analysisRouter = require('./routes/analysis');
 app.use('/api/analysis', analysisRouter);
@@ -52,6 +54,14 @@ async function ensureSettings() {
     INSERT INTO settings (key, value) VALUES ('snapshot_retention_days', '30')
     ON CONFLICT (key) DO NOTHING
   `);
+  await db.query(`
+    INSERT INTO settings (key, value) VALUES ('criticality_weighting', $1)
+    ON CONFLICT (key) DO NOTHING
+  `, [JSON.stringify({ distance_m: 500, gul_multiplier: 1.5, rod_multiplier: 3 })]);
+  await db.query(`
+    INSERT INTO settings (key, value) VALUES ('layer_weighting', $1)
+    ON CONFLICT (key) DO NOTHING
+  `, [JSON.stringify({ power_outages: 3, road_situations: 1, police_events: 1, railway_situations: 1 })]);
 }
 
 // Daglig snapshot-schemaläggare — sparar vid 00:05 varje natt
@@ -82,6 +92,10 @@ async function start() {
   }
   await ensureAdmin();
   await ensureSettings();
+  await ensureAlertSchema();
+  await ensureIntelligenceReportsLayer();
+  await ensureRailwaySituationsLayer();
+  await ensureFeatureHistorySchema();
   scheduleDailySnapshot();
   server.listen(PORT, () => console.log(`Resursläge backend på port ${PORT}`));
 }

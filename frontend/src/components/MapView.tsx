@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 import maplibregl from 'maplibre-gl';
 import { api } from '../api';
 import { LAYERS, getLayer } from '../types';
-import type { Feature, LayerId } from '../types';
+import type { Feature, LayerId, AlertEvent } from '../types';
 import { Sidebar } from './Sidebar';
 import { FeaturePanel } from './FeaturePanel';
 import { Dashboard } from './Dashboard';
@@ -10,13 +10,18 @@ import { ImportDialog } from './ImportDialog';
 import { HarvestSidebar } from './HarvestSidebar';
 import { SettingsModal } from './SettingsModal';
 import { AnalysisPanel } from './AnalysisPanel';
+import { AlertRulesModal } from './AlertRulesModal';
+import { AlertBanner } from './AlertBanner';
 import { OdinLogo } from './OdinLogo';
+import { ReportListPanel } from './ReportListPanel';
+import { registerReportIcons, buildReportIconExpression } from '../lib/reportSymbols';
 import { useAuth } from '../contexts/AuthContext';
 import { io } from 'socket.io-client';
 
 const LM_TOPO_URL = 'https://minkarta.lantmateriet.se/map/topowebb/?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=topowebbkartan&BBOX={bbox-epsg-3857}&WIDTH=256&HEIGHT=256&SRS=EPSG:3857&FORMAT=image/png';
 const LM_HILL_URL = 'https://minkarta.lantmateriet.se/map/hojdmodell/?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=terrangskuggning&BBOX={bbox-epsg-3857}&WIDTH=256&HEIGHT=256&SRS=EPSG:3857&FORMAT=image/png&TRANSPARENT=true';
 const SVK_URL = 'https://inspire-skn.metria.se/geoserver/skn/ows?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=US.ElectricityNetwork.Lines,US.ElectricityNetwork.Pylons,US.ElectricityNetwork.StationAreas&STYLES=skn_line,skn_point,skn_polygon&BBOX={bbox-epsg-3857}&WIDTH=256&HEIGHT=256&SRS=EPSG:900913&FORMAT=image/png&TRANSPARENT=true';
+const SEAMARK_URL = 'https://tiles.openseamap.org/seamark/{z}/{x}/{y}.png';
 
 const STYLE: maplibregl.StyleSpecification = {
   version: 8,
@@ -25,12 +30,14 @@ const STYLE: maplibregl.StyleSpecification = {
     'lm-topo':      { type: 'raster', tiles: [LM_TOPO_URL], tileSize: 256, attribution: '© Lantmäteriet CC BY' },
     'wms-hillshade':{ type: 'raster', tiles: [LM_HILL_URL], tileSize: 256, attribution: '© Lantmäteriet' },
     'wms-svk':      { type: 'raster', tiles: [SVK_URL],     tileSize: 256, attribution: '© Svenska kraftnät' },
+    seamark:        { type: 'raster', tiles: [SEAMARK_URL], tileSize: 256, attribution: '© OpenSeaMap contributors' },
   },
   layers: [
     { id: 'osm',             type: 'raster', source: 'osm' },
     { id: 'lm-topo',         type: 'raster', source: 'lm-topo',       layout: { visibility: 'none' } },
     { id: 'wms-svk',         type: 'raster', source: 'wms-svk',       layout: { visibility: 'none' }, paint: { 'raster-opacity': 0.9 } },
     { id: 'wms-hillshade',   type: 'raster', source: 'wms-hillshade', layout: { visibility: 'none' }, paint: { 'raster-opacity': 0.55 } },
+    { id: 'seamark',         type: 'raster', source: 'seamark',       layout: { visibility: 'none' } },
   ],
 };
 
@@ -62,6 +69,10 @@ export function MapView() {
   const [sidebarOpen, setSidebarOpen] = useState(() => localStorage.getItem('sidebarOpen') !== 'false');
   const [showSettings, setShowSettings] = useState(false);
   const [showAnalysis, setShowAnalysis] = useState(false);
+  const [showReports, setShowReports] = useState(false);
+  const [showAlertRules, setShowAlertRules] = useState(false);
+  const [openAlerts, setOpenAlerts] = useState<AlertEvent[]>([]);
+  const [bannerAlerts, setBannerAlerts] = useState<AlertEvent[]>([]);
   const [opomrFilter, setOpomrFilter] = useState(() => localStorage.getItem('opomrFilter') === 'true');
   const [baseMap, setBaseMap] = useState<'osm' | 'lm'>(() => (localStorage.getItem('baseMap') as 'osm' | 'lm') || 'osm');
   const [wmsOverlays, setWmsOverlays] = useState<Set<string>>(() => {
@@ -92,6 +103,14 @@ export function MapView() {
 
   useEffect(() => { loadFeatures(); }, [loadFeatures]);
 
+  useEffect(() => { api.alerts.listEvents('open').then(setOpenAlerts); }, []);
+
+  async function acknowledgeAlert(id: number) {
+    await api.alerts.acknowledge(id);
+    setOpenAlerts(prev => prev.filter(e => e.id !== id));
+    setBannerAlerts(prev => prev.filter(e => e.id !== id));
+  }
+
   // Reload when OpOmr filter changes
   useEffect(() => {
     localStorage.setItem('opomrFilter', String(opomrFilter));
@@ -105,6 +124,15 @@ export function MapView() {
     socket.on('feature:updated', (f: Feature) => setFeatures(prev => prev.map(p => p.properties.uid === f.properties.uid ? f : p)));
     socket.on('feature:deleted', ({ uid }: { uid: string }) => setFeatures(prev => prev.filter(p => p.properties.uid !== uid)));
     socket.on('features:reloaded', () => loadFeatures());
+    socket.on('alert:triggered', (event: AlertEvent) => {
+      setOpenAlerts(prev => [event, ...prev]);
+      setBannerAlerts(prev => [event, ...prev]);
+      setTimeout(() => setBannerAlerts(prev => prev.filter(e => e.id !== event.id)), 10000);
+    });
+    socket.on('alert:acknowledged', (event: AlertEvent) => {
+      setOpenAlerts(prev => prev.filter(e => e.id !== event.id));
+      setBannerAlerts(prev => prev.filter(e => e.id !== event.id));
+    });
     return () => { socket.disconnect(); };
   }, [loadFeatures]);
 
@@ -256,6 +284,25 @@ export function MapView() {
         return;
       }
 
+      // Underrättelserapporter: APP-6-symbol via förregistrerade milsymbol-ikoner
+      if (layer.id === 'intelligence_reports') {
+        registerReportIcons(map);
+        map.addSource(sourceId, { type: 'geojson', data: geojson });
+        map.addLayer({
+          id: `lyr-${layer.id}`,
+          type: 'symbol', source: sourceId,
+          layout: {
+            'icon-image': buildReportIconExpression() as unknown as maplibregl.ExpressionSpecification,
+            'icon-size': 1,
+            'icon-allow-overlap': true,
+            visibility: 'visible',
+          },
+        });
+        map.on('mouseenter', `lyr-${layer.id}`, () => { map.getCanvas().style.cursor = 'pointer'; });
+        map.on('mouseleave', `lyr-${layer.id}`, () => { map.getCanvas().style.cursor = ''; });
+        return;
+      }
+
       map.addSource(sourceId, { type: 'geojson', data: geojson });
 
       if (LINE_LAYERS.includes(layer.id)) {
@@ -388,7 +435,7 @@ export function MapView() {
     if (map.getLayer('lm-topo')) map.setLayoutProperty('lm-topo', 'visibility', baseMap === 'lm'  ? 'visible' : 'none');
   }, [baseMap]);
 
-  // WMS overlays: terrängskuggning + SVK kraftnät
+  // WMS overlays: terrängskuggning + SVK kraftnät + sjökort (OpenSeaMap)
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !map.isStyleLoaded()) return;
@@ -396,6 +443,7 @@ export function MapView() {
     const vis = (id: string) => wmsOverlays.has(id) ? 'visible' : 'none';
     if (map.getLayer('wms-hillshade')) map.setLayoutProperty('wms-hillshade', 'visibility', vis('hillshade'));
     if (map.getLayer('wms-svk'))       map.setLayoutProperty('wms-svk',       'visibility', vis('svk'));
+    if (map.getLayer('seamark'))       map.setLayoutProperty('seamark',       'visibility', vis('seamark'));
   }, [wmsOverlays]);
 
   // Choropleth overlay — hämta och rendera kommuners störningsindex
@@ -696,12 +744,17 @@ export function MapView() {
       geometry = { type: 'Point', coordinates: [addDialog.lngLat.lng, addDialog.lngLat.lat] };
     }
 
+    const fields = { ...newFields };
+    if (addLayer === 'intelligence_reports' && !fields.datetime) {
+      fields.datetime = new Date().toISOString();
+    }
+
     const f = await api.createFeature({
       layer: addLayer,
       name: newName.trim(),
       geometry,
       cot_type: addLayer === 'vehicles' ? 'a-f-G-U-C-V' : 'b-m-p-s-p',
-      ...newFields,
+      ...fields,
     });
 
     setAddDialog(null);
@@ -728,6 +781,7 @@ export function MapView() {
         <OdinLogo size="md" />
         <button className="btn-ghost btn-sm" onClick={() => setShowDash(d => !d)}>📊 Dashboard</button>
         <button className="btn-ghost btn-sm" onClick={() => setShowAnalysis(a => !a)}>📊 Analys</button>
+        {canEdit && <button className="btn-ghost btn-sm" onClick={() => setShowReports(r => !r)}>🕵 Rapporter</button>}
         {canEdit && (
           <button
             className={addMode ? 'btn-danger btn-sm' : 'btn-primary btn-sm'}
@@ -741,6 +795,7 @@ export function MapView() {
           <button className="btn-ghost btn-sm" onClick={() => setShowSettings(true)}>⚙ Inställningar</button>
         )}
         <div style={{ flex: 1 }} />
+        <a href="/docs/00-index.html" target="_blank" rel="noreferrer" style={{ fontSize: 12, color: '#888', textDecoration: 'none', padding: '4px 8px', border: '1px solid #444', borderRadius: 4 }}>📖 Hjälp</a>
         <a href="/api/export/kmz" style={{ fontSize: 12, color: '#888', textDecoration: 'none', padding: '4px 8px', border: '1px solid #444', borderRadius: 4 }} download>⬇ KMZ</a>
         <span style={{ fontSize: 12, color: '#888' }}>
           {user?.username} <span className={`badge badge-${user?.role === 'admin' ? 'orange' : user?.role === 'editor' ? 'blue' : 'green'}`}>{user?.role}</span>
@@ -753,6 +808,14 @@ export function MapView() {
         visible={visible} onToggle={toggleLayer} onSetAll={setAllLayers} counts={counts}
         baseMap={baseMap} overlays={wmsOverlays} onBaseMap={b => { setBaseMap(b); localStorage.setItem('baseMap', b); }} onOverlay={toggleOverlay}
         opomrFilter={opomrFilter} onOpomrFilter={setOpomrFilter}
+        alerts={openAlerts} onAcknowledgeAlert={acknowledgeAlert}
+        isAdmin={user?.role === 'admin'} onManageAlertRules={() => setShowAlertRules(true)}
+      />
+
+      <AlertBanner
+        alerts={bannerAlerts}
+        onDismiss={id => setBannerAlerts(prev => prev.filter(e => e.id !== id))}
+        onAcknowledge={acknowledgeAlert}
       />
 
       {showDash && <Dashboard onClose={() => setShowDash(false)} />}
@@ -766,6 +829,16 @@ export function MapView() {
       {showSettings && <SettingsModal onClose={() => setShowSettings(false)} />}
 
       {showAnalysis && <AnalysisPanel onClose={() => setShowAnalysis(false)} />}
+
+      {showReports && (
+        <ReportListPanel
+          features={features}
+          onClose={() => setShowReports(false)}
+          onSelect={f => setSelected(f)}
+        />
+      )}
+
+      {showAlertRules && <AlertRulesModal onClose={() => setShowAlertRules(false)} />}
 
       {(selected || addMode) && (
         <FeaturePanel

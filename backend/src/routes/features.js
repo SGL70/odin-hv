@@ -48,6 +48,11 @@ router.get('/', requireAuth, async (req, res) => {
       conditions.push(`f.layer = $${params.length}`);
     }
 
+    // OPSEC: underrättelserapporter är editor/admin-only, läsare ser dem aldrig
+    if (req.user.role === 'reader') {
+      conditions.push(`f.layer != 'intelligence_reports'`);
+    }
+
     if (opomr === '1') {
       conditions.push(`EXISTS (
         SELECT 1 FROM municipalities m
@@ -60,6 +65,83 @@ router.get('/', requireAuth, async (req, res) => {
     const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
     const { rows } = await db.query(`${BASE_QUERY} ${where} ORDER BY f.updated_at DESC`, params);
     res.json(toGeoJSON(rows));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ABI sekvensneutralitet: läs ut arkiverad rådata (annars vore features_history skrivbar men oanvändbar)
+router.get('/history', requireAuth, requireRole('editor', 'admin'), async (req, res) => {
+  try {
+    const { layer, since, until } = req.query;
+    const conditions = [];
+    const params = [];
+
+    if (layer) { params.push(layer); conditions.push(`layer = $${params.length}`); }
+    if (since) { params.push(since); conditions.push(`archived_at >= $${params.length}`); }
+    if (until) { params.push(until); conditions.push(`archived_at <= $${params.length}`); }
+
+    const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+    const { rows } = await db.query(
+      `SELECT uid, layer, cot_type, name, ST_AsGeoJSON(geom)::json AS geom, attributes, created_at, updated_at, archived_at, archived_reason
+       FROM features_history ${where} ORDER BY archived_at DESC LIMIT 500`,
+      params,
+    );
+    res.json({
+      type: 'FeatureCollection',
+      features: rows.map(r => ({
+        type: 'Feature',
+        id: r.uid,
+        geometry: r.geom,
+        properties: {
+          uid: r.uid, layer: r.layer, cot_type: r.cot_type, name: r.name,
+          ...r.attributes,
+          created_at: r.created_at, updated_at: r.updated_at,
+          archived_at: r.archived_at, archived_reason: r.archived_reason,
+        },
+      })),
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ABI integration before exploitation: korrelerar ett objekt mot andra features inom given radie,
+// samma ST_DWithin-mönster som alertEngine.js::evaluateProximity, i stället för att lämna
+// tvärlager-korrelation åt att användaren råkar se det på kartan.
+router.get('/:uid/related', requireAuth, async (req, res) => {
+  try {
+    const { uid } = req.params;
+    const radius = Math.min(Math.max(Number(req.query.radius_m) || 500, 1), 50000);
+    const conditions = [`tgt.uid <> $1`, `ST_DWithin(src.geom::geography, tgt.geom::geography, $2)`];
+    if (req.user.role === 'reader') conditions.push(`tgt.layer != 'intelligence_reports'`);
+
+    const { rows } = await db.query(
+      `SELECT tgt.uid, tgt.layer, tgt.cot_type, tgt.name, tgt.attributes, tgt.created_at, tgt.updated_at,
+         ST_AsGeoJSON(tgt.geom)::json AS geom,
+         ST_Distance(src.geom::geography, tgt.geom::geography) AS distance_m
+       FROM features src
+       JOIN features tgt ON ${conditions.join(' AND ')}
+       WHERE src.uid = $1
+       ORDER BY distance_m ASC
+       LIMIT 20`,
+      [uid, radius],
+    );
+    res.json(rows.map(r => ({
+      type: 'Feature',
+      id: r.uid,
+      geometry: r.geom,
+      properties: {
+        uid: r.uid,
+        layer: r.layer,
+        cot_type: r.cot_type,
+        name: r.name,
+        ...r.attributes,
+        created_at: r.created_at,
+        updated_at: r.updated_at,
+        distance_m: Math.round(r.distance_m),
+      },
+    })));
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

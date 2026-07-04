@@ -6,8 +6,9 @@ interface Props {
 }
 
 const OVERLAYS = [
-  { id: 'hillshade', label: 'Terrängskuggning', icon: '🏔' },
-  { id: 'svk',       label: 'Kraftnät (SVK)',   icon: '⚡' },
+  { id: 'hillshade', label: 'Terrängskuggning',   icon: '🏔' },
+  { id: 'svk',       label: 'Kraftnät (SVK)',     icon: '⚡' },
+  { id: 'seamark',   label: 'Sjökort (OpenSeaMap)', icon: '⚓' },
 ];
 
 export function BaseMapControl({ baseMap, overlays, onBaseMap, onOverlay }: Props) {

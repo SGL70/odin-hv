@@ -2,7 +2,23 @@ import { useState, useEffect, useRef } from 'react';
 import { api } from '../api';
 import { getLayer, LAYERS } from '../types';
 import type { Feature, LayerId } from '../types';
+import { RelatedFeatures } from './RelatedFeatures';
 import { useAuth } from '../contexts/AuthContext';
+
+// Konverterar ISO-tidsträng (lagras alltid som UTC, t.ex. 'YYYY-MM-DDTHH:mm:ss.sssZ') till
+// det lokala 'YYYY-MM-DDTHH:mm'-format som <input type="datetime-local"> kräver, och tillbaka.
+function toDatetimeLocalValue(iso: string): string {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return '';
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+function fromDatetimeLocalValue(local: string): string {
+  if (!local) return '';
+  const d = new Date(local);
+  return isNaN(d.getTime()) ? local : d.toISOString();
+}
 
 interface Props {
   feature: Feature | null;
@@ -49,7 +65,7 @@ export function FeaturePanel({ feature, group = [], onSelectFromGroup, onClose, 
   const layerCfg = getLayer(feature ? feature.properties.layer : addLayer);
 
   const FUEL_DATA_KEYS = ['diesel_cap_l', 'diesel_level_pct', 'bensin_cap_l', 'bensin_level_pct', 'hvo_cap_l', 'hvo_level_pct'];
-  const MULTILINE_KEYS = new Set(['description', 'summary', 'location', 'road_name', 'location_description']);
+  const MULTILINE_KEYS = new Set(['description', 'summary', 'location', 'road_name', 'location_description', 'sysselsattning']);
 
   const save = async () => {
     if (!feature || !canEdit) return;
@@ -59,6 +75,9 @@ export function FeaturePanel({ feature, group = [], onSelectFromGroup, onClose, 
       if (feature.properties.layer === 'fuel') {
         const fuelChanged = FUEL_DATA_KEYS.some(k => saveFields[k] !== (originalFields.current[k] ?? ''));
         if (fuelChanged) saveFields.data_date = new Date().toISOString().slice(0, 10);
+      }
+      if (feature.properties.layer === 'intelligence_reports' && !saveFields.datetime) {
+        saveFields.datetime = new Date().toISOString();
       }
       const saved = await api.updateFeature(feature.properties.uid, {
         name, geometry: feature.geometry, cot_type: feature.properties.cot_type, ...saveFields,
@@ -174,6 +193,12 @@ export function FeaturePanel({ feature, group = [], onSelectFromGroup, onClose, 
                   onChange={e => setFields(p => ({ ...p, [f.key]: e.target.value }))}
                   style={{ resize: 'vertical', minHeight: 60 }}
                 />
+              ) : f.type === 'datetime' ? (
+                <input
+                  type="datetime-local"
+                  value={toDatetimeLocalValue(val)}
+                  onChange={e => setFields(p => ({ ...p, [f.key]: fromDatetimeLocalValue(e.target.value) }))}
+                />
               ) : (
                 <input
                   type={f.type === 'number' ? 'number' : f.type === 'date' ? 'date' : 'text'}
@@ -223,6 +248,8 @@ export function FeaturePanel({ feature, group = [], onSelectFromGroup, onClose, 
             </div>
           );
         })()}
+
+        <RelatedFeatures uid={feature.properties.uid} onSelect={onSelectFromGroup} />
 
         {fields.photo_url && (
           <div style={{ marginTop: 12 }}>

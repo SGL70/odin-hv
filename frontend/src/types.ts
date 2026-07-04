@@ -7,7 +7,47 @@ export interface User {
   role: Role;
 }
 
-export type LayerId = 'fuel' | 'food' | 'water' | 'raw_materials' | 'vehicles' | 'firewood' | 'consumables' | 'roads' | 'bridges' | 'maintenance' | 'hygiene' | 'staging_areas' | 'transshipment' | 'cameras' | 'powerlines' | 'telecom' | 'railways' | 'ports' | 'airports' | 'medical' | 'emergency' | 'tunnels' | 'fording_points' | 'police_events' | 'road_situations' | 'power_outages' | 'sms_alerts';
+export type AlertRuleType = 'threshold' | 'proximity' | 'cluster';
+export type AlertStatus = 'open' | 'acknowledged';
+
+export interface AlertRuleConfig {
+  score_threshold?: number;
+  layer?: LayerId;
+  min_criticality?: 'gul' | 'rod';
+  distance_m?: number;
+  min_count?: number;
+  radius_m?: number;
+}
+
+export interface AlertRule {
+  id: number;
+  name: string;
+  type: AlertRuleType;
+  enabled: boolean;
+  config: AlertRuleConfig;
+  created_by: number | null;
+  updated_by: number | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AlertEvent {
+  id: number;
+  rule_id: number | null;
+  rule_name: string;
+  rule_type: AlertRuleType;
+  entity_key: string;
+  status: AlertStatus;
+  message: string;
+  details: Record<string, unknown>;
+  feature_uid: string | null;
+  acknowledged_by: number | null;
+  acknowledged_by_name?: string;
+  acknowledged_at: string | null;
+  created_at: string;
+}
+
+export type LayerId = 'fuel' | 'food' | 'water' | 'raw_materials' | 'vehicles' | 'firewood' | 'consumables' | 'roads' | 'bridges' | 'maintenance' | 'hygiene' | 'staging_areas' | 'transshipment' | 'cameras' | 'powerlines' | 'telecom' | 'railways' | 'ports' | 'airports' | 'medical' | 'emergency' | 'tunnels' | 'fording_points' | 'police_events' | 'road_situations' | 'power_outages' | 'sms_alerts' | 'intelligence_reports' | 'railway_situations';
 
 export interface LayerConfig {
   id: LayerId;
@@ -21,7 +61,7 @@ export interface LayerConfig {
 export interface FieldDef {
   key: string;
   label: string;
-  type: 'text' | 'number' | 'date' | 'select';
+  type: 'text' | 'number' | 'date' | 'datetime' | 'select';
   unit?: string;
   options?: string[];
 }
@@ -379,6 +419,23 @@ export const LAYERS: LayerConfig[] = [
     ],
   },
   {
+    id: 'railway_situations',
+    label: 'Tågstörningar',
+    color: '#8e44ad',
+    icon: '🚆',
+    group: 'events',
+    fields: [
+      { key: 'event_type',      label: 'Typ',              type: 'text' },
+      { key: 'activity_type',   label: 'Aktivitet',         type: 'text' },
+      { key: 'scheduled_time',  label: 'Planerad tid',      type: 'text' },
+      { key: 'train_ident',     label: 'Tåguppdrag',        type: 'text' },
+      { key: 'canceled',        label: 'Inställt',          type: 'text' },
+      { key: 'operator',        label: 'Operatör',          type: 'text' },
+      { key: 'description',     label: 'Beskrivning',       type: 'text' },
+      { key: 'source',          label: 'Källa',             type: 'text' },
+    ],
+  },
+  {
     id: 'police_events',
     label: 'Polishändelser',
     color: '#3498db',
@@ -421,6 +478,26 @@ export const LAYERS: LayerConfig[] = [
       { key: 'source',       label: 'Avsändare',    type: 'text' },
       { key: 'description',  label: 'Meddelande',   type: 'text' },
       { key: 'received_at',  label: 'Mottaget',     type: 'text' },
+    ],
+  },
+  {
+    id: 'intelligence_reports',
+    label: 'Underrättelserapporter',
+    color: '#c0392b',
+    icon: '🕵',
+    group: 'events',
+    fields: [
+      { key: 'datetime',       label: 'Stund (tidpunkt)',                       type: 'datetime' },
+      { key: 'slag',           label: 'Slag (förbandstyp)',                     type: 'select', options: ['Infanteri', 'Mekaniserad/Pansar', 'Artilleri', 'Luftvärn', 'Ledning/Stab', 'Underrättelse/Spaning', 'Logistik/Trupptransport', 'Flyg', 'Marin', 'Civil/Okänd', 'Övrigt'] },
+      { key: 'affiliation',    label: 'Symbol – Tillhörighet',                  type: 'select', options: ['Egen (Friendly)', 'Fientlig (Hostile)', 'Neutral', 'Okänd (Unknown)'] },
+      { key: 'symbol_type',    label: 'Symbol – Typ',                           type: 'select', options: ['Markstyrka (allmän)', 'Mekaniserad/Fordon', 'Eldenhet/Beväpning', 'Ledning/Stab', 'Anläggning/Installation'] },
+      { key: 'stalle',         label: 'Ställe (platsbeskrivning)',              type: 'text' },
+      { key: 'styrka',         label: 'Styrka',                                 type: 'text' },
+      { key: 'sysselsattning', label: 'Sysselsättning (verksamhet)',            type: 'text' },
+      { key: 'sagesman',       label: 'Sagesman (källa/uppgiftslämnare)',       type: 'text' },
+      { key: 'source_value',   label: 'Källans tillförlitlighet (STANAG 2511)', type: 'select', options: ['A – Fullt tillförlitlig', 'B – Vanligen tillförlitlig', 'C – Ganska tillförlitlig', 'D – Inte alltid tillförlitlig', 'E – Otillförlitlig', 'F – Kan ej bedömas'] },
+      { key: 'info_value',     label: 'Uppgiftens trovärdighet (STANAG 2511)',  type: 'select', options: ['1 – Bekräftad', '2 – Sannolikt sann', '3 – Möjligen sann', '4 – Tveksam', '5 – Osannolik', '6 – Kan ej bedömas'] },
+      { key: 'description',    label: 'Uppgift / beskrivning av händelsen',     type: 'text' },
     ],
   },
 ];

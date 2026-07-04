@@ -105,6 +105,16 @@ const CATEGORIES: Category[] = [
     ],
   },
   {
+    id: 'trv-railway',
+    label: 'Tågstörningar',
+    icon: '🚆',
+    defaultSource: 'trv-railway',
+    note: 'TrainAnnouncement · OpOmr',
+    sources: [
+      { id: 'trv-railway', label: 'Tågstörningar (TRV)', previewEndpoint: '/api/harvest/railway-situations/preview', scrapeEndpoint: '/api/harvest/railway-situations/scrape' },
+    ],
+  },
+  {
     id: 'bridges',
     label: 'Broar',
     icon: '🌉',

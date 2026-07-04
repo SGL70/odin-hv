@@ -6,36 +6,47 @@ interface County {
 }
 
 const SWEDEN: County[] = [
-  { name: 'Stockholms län', municipalities: ['Botkyrka','Danderyd','Ekerö','Haninge','Huddinge','Järfälla','Lidingö','Nacka','Norrtälje','Nykvarn','Nynäshamn','Salem','Sigtuna','Sollentuna','Solna','Stockholm','Sundbyberg','Södertälje','Tyresö','Täby','Upplands-Bro','Upplands Väsby','Vallentuna','Vaxholm','Värmdö','Österåker'] },
-  { name: 'Uppsala län', municipalities: ['Enköping','Heby','Håbo','Knivsta','Tierp','Uppsala','Älvkarleby','Östhammar'] },
-  { name: 'Södermanlands län', municipalities: ['Eskilstuna','Flen','Gnesta','Katrineholm','Nyköping','Oxelösund','Strängnäs','Trosa','Vingåker'] },
-  { name: 'Östergötlands län', municipalities: ['Boxholm','Finspång','Kinda','Linköping','Mjölby','Motala','Norrköping','Söderköping','Vadstena','Valdemarsvik','Ydre','Åtvidaberg','Ödeshög'] },
-  { name: 'Jönköpings län', municipalities: ['Aneby','Eksjö','Gislaved','Gnosjö','Habo','Jönköping','Mullsjö','Nässjö','Sävsjö','Tranås','Vaggeryd','Vetlanda','Värnamo'] },
-  { name: 'Kronobergs län', municipalities: ['Alvesta','Lessebo','Ljungby','Markaryd','Tingsryd','Uppvidinge','Växjö','Älmhult'] },
-  { name: 'Kalmar län', municipalities: ['Borgholm','Emmaboda','Hultsfred','Högsby','Kalmar','Mönsterås','Mörbylånga','Nybro','Oskarshamn','Torsås','Vimmerby','Västervik'] },
-  { name: 'Gotlands län', municipalities: ['Gotland'] },
-  { name: 'Blekinge län', municipalities: ['Karlshamn','Karlskrona','Olofström','Ronneby','Sölvesborg'] },
-  { name: 'Skåne län', municipalities: ['Bjuv','Bromölla','Burlöv','Båstad','Eslöv','Helsingborg','Hässleholm','Höganäs','Hörby','Höör','Klippan','Kristianstad','Kävlinge','Landskrona','Lomma','Lund','Malmö','Osby','Perstorp','Simrishamn','Sjöbo','Skurup','Staffanstorp','Svalöv','Svedala','Tomelilla','Trelleborg','Vellinge','Ystad','Åstorp','Ängelholm','Örkelljunga','Östra Göinge'] },
-  { name: 'Hallands län', municipalities: ['Falkenberg','Halmstad','Hylte','Kungsbacka','Laholm','Varberg'] },
-  { name: 'Västra Götalands län', municipalities: ['Ale','Alingsås','Bengtsfors','Bollebygd','Borås','Dals-Ed','Essunga','Falköping','Färgelanda','Grästorp','Gullspång','Göteborg','Götene','Herrljunga','Hjo','Härryda','Karlsborg','Kungälv','Lerum','Lidköping','Lilla Edet','Lysekil','Mariestad','Mark','Mellerud','Munkedal','Mölndal','Orust','Partille','Skara','Skövde','Sotenäs','Stenungsund','Strömstad','Svenljunga','Tanum','Tibro','Tidaholm','Tjörn','Tranemo','Trollhättan','Töreboda','Uddevalla','Ulricehamn','Vara','Vårgårda','Åmål','Öckerö'] },
+  { name: 'Norrbottens län', municipalities: ['Arjeplog','Arvidsjaur','Boden','Gällivare','Haparanda','Jokkmokk','Kalix','Kiruna','Luleå','Pajala','Piteå','Älvsbyn','Överkalix','Övertorneå'] },
+  { name: 'Västerbottens län', municipalities: ['Bjurholm','Dorotea','Lycksele','Malå','Nordmaling','Norsjö','Robertsfors','Skellefteå','Sorsele','Storuman','Umeå','Vilhelmina','Vindeln','Vännäs','Åsele'] },
+  { name: 'Jämtlands län', municipalities: ['Berg','Bräcke','Härjedalen','Krokom','Ragunda','Strömsund','Åre','Östersund'] },
+  { name: 'Västernorrlands län', municipalities: ['Härnösand','Kramfors','Sollefteå','Sundsvall','Timrå','Ånge','Örnsköldsvik'] },
+  { name: 'Gävleborgs län', municipalities: ['Bollnäs','Gävle','Hofors','Hudiksvall','Ljusdal','Nordanstig','Ockelbo','Ovanåker','Sandviken','Söderhamn'] },
+  { name: 'Dalarnas län', municipalities: ['Avesta','Borlänge','Falun','Gagnef','Hedemora','Leksand','Ludvika','Malung-Sälen','Mora','Orsa','Rättvik','Smedjebacken','Säter','Vansbro','Älvdalen'] },
   { name: 'Värmlands län', municipalities: ['Arvika','Eda','Filipstad','Forshaga','Grums','Hagfors','Hammarö','Karlstad','Kil','Kristinehamn','Munkfors','Storfors','Sunne','Säffle','Torsby','Årjäng'] },
   { name: 'Örebro län', municipalities: ['Askersund','Degerfors','Hallsberg','Hällefors','Karlskoga','Kumla','Laxå','Lekeberg','Lindesberg','Ljusnarsberg','Nora','Örebro'] },
   { name: 'Västmanlands län', municipalities: ['Arboga','Fagersta','Hallstahammar','Kungsör','Köping','Norberg','Sala','Skinnskatteberg','Surahammar','Västerås'] },
-  { name: 'Dalarnas län', municipalities: ['Avesta','Borlänge','Falun','Gagnef','Hedemora','Leksand','Ludvika','Malung-Sälen','Mora','Orsa','Rättvik','Smedjebacken','Säter','Vansbro','Älvdalen'] },
-  { name: 'Gävleborgs län', municipalities: ['Bollnäs','Gävle','Hofors','Hudiksvall','Ljusdal','Nordanstig','Ockelbo','Ovanåker','Sandviken','Söderhamn'] },
-  { name: 'Västernorrlands län', municipalities: ['Härnösand','Kramfors','Sollefteå','Sundsvall','Timrå','Ånge','Örnsköldsvik'] },
-  { name: 'Jämtlands län', municipalities: ['Berg','Bräcke','Härjedalen','Krokom','Ragunda','Strömsund','Åre','Östersund'] },
-  { name: 'Västerbottens län', municipalities: ['Bjurholm','Dorotea','Lycksele','Malå','Nordmaling','Norsjö','Robertsfors','Skellefteå','Sorsele','Storuman','Umeå','Vilhelmina','Vindeln','Vännäs','Åsele'] },
-  { name: 'Norrbottens län', municipalities: ['Arjeplog','Arvidsjaur','Boden','Gällivare','Haparanda','Jokkmokk','Kalix','Kiruna','Luleå','Pajala','Piteå','Älvsbyn','Överkalix','Övertorneå'] },
+  { name: 'Uppsala län', municipalities: ['Enköping','Heby','Håbo','Knivsta','Tierp','Uppsala','Älvkarleby','Östhammar'] },
+  { name: 'Stockholms län', municipalities: ['Botkyrka','Danderyd','Ekerö','Haninge','Huddinge','Järfälla','Lidingö','Nacka','Norrtälje','Nykvarn','Nynäshamn','Salem','Sigtuna','Sollentuna','Solna','Stockholm','Sundbyberg','Södertälje','Tyresö','Täby','Upplands-Bro','Upplands Väsby','Vallentuna','Vaxholm','Värmdö','Österåker'] },
+  { name: 'Södermanlands län', municipalities: ['Eskilstuna','Flen','Gnesta','Katrineholm','Nyköping','Oxelösund','Strängnäs','Trosa','Vingåker'] },
+  { name: 'Västra Götalands län', municipalities: ['Ale','Alingsås','Bengtsfors','Bollebygd','Borås','Dals-Ed','Essunga','Falköping','Färgelanda','Grästorp','Gullspång','Göteborg','Götene','Herrljunga','Hjo','Härryda','Karlsborg','Kungälv','Lerum','Lidköping','Lilla Edet','Lysekil','Mariestad','Mark','Mellerud','Munkedal','Mölndal','Orust','Partille','Skara','Skövde','Sotenäs','Stenungsund','Strömstad','Svenljunga','Tanum','Tibro','Tidaholm','Tjörn','Tranemo','Trollhättan','Töreboda','Uddevalla','Ulricehamn','Vara','Vårgårda','Åmål','Öckerö'] },
+  { name: 'Östergötlands län', municipalities: ['Boxholm','Finspång','Kinda','Linköping','Mjölby','Motala','Norrköping','Söderköping','Vadstena','Valdemarsvik','Ydre','Åtvidaberg','Ödeshög'] },
+  { name: 'Gotlands län', municipalities: ['Gotland'] },
+  { name: 'Jönköpings län', municipalities: ['Aneby','Eksjö','Gislaved','Gnosjö','Habo','Jönköping','Mullsjö','Nässjö','Sävsjö','Tranås','Vaggeryd','Vetlanda','Värnamo'] },
+  { name: 'Kalmar län', municipalities: ['Borgholm','Emmaboda','Hultsfred','Högsby','Kalmar','Mönsterås','Mörbylånga','Nybro','Oskarshamn','Torsås','Vimmerby','Västervik'] },
+  { name: 'Hallands län', municipalities: ['Falkenberg','Halmstad','Hylte','Kungsbacka','Laholm','Varberg'] },
+  { name: 'Kronobergs län', municipalities: ['Alvesta','Lessebo','Ljungby','Markaryd','Tingsryd','Uppvidinge','Växjö','Älmhult'] },
+  { name: 'Blekinge län', municipalities: ['Karlshamn','Karlskrona','Olofström','Ronneby','Sölvesborg'] },
+  { name: 'Skåne län', municipalities: ['Bjuv','Bromölla','Burlöv','Båstad','Eslöv','Helsingborg','Hässleholm','Höganäs','Hörby','Höör','Klippan','Kristianstad','Kävlinge','Landskrona','Lomma','Lund','Malmö','Osby','Perstorp','Simrishamn','Sjöbo','Skurup','Staffanstorp','Svalöv','Svedala','Tomelilla','Trelleborg','Vellinge','Ystad','Åstorp','Ängelholm','Örkelljunga','Östra Göinge'] },
 ];
 
 interface Props {
   onClose: () => void;
 }
 
+const LAYER_WEIGHT_LABELS: Record<string, string> = {
+  power_outages: 'Elavbrott',
+  road_situations: 'Trafikhändelser',
+  police_events: 'Polishändelser',
+  railway_situations: 'Tågstörningar',
+};
+
 export function SettingsModal({ onClose }: Props) {
   const [municipalities, setMunicipalities] = useState<string[]>([]);
   const [retentionDays, setRetentionDays] = useState(30);
+  const [distanceM, setDistanceM] = useState(500);
+  const [gulMultiplier, setGulMultiplier] = useState(1.5);
+  const [rodMultiplier, setRodMultiplier] = useState(3);
+  const [layerWeighting, setLayerWeighting] = useState<Record<string, number>>({});
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [snapshotting, setSnapshotting] = useState(false);
@@ -48,6 +59,10 @@ export function SettingsModal({ onClose }: Props) {
       .then(s => {
         setMunicipalities(s.op_municipalities || []);
         setRetentionDays(s.snapshot_retention_days ?? 30);
+        setDistanceM(s.criticality_weighting?.distance_m ?? 500);
+        setGulMultiplier(s.criticality_weighting?.gul_multiplier ?? 1.5);
+        setRodMultiplier(s.criticality_weighting?.rod_multiplier ?? 3);
+        setLayerWeighting(s.layer_weighting ?? { power_outages: 3, road_situations: 1, police_events: 1, railway_situations: 1 });
       });
   }, [token]);
 
@@ -88,6 +103,16 @@ export function SettingsModal({ onClose }: Props) {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({ value: retentionDays }),
+      }),
+      fetch('/api/settings/criticality_weighting', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ value: { distance_m: distanceM, gul_multiplier: gulMultiplier, rod_multiplier: rodMultiplier } }),
+      }),
+      fetch('/api/settings/layer_weighting', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ value: layerWeighting }),
       }),
     ]);
     setSaving(false);
@@ -200,6 +225,79 @@ export function SettingsModal({ onClose }: Props) {
             disabled={snapshotting}
             style={{ padding: '5px 12px', borderRadius: 4, fontSize: 11, background: '#2a2a44', color: '#aaa', border: '1px solid #444', cursor: 'pointer' }}
           >{snapshotting ? 'Sparar…' : '⚡ Spara ögonblick nu'}</button>
+        </div>
+
+        {/* Kritikalitetsviktning */}
+        <div style={{ borderTop: '1px solid #2a2a40', paddingTop: 16, marginBottom: 16 }}>
+          <div style={{ fontSize: 11, color: '#888', marginBottom: 10, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+            ⚠ Kritikalitetsviktad störningsscore
+          </div>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+            <span style={{ fontSize: 12, color: '#aaa', flex: 1 }}>Avstånd till kritisk feature</span>
+            <input
+              type="number"
+              min={0}
+              max={50000}
+              value={distanceM}
+              onChange={e => { setDistanceM(Number(e.target.value)); setSaved(false); }}
+              style={{ width: 60, padding: '3px 6px', background: '#16162a', border: '1px solid #444', borderRadius: 4, color: '#ddd', fontSize: 12, textAlign: 'right' }}
+            />
+            <span style={{ fontSize: 12, color: '#666' }}>m</span>
+          </label>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+            <span style={{ fontSize: 12, color: '#aaa', flex: 1 }}>Multiplikator, gul (Viktig)</span>
+            <input
+              type="number"
+              min={1}
+              max={10}
+              step={0.1}
+              value={gulMultiplier}
+              onChange={e => { setGulMultiplier(Number(e.target.value)); setSaved(false); }}
+              style={{ width: 52, padding: '3px 6px', background: '#16162a', border: '1px solid #444', borderRadius: 4, color: '#ddd', fontSize: 12, textAlign: 'right' }}
+            />
+            <span style={{ fontSize: 12, color: '#666' }}>×</span>
+          </label>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+            <span style={{ fontSize: 12, color: '#aaa', flex: 1 }}>Multiplikator, röd (Kritisk)</span>
+            <input
+              type="number"
+              min={1}
+              max={10}
+              step={0.1}
+              value={rodMultiplier}
+              onChange={e => { setRodMultiplier(Number(e.target.value)); setSaved(false); }}
+              style={{ width: 52, padding: '3px 6px', background: '#16162a', border: '1px solid #444', borderRadius: 4, color: '#ddd', fontSize: 12, textAlign: 'right' }}
+            />
+            <span style={{ fontSize: 12, color: '#666' }}>×</span>
+          </label>
+          <div style={{ fontSize: 11, color: '#555' }}>
+            Gäller elavbrott och trafikhändelser. Polishändelser har endast länsnivå-GPS och kan inte avståndsviktas.
+          </div>
+        </div>
+
+        {/* Källviktning */}
+        <div style={{ borderTop: '1px solid #2a2a40', paddingTop: 16, marginBottom: 16 }}>
+          <div style={{ fontSize: 11, color: '#888', marginBottom: 10, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+            📊 Källviktning i störningsscore
+          </div>
+          {Object.keys(layerWeighting).map(layer => (
+            <label key={layer} style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+              <span style={{ fontSize: 12, color: '#aaa', flex: 1 }}>{LAYER_WEIGHT_LABELS[layer] ?? layer}</span>
+              <input
+                type="number"
+                min={0}
+                max={10}
+                step={0.5}
+                value={layerWeighting[layer]}
+                onChange={e => { setLayerWeighting(prev => ({ ...prev, [layer]: Number(e.target.value) })); setSaved(false); }}
+                style={{ width: 52, padding: '3px 6px', background: '#16162a', border: '1px solid #444', borderRadius: 4, color: '#ddd', fontSize: 12, textAlign: 'right' }}
+              />
+              <span style={{ fontSize: 12, color: '#666' }}>×</span>
+            </label>
+          ))}
+          <div style={{ fontSize: 11, color: '#555' }}>
+            Vikt 0 utesluter källan helt ur störningsscoren. Nya lager läggs till av admin via API tills en UI för att lägga till rader byggs.
+          </div>
         </div>
 
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>

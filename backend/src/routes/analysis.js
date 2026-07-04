@@ -148,52 +148,124 @@ const POPULATION = {
   'Övertorneå':  4563,
 };
 
+const DEFAULT_CRITICALITY_WEIGHTING = { distance_m: 500, gul_multiplier: 1.5, rod_multiplier: 3 };
+
+// ABI dataneutralitet: vilka lager som bidrar till störningspoängen, och med vilken vikt.
+// power_outages/road_situations/police_events har egna namngivna fält (elavbrott/road_count/
+// police_count) i choropleth-svaret av bakåtkompatibilitetsskäl (MapView.tsx-tooltip,
+// alertEngine.js threshold-details) — övriga nycklar i denna inställning (t.ex. railway_situations)
+// behandlas generiskt och summeras in i rawScore utan eget namngivet fält.
+const DEFAULT_LAYER_WEIGHTING = { power_outages: 3, road_situations: 1, police_events: 1, railway_situations: 1 };
+
+// Störningspoäng per kommun, normaliserat per 1000 invånare (SCB 2024).
+// Delad mellan /choropleth och varningsregelmotorns tröskelregel — se backend/src/services/alertEngine.js
+//
+// Elavbrott/trafikhändelser/övriga generiska lager nära en 'gul'/'rod'-märkt feature
+// (attributes->>'criticality') räknas med en multiplikator per händelse (criticality_weighting-
+// inställning) innan de summeras in i rawScore. Polishändelser viktas INTE spatialt — deras GPS
+// är endast länsnivå-centroid (se "Driftinfo kommuner BD.md"), så ett avståndstest mot dem är
+// fysiskt meningslöst, men deras bidrag till rawScore är fortfarande konfigurerbart via layer_weighting.
+async function computeDisruptionScores() {
+  const cutoff48h = new Date(Date.now() - 48 * 3600 * 1000).toISOString();
+  const weightRow = await db.query("SELECT value FROM settings WHERE key='criticality_weighting'");
+  const weighting = weightRow.rows.length ? weightRow.rows[0].value : DEFAULT_CRITICALITY_WEIGHTING;
+  const { distance_m, gul_multiplier, rod_multiplier } = { ...DEFAULT_CRITICALITY_WEIGHTING, ...weighting };
+
+  const layerWeightRow = await db.query("SELECT value FROM settings WHERE key='layer_weighting'");
+  const layerWeights = { ...DEFAULT_LAYER_WEIGHTING, ...(layerWeightRow.rows[0]?.value || {}) };
+  const { power_outages: powerWeight, road_situations: roadWeight, police_events: policeWeight, ...extraLayerWeights } = layerWeights;
+  const extraLayers = Object.keys(extraLayerWeights).filter(l => Number(extraLayerWeights[l]) > 0);
+
+  const criticalityMultiplierSql = `
+    coalesce((
+      SELECT MAX(CASE WHEN tgt.attributes->>'criticality' = 'rod' THEN $2::numeric ELSE $3::numeric END)
+      FROM features tgt
+      WHERE tgt.uid <> f.uid
+        AND tgt.attributes->>'criticality' IN ('gul','rod')
+        AND ST_DWithin(f.geom::geography, tgt.geom::geography, $1)
+    ), 1::numeric)
+  `;
+
+  const [muniRows, powerRows, roadRows, policeRows, extraResults] = await Promise.all([
+    db.query(`SELECT short_name as name FROM municipalities ORDER BY short_name`),
+    db.query(`
+      SELECT m.short_name as kommun, count(*) as avbrott,
+             coalesce(sum((f.attributes->>'affected_customers')::int), 0) as berorda,
+             coalesce(sum(${criticalityMultiplierSql}), 0) as weighted_avbrott
+      FROM features f JOIN municipalities m ON ST_Within(f.geom, m.geom)
+      WHERE f.layer = 'power_outages' GROUP BY m.short_name
+    `, [distance_m, rod_multiplier, gul_multiplier]),
+    db.query(`
+      SELECT m.short_name as kommun, count(*) as n,
+             coalesce(sum(${criticalityMultiplierSql}), 0) as weighted_road
+      FROM features f JOIN municipalities m ON ST_Within(f.geom, m.geom)
+      WHERE f.layer = 'road_situations' GROUP BY m.short_name
+    `, [distance_m, rod_multiplier, gul_multiplier]),
+    db.query(`
+      SELECT trim(split_part(name, ',', array_length(string_to_array(name, ','), 1))) as ort,
+             count(*) as n
+      FROM features WHERE layer = 'police_events'
+        AND (attributes->>'datetime') > $1
+      GROUP BY ort
+    `, [cutoff48h]),
+    Promise.all(extraLayers.map(layer =>
+      db.query(`
+        SELECT m.short_name as kommun, count(*) as n,
+               coalesce(sum(${criticalityMultiplierSql}), 0) as weighted
+        FROM features f JOIN municipalities m ON ST_Within(f.geom, m.geom)
+        WHERE f.layer = $4 GROUP BY m.short_name
+      `, [distance_m, rod_multiplier, gul_multiplier, layer]).then(r => ({ layer, rows: r.rows }))
+    )),
+  ]);
+
+  const powerByMuni  = Object.fromEntries(powerRows.rows.map(r => [r.kommun, { avbrott: parseInt(r.avbrott), weighted: parseFloat(r.weighted_avbrott) }]));
+  const roadByMuni   = Object.fromEntries(roadRows.rows.map(r => [r.kommun, { n: parseInt(r.n), weighted: parseFloat(r.weighted_road) }]));
+  const policeByOrt  = policeRows.rows;
+  const extraByLayerAndMuni = Object.fromEntries(extraResults.map(({ layer, rows }) => [
+    layer,
+    Object.fromEntries(rows.map(r => [r.kommun, { n: parseInt(r.n), weighted: parseFloat(r.weighted) }])),
+  ]));
+
+  return muniRows.rows.map(m => {
+    const avbrott        = powerByMuni[m.name]?.avbrott || 0;
+    const weightedAvbrott = powerByMuni[m.name]?.weighted || 0;
+    const trafikhänd        = roadByMuni[m.name]?.n || 0;
+    const weightedTrafikhänd = roadByMuni[m.name]?.weighted || 0;
+    const polishänd = policeByOrt
+      .filter(p => p.ort && p.ort.toLowerCase().includes(m.name.toLowerCase()))
+      .reduce((s, p) => s + parseInt(p.n), 0);
+
+    const extraCounts = {};
+    let extraScore = 0;
+    for (const layer of extraLayers) {
+      const entry = extraByLayerAndMuni[layer]?.[m.name];
+      if (entry) extraCounts[layer] = entry.n;
+      extraScore += (entry?.weighted || 0) * Number(extraLayerWeights[layer]);
+    }
+
+    const rawScore = weightedAvbrott * Number(powerWeight) + weightedTrafikhänd * Number(roadWeight) + polishänd * Number(policeWeight) + extraScore;
+    const pop = POPULATION[m.name] || 10000;
+    const score = rawScore === 0 ? 0 : Math.round((rawScore / (pop / 1000)) * 10) / 10;
+    const level = score === 0 ? 0 : score <= 2 ? 1 : 2;
+    return { name: m.name, elavbrott: avbrott, road_count: trafikhänd, police_count: polishänd, extra_counts: extraCounts, score, raw_score: rawScore, level };
+  });
+}
+router.computeDisruptionScores = computeDisruptionScores;
+
 // Choropleth — kommunpolygoner med störningsindex (KPI)
 router.get('/choropleth', requireAuth, async (req, res) => {
   try {
-    const cutoff48h = new Date(Date.now() - 48 * 3600 * 1000).toISOString();
-    const [muniRows, powerRows, roadRows, policeRows] = await Promise.all([
+    const [scores, muniGeoRows] = await Promise.all([
+      computeDisruptionScores(),
       db.query(`SELECT short_name as name, ST_AsGeoJSON(geom)::json as geom FROM municipalities ORDER BY short_name`),
-      db.query(`
-        SELECT m.short_name as kommun, count(*) as avbrott,
-               coalesce(sum((f.attributes->>'affected_customers')::int), 0) as berorda
-        FROM features f JOIN municipalities m ON ST_Within(f.geom, m.geom)
-        WHERE f.layer = 'power_outages' GROUP BY m.short_name
-      `),
-      db.query(`
-        SELECT m.short_name as kommun, count(*) as n
-        FROM features f JOIN municipalities m ON ST_Within(f.geom, m.geom)
-        WHERE f.layer = 'road_situations' GROUP BY m.short_name
-      `),
-      db.query(`
-        SELECT trim(split_part(name, ',', array_length(string_to_array(name, ','), 1))) as ort,
-               count(*) as n
-        FROM features WHERE layer = 'police_events'
-          AND (attributes->>'datetime') > $1
-        GROUP BY ort
-      `, [cutoff48h]),
     ]);
+    const geomByName = Object.fromEntries(muniGeoRows.rows.map(m => [m.name, m.geom]));
 
-    const powerByMuni  = Object.fromEntries(powerRows.rows.map(r => [r.kommun, parseInt(r.avbrott)]));
-    const roadByMuni   = Object.fromEntries(roadRows.rows.map(r => [r.kommun, parseInt(r.n)]));
-    const policeByOrt  = policeRows.rows;
-
-    const features = muniRows.rows.map(m => {
-      const avbrott   = powerByMuni[m.name] || 0;
-      const trafikhänd = roadByMuni[m.name]  || 0;
-      const polishänd = policeByOrt
-        .filter(p => p.ort && p.ort.toLowerCase().includes(m.name.toLowerCase()))
-        .reduce((s, p) => s + parseInt(p.n), 0);
-      const rawScore = avbrott * 3 + trafikhänd + polishänd;
-      const pop = POPULATION[m.name] || 10000;
-      const score = rawScore === 0 ? 0 : Math.round((rawScore / (pop / 1000)) * 10) / 10;
-      const level = score === 0 ? 0 : score <= 2 ? 1 : 2;
-      return {
-        type: 'Feature',
-        geometry: m.geom,
-        properties: { name: m.name, elavbrott: avbrott, road_count: trafikhänd, police_count: polishänd, score, raw_score: rawScore, level },
-      };
-    });
+    const features = scores.map(s => ({
+      type: 'Feature',
+      geometry: geomByName[s.name],
+      properties: s,
+    }));
 
     res.json({ type: 'FeatureCollection', features });
   } catch (err) {
@@ -203,6 +275,9 @@ router.get('/choropleth', requireAuth, async (req, res) => {
 });
 
 // Spara analysögonblick per kommun (daglig historik)
+// OBS: har en egen, oviktad kopia av score-formeln (avbrott×3 + roadTotal + police48h) och
+// använder INTE computeDisruptionScores() eller criticality_weighting. Medvetet val — historiska
+// trendrader i analysis_snapshots förblir på den gamla skalan, i väntan på en framtida refaktor.
 async function saveSnapshot() {
   try {
     await db.query(`

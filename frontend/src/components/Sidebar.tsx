@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { LAYERS } from '../types';
-import type { LayerId, LayerGroup } from '../types';
+import type { LayerId, LayerGroup, AlertEvent } from '../types';
 
 interface Props {
   visible: Set<LayerId>;
@@ -15,11 +15,16 @@ interface Props {
   onOpenChange: (open: boolean) => void;
   opomrFilter: boolean;
   onOpomrFilter: (v: boolean) => void;
+  alerts: AlertEvent[];
+  onAcknowledgeAlert: (id: number) => void;
+  isAdmin: boolean;
+  onManageAlertRules: () => void;
 }
 
 const WMS_OVERLAYS = [
-  { id: 'hillshade', label: 'Terrängskuggning', icon: '🏔' },
-  { id: 'svk',       label: 'Kraftnät (SVK)',   icon: '⚡' },
+  { id: 'hillshade', label: 'Terrängskuggning',     icon: '🏔' },
+  { id: 'svk',       label: 'Kraftnät (SVK)',       icon: '⚡' },
+  { id: 'seamark',   label: 'Sjökort (OpenSeaMap)', icon: '⚓' },
 ];
 
 const GROUPS: { id: LayerGroup; label: string; icon: string }[] = [
@@ -33,9 +38,10 @@ export function Sidebar({
   baseMap, overlays, onBaseMap, onOverlay,
   open, onOpenChange,
   opomrFilter, onOpomrFilter,
+  alerts, onAcknowledgeAlert, isAdmin, onManageAlertRules,
 }: Props) {
   const [expanded, setExpanded] = useState<Set<string>>(
-    () => new Set(['events', 'layers', 'analysis'])
+    () => new Set(['events', 'layers', 'analysis', 'alerts'])
   );
 
   function toggleGroup(g: string) {
@@ -103,6 +109,46 @@ export function Sidebar({
               🗺 Filtrera på OpOmr
             </span>
           </label>
+        </div>
+
+        {/* Varningar */}
+        <div style={{ borderBottom: '1px solid #2a2a40' }}>
+          <div style={{ display: 'flex', alignItems: 'center', padding: '7px 10px 7px 12px', gap: 6, cursor: 'pointer', userSelect: 'none' }}
+            onClick={() => toggleGroup('alerts')}>
+            <span style={{ fontSize: 12, flex: 1, color: alerts.length > 0 ? '#f5a' : '#ccc', fontWeight: 600 }}>
+              ⚠ Varningar
+            </span>
+            {alerts.length > 0 && (
+              <span style={{ fontSize: 9, background: '#e74c3c', color: '#fff', borderRadius: 8, padding: '1px 5px', minWidth: 16, textAlign: 'center' }}>
+                {alerts.length}
+              </span>
+            )}
+            <button onClick={e => { e.stopPropagation(); toggleGroup('alerts'); }} style={{ background: 'none', border: 'none', color: '#555', fontSize: 11, cursor: 'pointer', padding: '0 2px' }}>
+              {expanded.has('alerts') ? '▲' : '▼'}
+            </button>
+          </div>
+          {expanded.has('alerts') && (
+            <div style={{ paddingBottom: 6 }}>
+              {alerts.length === 0 && (
+                <div style={{ padding: '2px 10px 6px 28px', fontSize: 11, color: '#555' }}>Inga öppna varningar</div>
+              )}
+              {alerts.map(a => (
+                <div key={a.id} style={{ padding: '4px 10px 4px 28px', display: 'flex', flexDirection: 'column', gap: 3 }}>
+                  <span style={{ fontSize: 11, color: '#ddd', lineHeight: 1.3 }}>{a.message}</span>
+                  <button
+                    onClick={() => onAcknowledgeAlert(a.id)}
+                    style={{ alignSelf: 'flex-start', padding: '2px 8px', borderRadius: 4, fontSize: 10, background: '#2a2a40', color: '#8ab', border: '1px solid #444', cursor: 'pointer' }}
+                  >Kvittera</button>
+                </div>
+              ))}
+              {isAdmin && (
+                <button
+                  onClick={onManageAlertRules}
+                  style={{ display: 'block', width: 'calc(100% - 38px)', margin: '6px 10px 0 28px', padding: '4px 0', borderRadius: 4, fontSize: 11, background: '#2a2a40', color: '#aaa', border: '1px solid #444', cursor: 'pointer' }}
+                >⚙ Hantera regler</button>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Analys */}

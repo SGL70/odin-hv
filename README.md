@@ -11,6 +11,19 @@ ODIN hv är ett kartbaserat situationsmedvetenhetssystem för Hemvärnet. System
 
 ---
 
+## Metodik: Activity-based Intelligence
+
+ODIN hv:s arbetssätt utgår från ABI:s fyra pelare:
+
+- **Georeference to Discover** — all data kopplas först till plats och tid; spatiotemporal korrelation låter mönster framträda även när plats/tid är det enda gemensamma för i övrigt disparata källor.
+- **Data Neutrality** — alla datakällor är lika mycket värda oavsett klassning eller ursprung; öppna källor (OSINT) vägs inte lägre än andra flöden.
+- **Sequence Neutrality** — data samlas in och lagras innan dess betydelse är känd; en pusselbit som skördas idag kan visa sig avgörande för en händelse månader senare.
+- **Integration before Exploitation** — olika datatyper (multi-INT) integreras i en gemensam bild tidigt, i stället för att analyseras separat i stuprör.
+
+Kartlagren, dataskördarna och den enhetliga lägesbilden är redan uttryck för detta, men principerna ska vara ett uttalat underlag för prioritering av fortsatt utveckling (se Roadmap).
+
+---
+
 ## Vad som är gjort
 
 ![ODIN hv skärmbild](ODINhv.png)
@@ -43,49 +56,59 @@ Automatisk insamling från öppna källor, konfigurerbar auto-refresh:
 ### Operativt Område (OpOmr)
 - Välj valfria kommuner ur alla 21 svenska län som operativt område
 - Kartfiltret och dataskördare begränsas automatiskt till valda kommuner
+- Auto-refresh: kartlager laddas om automatiskt när OpOmr ändras
 
 ### Infrastruktur
 - JWT-autentisering med roller: läsare / redaktör / admin
 - Körs som Docker Compose i Debian 12 LXC (CT 217) bakom Cloudflare Tunnel
 - Tillgänglig på odinhv.se (publikt) och odin.lan (lokalt)
 
+### Varningsregler
+- Regelmotor med tre regeltyper, utvärderas automatiskt efter varje skördning:
+  - Tröskel: kommunens störningspoäng överstiger X
+  - Proximity: objekt i valt lager inom X m från infrastruktur med kritikalitet Viktig/Kritisk
+  - Kluster: N liknande händelser inom valbar radie
+- Regler hanteras av admin (⚙ Hantera regler i sidopanelen); varningar är kvitterbara av alla roller
+- Realtidsnotis via Socket.io: banner + persistent lista i sidopanelen
+
+### ABI-åtgärder (2026-07-04)
+Fyra konkreta åtgärder mot gap identifierade i en ABI-bedömning (se Metodik ovan):
+- **Sekvensneutralitet:** rådata som annars skulle raderas vid skördning/TTL flyttas till `features_history` i stället (`archiveAndDelete()` i harvest.js), läsbar via `GET /api/features/history`
+- **Dataneutralitet:** störningspoängen har en generisk, admin-konfigurerbar källviktning (`layer_weighting`-inställning) i stället för tre hårdkodade källor — railway_situations ingår nu som default
+- **Integration before exploitation:** ny "Relaterade objekt"-sektion i objektpanelen korrelerar det valda objektet mot andra features inom valbar radie (`GET /api/features/:uid/related`)
+- **Georeference to discover:** alla skördade objekt normaliseras till ett gemensamt `attributes.occurred_at` (härlett från källans egen tidsnyckel) för tvärlager-tidskorrelation
+
 ---
 
 ## Roadmap
 
+Prioriteringen nedan väger även mot ABI-pelarna (se Metodik ovan) — t.ex. stärker Underrättelserapport-modulen (7 S:en) *sekvensneutralitet* genom strukturerad loggning oavsett omedelbar tolkning, och Mobildata-integration stärker *dataneutralitet* genom fler jämbördiga källor.
+
 ### Prioriterat
 
-1. **Varningsregler** — regelmotor med UI, utvärderas vid varje skördning
-   - Proximity: händelse inom X m från infrastruktur med kritikalitet Y
-   - Kluster: N liknande händelser inom område
-   - Tröskel: kommunens störningspoäng överstiger X
-   - Notis via Socket.io → frontend-banner + SMS (46elks)
-
-2. **Kritikalitetsviktad störningsscore** — händelse nära Kritisk-märkt objekt ger ökad poäng
-
-3. **Auto-refresh vid OpOmr-ändring** — features reloadar automatiskt när kommunval ändras
+1. **Kritikalitetsviktad störningsscore** — händelse nära Kritisk-märkt objekt ger en multiplikator innan den summeras in i störningspoängen (kan återanvända avståndslogiken från varningsregelmotorns proximity-regel)
 
 ### Backlog
 
-4. **Mobil fältrapportering (PWA)** — avskalad vy `/report` för rapportering i fält
+2. **Mobil fältrapportering (PWA)** — avskalad vy `/report` för rapportering i fält
    - Auto-GPS, kamerabild, touch-vänligt formulär
    - Rapporterar in händelser och resurser med positionsdata
 
-5. **Underrättelserapport-modul** — strukturerad loggning av inkomna tips
+3. **Underrättelserapport-modul** — strukturerad loggning av inkomna tips
    - De 7 S:en: Stund, Ställe, Styrka, Slag, Sysselsättning, Symbol, Sagesman
    - Klassificering per STANAG 2511 (källvärde A–F × informationsvärde 1–6)
 
-6. **Mobildata-integration** — självkonfigurabel via inställningar (URL, nyckel, dokumentationslänk)
+4. **Mobildata-integration** — självkonfigurabel via inställningar (URL, nyckel, dokumentationslänk)
 
-7. **Trendvisning** — linjediagram i analyspanelen (snapshot-historik finns, UI saknas)
+5. **Trendvisning** — linjediagram i analyspanelen (snapshot-historik finns, UI saknas)
 
-8. **Lantmäteriet Topo WMTS** (kräver gratis token)
+6. **Lantmäteriet Topo WMTS** (kräver gratis token)
 
-9. **milsymbol.js** — APP-6/MIL-STD-2525 symbologi per lager
+7. **milsymbol.js** — APP-6/MIL-STD-2525 symbologi per lager
 
-10. **Rutting** med fordonsklassbegränsning (OpenRouteService)
+8. **Rutting** med fordonsklassbegränsning (OpenRouteService)
 
-11. **Cloudflare Access bypass** för `/api/sms/incoming` → aktivera 46elks-webhook
+9. **Cloudflare Access bypass** för `/api/sms/incoming` → aktivera 46elks-webhook, sedan koppla på SMS som notiskanal för varningsregler
 
 ---
 
@@ -160,6 +183,9 @@ odin-hv/
 ├── backend/
 │   └── src/
 │       ├── index.js                # Express + Socket.io + daglig snapshot-schemaläggare
+│       ├── migrations.js           # Idempotent schema-tillägg (alert_rules/alert_events)
+│       ├── services/
+│       │   └── alertEngine.js      # Varningsregelmotor: tröskel/proximity/kluster
 │       └── routes/
 │           ├── auth.js             # Login, användarhantering
 │           ├── features.js         # CRUD för kartlager (+ opomr-filter)
@@ -168,6 +194,7 @@ odin-hv/
 │           ├── dashboard.js        # Aggregerade data och varningar
 │           ├── analysis.js         # Analys, choropleth, snapshots, drill-down
 │           ├── harvest.js          # Dataskördare (polis, el, trafik, broar, TRV)
+│           ├── alerts.js           # Varningsregler CRUD + events + kvittering
 │           ├── settings.js         # Inställnings-CRUD + opomr-bbox
 │           ├── trafikverket.js     # Trafikverket Open Data
 │           └── sms.js              # 46elks webhook
@@ -175,14 +202,16 @@ odin-hv/
     ├── public/
     │   └── korp.png                # Korpsilhuett (logotypbild)
     └── src/
-        ├── types.ts                # Lagerdefinitioner (27 lager)
+        ├── types.ts                # Lagerdefinitioner (27 lager) + Alert-typer
         └── components/
             ├── MapView.tsx         # Huvudkartkomponent
-            ├── Sidebar.tsx         # Vänster sidebar
+            ├── Sidebar.tsx         # Vänster sidebar (inkl. Varningar-sektion)
             ├── HarvestSidebar.tsx  # Dataskördare inkl. TRV
             ├── AnalysisPanel.tsx   # Störningsanalys med drill-down
             ├── FeaturePanel.tsx    # Objektpanel med kritikalitet
             ├── SettingsModal.tsx   # OpOmr, retention, snapshot
+            ├── AlertRulesModal.tsx # Regelbyggare för varningar (admin)
+            ├── AlertBanner.tsx     # Transient notisbanner för nya varningar
             ├── OdinLogo.tsx        # Logotyp (sm/md/lg)
             └── Login.tsx           # Inloggningssida
 ```

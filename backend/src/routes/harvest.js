@@ -1,6 +1,11 @@
 const express = require('express');
 const db = require('../db');
 const { requireAuth, requireRole } = require('../middleware/auth');
+const { evaluateAlerts } = require('../services/alertEngine');
+
+function afterHarvest(io) {
+  evaluateAlerts(io).catch(err => console.error('Alert evaluation error:', err.message));
+}
 
 const router = express.Router();
 const CONCURRENCY = 6;
@@ -269,18 +274,40 @@ function mergeStations(osmFeatures, okq8WebFeatures, thresholdM = 150) {
 // ── Save to DB ────────────────────────────────────────────────────────────────
 
 // Remove previously harvested features — optionally filtered by source prefix
+// ABI sekvensneutralitet: flyttar rader till features_history i stället för att bara radera dem,
+// så rådata finns kvar för framtida korrelation även efter att den ersatts av en nyare skördning.
+async function archiveAndDelete(whereSql, params, reason) {
+  await db.query(
+    `INSERT INTO features_history (uid, layer, cot_type, name, geom, attributes, created_at, updated_at, archived_reason)
+     SELECT uid, layer, cot_type, name, geom, attributes, created_at, updated_at, $${params.length + 1}
+     FROM features WHERE ${whereSql}`,
+    [...params, reason],
+  );
+  await db.query(`DELETE FROM features WHERE ${whereSql}`, params);
+}
+
 async function clearHarvested(layer, sourcePattern = null) {
   if (sourcePattern) {
-    await db.query(
-      `DELETE FROM features WHERE layer = $1 AND (attributes->>'scraped_at') IS NOT NULL AND attributes->>'source' ILIKE $2`,
+    await archiveAndDelete(
+      `layer = $1 AND (attributes->>'scraped_at') IS NOT NULL AND attributes->>'source' ILIKE $2`,
       [layer, sourcePattern],
+      'harvest_refresh',
     );
   } else {
-    await db.query(
-      `DELETE FROM features WHERE layer = $1 AND (attributes->>'scraped_at') IS NOT NULL`,
+    await archiveAndDelete(
+      `layer = $1 AND (attributes->>'scraped_at') IS NOT NULL`,
       [layer],
+      'harvest_refresh',
     );
   }
+}
+
+// ABI georeference to discover: källorna har redan verklig händelsetid men under olika nycklar
+// per lager (start_time/scheduled_time/measured_at/datetime). Normaliserar till en gemensam
+// attributes.occurred_at så tvärlager-tidskorrelation (relaterade objekt, historik) inte behöver
+// känna till varje lagers egen vokabulär. scraped_at (ingestionstid) används bara som sista utväg.
+function deriveOccurredAt(attrs) {
+  return attrs.start_time || attrs.scheduled_time || attrs.measured_at || attrs.datetime || attrs.scraped_at || new Date().toISOString();
 }
 
 async function saveFeatures(features, userId) {
@@ -288,6 +315,7 @@ async function saveFeatures(features, userId) {
   for (const f of features) {
     const { layer, name, ...attrs } = f.properties;
     if (!layer || !name || !f.geometry) { skipped++; continue; }
+    if (!attrs.occurred_at) attrs.occurred_at = deriveOccurredAt(attrs);
     try {
       const result = await db.query(
         `INSERT INTO features (layer, name, geom, cot_type, attributes, created_by, updated_by)
@@ -449,6 +477,7 @@ function makeTrvScrapeRoute(sourceId, fetchFn, layer, clearPattern) {
       const { imported, skipped } = await saveFeatures(features, req.user?.id || 0);
       io.emit('harvest:done', { source: sourceId, imported, skipped });
       if (imported > 0) io.emit('features:reloaded', {});
+      afterHarvest(io);
     } catch (err) {
       io.emit('harvest:done', { source: sourceId, imported: 0, skipped: 0, error: err.message });
     } finally { activeJobs.delete(sourceId); }
@@ -581,7 +610,6 @@ async function policeEvents(municipalities) {
 // ── Trafikhändelser (Trafikverket Situation API) ──────────────────────────────
 
 const TRV_SIT_URL = 'https://api.trafikinfo.trafikverket.se/v2/data.json';
-const NORRBOTTEN_BBOX = '17.0 65.0, 24.5 68.5';
 
 function parseWKT2D(wkt) {
   if (!wkt || typeof wkt !== 'string') return null;
@@ -600,12 +628,12 @@ const SIT_TYPE_SV = {
   'IcyRoad': 'Halka', 'Restriktion': 'Restriktion', 'DangerousSlowdown': 'Farlig köbildning',
 };
 
-async function fetchSituations() {
+async function fetchSituations(bbox) {
   const xml = `<REQUEST>
   <LOGIN authenticationkey="${process.env.TRAFIKVERKET_API_KEY}"/>
   <QUERY objecttype="Situation" namespace="road.trafficinfo" schemaversion="1.6" limit="500">
     <FILTER>
-      <WITHIN name="Deviation.Geometry.WGS84" shape="box" value="${NORRBOTTEN_BBOX}"/>
+      ${trvBbox('Deviation.Geometry.WGS84', bbox)}
     </FILTER>
   </QUERY>
 </REQUEST>`;
@@ -656,7 +684,8 @@ function buildSituationFeatures(situations) {
 
 router.get('/situations/preview', requireAuth, async (_req, res) => {
   try {
-    const sits = await fetchSituations();
+    const bbox = await getOpOmrBbox();
+    const sits = await fetchSituations(bbox);
     const features = buildSituationFeatures(sits);
     res.json({ count: features.length, features });
   } catch (err) {
@@ -670,24 +699,129 @@ router.post('/situations/scrape', requireAuth, async (req, res) => {
   io.emit('harvest:progress', { source: 'situations', phase: 'Hämtar från Trafikverket…', done: 0, total: 1 });
   try {
     if (ctrl.signal.aborted) throw new Error('Avbrutet');
-    const sits = await fetchSituations();
+    const bbox = await getOpOmrBbox();
+    const sits = await fetchSituations(bbox);
     const features = buildSituationFeatures(sits);
-    // Purge closed situations and stale data older than 4h
-    await db.query(`
-      DELETE FROM features WHERE layer = 'road_situations' AND (
+    // Purge closed situations and stale data older than 4h (arkiveras, raderas inte)
+    await archiveAndDelete(
+      `layer = 'road_situations' AND (
         (attributes->>'end_time' <> '' AND (attributes->>'end_time')::timestamptz < NOW()) OR
         (attributes->>'scraped_at')::timestamptz < NOW() - INTERVAL '4 hours'
-      )`);
+      )`,
+      [],
+      'ttl_expired',
+    );
     await clearHarvested('road_situations');
     io.emit('harvest:progress', { source: 'situations', phase: 'Sparar…', done: 1, total: 1 });
     const { imported, skipped } = await saveFeatures(features, req.user?.id || 0);
     io.emit('harvest:done', { source: 'situations', imported, skipped });
     io.emit('features:reloaded', {});
+    afterHarvest(io);
     res.json({ imported, skipped });
   } catch (err) {
     io.emit('harvest:done', { source: 'situations', imported: 0, skipped: 0, error: err.message });
     res.status(500).json({ error: err.message });
   } finally { activeJobs.delete('situations'); }
+});
+
+// ── Tågstörningar (Trafikverket TrainStation + TrainAnnouncement) ────────────
+// TrainMessage-objektet finns inte i TRV:s API (verifierat live) — bygger istället på
+// TrainAnnouncement (avgångs-/ankomstposter per station) + TrainStation (stationskoordinater).
+// OBS: Norrbottens avlånga form gör att den vanliga bbox-rektangel-metoden (trvBbox/getOpOmrBbox)
+// fångar nästan hela länets stationer (118 av 122 testat) — här görs istället en riktig
+// polygonkoll (ST_Contains) mot municipalities, vilket gav 64 relevanta stationer i samma test.
+
+const NORRBOTTEN_COUNTY_NO = 25;
+
+async function fetchOpOmrRailwayStations() {
+  const opomrRow = await db.query("SELECT value FROM settings WHERE key='op_municipalities'");
+  const munis = opomrRow.rows[0]?.value || [];
+  if (!munis.length) throw new Error('Inga OpOmr-kommuner konfigurerade');
+
+  const items = await trvQuery('TrainStation', '1.4', `<EQ name="CountyNo" value="${NORRBOTTEN_COUNTY_NO}"/>`, 'LocationSignature,AdvertisedLocationName,Geometry', 500);
+  const parsed = items.map(s => {
+    const m = s.Geometry?.WGS84?.match(/POINT \(([\d.]+) ([\d.]+)\)/);
+    return m ? { sig: s.LocationSignature, name: s.AdvertisedLocationName, lng: parseFloat(m[1]), lat: parseFloat(m[2]) } : null;
+  }).filter(Boolean);
+
+  const { rows } = await db.query(`
+    SELECT st.sig, st.name, st.lng, st.lat, m.short_name AS municipality
+    FROM jsonb_to_recordset($1::jsonb) AS st(sig text, name text, lng float, lat float)
+    JOIN municipalities m ON ST_Contains(m.geom, ST_SetSRID(ST_MakePoint(st.lng, st.lat), 4326))
+    WHERE m.short_name = ANY($2)
+  `, [JSON.stringify(parsed), munis]);
+  return rows;
+}
+
+async function fetchRailwayAnnouncements(stations) {
+  if (!stations.length) return [];
+  const now = new Date(Date.now() - 2 * 3600 * 1000).toISOString();
+  const in48h = new Date(Date.now() + 48 * 3600 * 1000).toISOString();
+  const locFilter = `<OR>${stations.map(s => `<EQ name="LocationSignature" value="${s.sig}"/>`).join('')}</OR>`;
+  const filter = `<AND>${locFilter}<GT name="AdvertisedTimeAtLocation" value="${now}"/><LT name="AdvertisedTimeAtLocation" value="${in48h}"/></AND>`;
+  const anns = await trvQuery('TrainAnnouncement', '1.6', filter, 'ActivityType,AdvertisedTimeAtLocation,AdvertisedTrainIdent,Canceled,Deviation,LocationSignature,Operator', 500);
+  return anns.filter(a => (a.Deviation && a.Deviation.length) || a.Canceled);
+}
+
+function buildRailwayFeatures(announcements, stations) {
+  const stationBySig = Object.fromEntries(stations.map(s => [s.sig, s]));
+  const features = [];
+  for (const a of announcements) {
+    const st = stationBySig[a.LocationSignature];
+    if (!st) continue;
+    const devText = (a.Deviation || []).map(d => d.Description).join(', ');
+    features.push({
+      type: 'Feature',
+      geometry: { type: 'Point', coordinates: [st.lng, st.lat] },
+      properties: {
+        layer: 'railway_situations',
+        name: `${a.Canceled ? 'Inställt tåg' : 'Tågstörning'} vid ${st.name}`,
+        event_type: devText || (a.Canceled ? 'Inställt' : 'Störning'),
+        activity_type: a.ActivityType || '',
+        scheduled_time: a.AdvertisedTimeAtLocation || '',
+        train_ident: a.AdvertisedTrainIdent || '',
+        canceled: a.Canceled ? 'Ja' : 'Nej',
+        operator: a.Operator || '',
+        description: devText,
+        source: 'Trafikverket',
+        scraped_at: new Date().toISOString(),
+      },
+    });
+  }
+  return features;
+}
+
+router.get('/railway-situations/preview', requireAuth, async (_req, res) => {
+  try {
+    const stations = await fetchOpOmrRailwayStations();
+    const anns = await fetchRailwayAnnouncements(stations);
+    const features = buildRailwayFeatures(anns, stations);
+    res.json({ count: features.length, features });
+  } catch (err) {
+    res.status(502).json({ error: err.message });
+  }
+});
+
+router.post('/railway-situations/scrape', requireAuth, requireRole('editor', 'admin'), async (req, res) => {
+  const ctrl = startJob('railway-situations');
+  res.json({ started: true });
+  const io = req.io;
+  io.emit('harvest:progress', { source: 'railway-situations', phase: 'Hämtar från Trafikverket…', done: 0, total: 1 });
+  try {
+    if (ctrl.signal.aborted) throw cancelledError('railway-situations');
+    const stations = await fetchOpOmrRailwayStations();
+    const anns = await fetchRailwayAnnouncements(stations);
+    const features = buildRailwayFeatures(anns, stations);
+    if (ctrl.signal.aborted) throw cancelledError('railway-situations');
+    io.emit('harvest:progress', { source: 'railway-situations', phase: 'Sparar…', done: 1, total: 1 });
+    await clearHarvested('railway_situations');
+    const { imported, skipped } = await saveFeatures(features, req.user?.id || 0);
+    io.emit('harvest:done', { source: 'railway-situations', imported, skipped });
+    if (imported > 0) io.emit('features:reloaded', {});
+    afterHarvest(io);
+  } catch (err) {
+    io.emit('harvest:done', { source: 'railway-situations', imported: 0, skipped: 0, error: err.message });
+  } finally { activeJobs.delete('railway-situations'); }
 });
 
 router.get('/bridges/preview', requireAuth, async (_req, res) => {
@@ -711,6 +845,7 @@ router.post('/bridges/scrape', requireAuth, requireRole('editor', 'admin'), asyn
     const { imported, skipped } = await saveFeatures(features, req.user?.id || 0);
     io.emit('harvest:done', { source: 'bridges', imported, skipped });
     if (imported > 0) io.emit('features:reloaded', {});
+    afterHarvest(io);
   } catch (err) {
     io.emit('harvest:done', { source: 'bridges', imported: 0, skipped: 0, error: err.message });
   } finally { activeJobs.delete('bridges'); }
@@ -790,6 +925,7 @@ router.post('/osm/scrape', requireAuth, requireRole('editor', 'admin'), async (r
     const { imported, skipped } = await saveFeatures(features, req.user?.id || 0);
     io.emit('harvest:done', { source: 'osm', imported, skipped });
     if (imported > 0) io.emit('features:reloaded', {});
+    afterHarvest(io);
   } catch (err) {
     io.emit('harvest:done', { source: 'osm', imported: 0, skipped: 0, error: err.message });
   } finally { activeJobs.delete('osm'); }
@@ -825,6 +961,7 @@ router.post('/okq8/scrape', requireAuth, requireRole('editor', 'admin'), async (
     const { imported, skipped } = await saveFeatures(features, req.user?.id || 0);
     io.emit('harvest:done', { source: 'okq8', imported, skipped });
     if (imported > 0) io.emit('features:reloaded', {});
+    afterHarvest(io);
   } catch (err) {
     io.emit('harvest:done', { source: 'okq8', imported: 0, skipped: 0, error: err.message });
   } finally { activeJobs.delete('okq8'); }
@@ -853,6 +990,7 @@ router.post('/skoogs/scrape', requireAuth, requireRole('editor', 'admin'), async
     const { imported, skipped } = await saveFeatures(features, req.user?.id || 0);
     io.emit('harvest:done', { source: 'skoogs', imported, skipped });
     if (imported > 0) io.emit('features:reloaded', {});
+    afterHarvest(io);
   } catch (err) {
     io.emit('harvest:done', { source: 'skoogs', imported: 0, skipped: 0, error: err.message });
   } finally { activeJobs.delete('skoogs'); }
@@ -905,6 +1043,7 @@ router.post('/combined/scrape', requireAuth, requireRole('editor', 'admin'), asy
     const { imported, skipped } = await saveFeatures(merged, req.user?.id || 0);
     io.emit('harvest:done', { source: 'combined', imported, skipped });
     if (imported > 0) io.emit('features:reloaded', {});
+    afterHarvest(io);
   } catch (err) {
     io.emit('harvest:done', { source: 'combined', imported: 0, skipped: 0, error: err.message });
   } finally { activeJobs.delete('combined'); }
@@ -945,9 +1084,11 @@ router.post('/police/scrape', requireAuth, requireRole('editor', 'admin'), async
     const features = await policeEvents(municipalities);
     if (ctrl.signal.aborted) throw cancelledError('police');
 
-    // Purge events older than 30 days
-    await db.query(
-      `DELETE FROM features WHERE layer='police_events' AND (attributes->>'scraped_at')::timestamptz < NOW() - INTERVAL '30 days'`
+    // Purge events older than 30 days (arkiveras, raderas inte)
+    await archiveAndDelete(
+      `layer='police_events' AND (attributes->>'scraped_at')::timestamptz < NOW() - INTERVAL '30 days'`,
+      [],
+      'ttl_expired',
     );
     // Clear previous harvest of same events (by police_id to avoid duplicates)
     await clearHarvested('police_events');
@@ -955,6 +1096,7 @@ router.post('/police/scrape', requireAuth, requireRole('editor', 'admin'), async
     const { imported, skipped } = await saveFeatures(features, req.user?.id || 0);
     io.emit('harvest:done', { source: 'police', imported, skipped });
     if (imported > 0) io.emit('features:reloaded', {});
+    afterHarvest(io);
   } catch (err) {
     io.emit('harvest:done', { source: 'police', imported: 0, skipped: 0, error: err.message });
   } finally { activeJobs.delete('police'); }
@@ -1046,6 +1188,8 @@ router.post('/power/scrape', requireAuth, async (req, res) => {
     io.emit('harvest:progress', { source: 'power', phase: 'Sparar…', done: 1, total: 1 });
     const { imported, skipped } = await saveFeatures(features, req.user?.id || 0);
     io.emit('harvest:done', { source: 'power', imported, skipped });
+    if (imported > 0) io.emit('features:reloaded', {});
+    afterHarvest(io);
     res.json({ imported, skipped });
   } catch (err) {
     io.emit('harvest:done', { source: 'power', imported: 0, skipped: 0, error: err.message });
