@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { api } from '../api';
 import { getLayer } from '../types';
+import { LayerIcon } from '../lib/layerIcons';
 
 interface DashboardData {
   totals: { layer: string; count: string; fuel_liters?: string; food_kg?: string; water_m3?: string }[];
@@ -56,7 +57,10 @@ export function Dashboard({ onClose }: Props) {
               const layer = getLayer(t.layer as never);
               return (
                 <div key={t.layer} style={statRow}>
-                  <span>{layer?.icon} {layer?.label || t.layer}</span>
+                  <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <LayerIcon id={t.layer as never} />
+                    {layer?.label || t.layer}
+                  </span>
                   <div style={{ textAlign: 'right' }}>
                     <span style={{ fontWeight: 700, color: layer?.color }}>{t.count} st</span>
                     {t.fuel_liters && <div style={{ fontSize: 11, color: '#888' }}>{Number(t.fuel_liters).toLocaleString('sv')} L</div>}

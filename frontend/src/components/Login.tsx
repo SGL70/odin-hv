@@ -25,16 +25,16 @@ export function Login() {
   return (
     <div style={{
       height: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center',
-      background: 'linear-gradient(135deg, #1a1a2e 0%, #16213e 100%)',
+      background: 'radial-gradient(ellipse at 50% 30%, #171827 0%, #0a0a12 70%)',
     }}>
       <div style={{
-        background: '#1e1e30', border: '1px solid #333', borderRadius: 12,
-        padding: 40, width: 340, boxShadow: '0 20px 60px #0008',
+        background: '#1b1c2c', border: '1px solid #2e2f45', borderRadius: 12,
+        padding: '36px 32px', width: 340, boxShadow: '0 20px 50px rgba(0,0,0,0.4)',
       }}>
         <div style={{ textAlign: 'center', marginBottom: 28 }}>
           <img src="/korp.png" alt="Korp" style={{ height: 90, width: 'auto', display: 'block', margin: '0 auto 16px' }} />
           <OdinLogo size="lg" />
-          <p style={{ color: '#556', fontSize: 12, marginTop: 10, letterSpacing: 2, textTransform: 'uppercase' }}>Situational awareness</p>
+          <p style={{ color: '#666a8c', fontSize: 11, marginTop: 10, letterSpacing: '0.12em', textTransform: 'uppercase' }}>Situational awareness</p>
         </div>
         <form onSubmit={submit}>
           <div className="field-row">
@@ -45,8 +45,8 @@ export function Login() {
             <label>Lösenord</label>
             <input type="password" value={password} onChange={e => setPassword(e.target.value)} required />
           </div>
-          {error && <p style={{ color: '#e74c3c', fontSize: 13, marginBottom: 12 }}>{error}</p>}
-          <button type="submit" className="btn-primary" style={{ width: '100%', padding: 10, marginTop: 4 }} disabled={loading}>
+          {error && <p style={{ color: '#f2545b', fontSize: 13, marginBottom: 12 }}>{error}</p>}
+          <button type="submit" className="btn-primary" style={{ width: '100%', padding: 12, marginTop: 4 }} disabled={loading}>
             {loading ? 'Loggar in...' : 'Logga in'}
           </button>
         </form>

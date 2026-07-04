@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { api } from '../api';
-import { getLayer } from '../types';
 import type { Feature, LayerId } from '../types';
+import { LayerIcon } from '../lib/layerIcons';
 
 // ABI integration before exploitation: korrelerar det valda objektet mot andra features i
 // närheten direkt i panelen, i stället för att lämna tvärlager-korrelation åt att användaren
@@ -49,7 +49,6 @@ export function RelatedFeatures({ uid, onSelect }: Props) {
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
           {related.map(rf => {
-            const layerCfg = getLayer(rf.properties.layer as LayerId);
             return (
               <button
                 key={rf.properties.uid}
@@ -60,7 +59,7 @@ export function RelatedFeatures({ uid, onSelect }: Props) {
                   cursor: 'pointer', textAlign: 'left', color: 'inherit', font: 'inherit',
                 }}
               >
-                <span>{layerCfg?.icon}</span>
+                <LayerIcon id={rf.properties.layer as LayerId} />
                 <span style={{ flex: 1, fontSize: 12, color: '#ddd', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                   {String(rf.properties.name)}
                 </span>

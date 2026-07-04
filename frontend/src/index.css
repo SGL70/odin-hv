@@ -1,9 +1,40 @@
+/* Designtokens (2026-07-04 Claude Design-handoff) — spegla frontend/src/styles/tokens.ts
+   manuellt vid ändring, CSS custom properties kan inte importera TS-konstanter. */
+:root {
+  --bg-app: #0a0a12;
+  --bg-body: #14141f;
+  --bg-panel: #1b1c2c;
+  --bg-elevated: #23243a;
+  --bg-inset: #10111c;
+
+  --text-primary: #eef0f7;
+  --text-secondary: #9ea3c0;
+  --text-secondary-alt: #c7cae0;
+  --text-tertiary: #666a8c;
+
+  --border-default: #2e2f45;
+  --border-strong: #3d3f5c;
+
+  --accent: #5b8cff;
+  --accent-hover: #7aa0ff;
+
+  --status-normal: #34c274;   --status-normal-chip: #123222;
+  --status-warning: #f0a83c;  --status-warning-chip: #3a2a12;
+  --status-critical: #f2545b; --status-critical-chip: #3a1414;
+  --status-info: #4fa8e8;     --status-info-chip: #12293a;
+  --status-layer: #a878e0;    --status-layer-chip: #2c1e3a;
+
+  --radius-control: 6px;
+  --radius-panel: 10px;
+  --radius-pill: 999px;
+}
+
 * { box-sizing: border-box; margin: 0; padding: 0; }
 
 body {
   font-family: 'Segoe UI', system-ui, sans-serif;
-  background: #1a1a2e;
-  color: #e0e0e0;
+  background: var(--bg-body);
+  color: var(--text-primary);
   height: 100vh;
   overflow: hidden;
 }
@@ -13,7 +44,7 @@ body {
 button {
   cursor: pointer;
   border: none;
-  border-radius: 4px;
+  border-radius: var(--radius-control);
   padding: 6px 12px;
   font-size: 13px;
   transition: opacity .15s;
@@ -22,21 +53,21 @@ button:hover { opacity: .85; }
 button:disabled { opacity: .4; cursor: default; }
 
 input, select, textarea {
-  background: #2a2a3e;
-  border: 1px solid #444;
-  border-radius: 4px;
-  color: #e0e0e0;
+  background: var(--bg-inset);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-control);
+  color: var(--text-primary);
   padding: 6px 8px;
   font-size: 13px;
   width: 100%;
 }
-input:focus, select:focus { outline: none; border-color: #5b8cff; }
+input:focus, select:focus { outline: none; border-color: var(--accent); }
 
-label { font-size: 12px; color: #aaa; display: block; margin-bottom: 3px; }
+label { font-size: 12px; color: var(--text-secondary); display: block; margin-bottom: 3px; }
 
-.btn-primary { background: #5b8cff; color: #fff; }
-.btn-danger  { background: #e74c3c; color: #fff; }
-.btn-ghost   { background: transparent; color: #aaa; border: 1px solid #444; }
+.btn-primary { background: var(--accent); color: var(--bg-app); font-weight: 700; }
+.btn-danger  { background: var(--status-critical-chip); color: var(--status-critical); }
+.btn-ghost   { background: transparent; color: var(--text-secondary); border: 1px solid var(--border-default); }
 .btn-sm      { padding: 4px 8px; font-size: 12px; }
 
 .field-row { margin-bottom: 10px; }
@@ -44,20 +75,20 @@ label { font-size: 12px; color: #aaa; display: block; margin-bottom: 3px; }
 .badge {
   display: inline-block;
   padding: 2px 7px;
-  border-radius: 10px;
+  border-radius: var(--radius-pill);
   font-size: 11px;
   font-weight: 600;
 }
-.badge-red    { background: #e74c3c33; color: #e74c3c; }
-.badge-green  { background: #27ae6033; color: #27ae60; }
-.badge-blue   { background: #2980b933; color: #2980b9; }
-.badge-orange { background: #f39c1233; color: #f39c12; }
+.badge-red    { background: var(--status-critical-chip); color: var(--status-critical); }
+.badge-green  { background: var(--status-normal-chip); color: var(--status-normal); }
+.badge-blue   { background: var(--status-info-chip); color: var(--status-info); }
+.badge-orange { background: var(--status-warning-chip); color: var(--status-warning); }
 
 .maplibregl-popup-content {
-  background: #1e1e30 !important;
-  color: #e0e0e0 !important;
-  border: 1px solid #444 !important;
-  border-radius: 6px !important;
+  background: var(--bg-panel) !important;
+  color: var(--text-primary) !important;
+  border: 1px solid var(--border-default) !important;
+  border-radius: var(--radius-control) !important;
   padding: 10px 14px !important;
   font-size: 13px !important;
 }

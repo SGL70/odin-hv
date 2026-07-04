@@ -57,19 +57,42 @@ export function AlertRulesModal({ onClose }: Props) {
     load();
   }
 
-  function describeConfig(rule: AlertRule): string {
+  // Läsbara svenska meningar i stället för interna fältnamn (police_events, rod) rakt av —
+  // Claude Design-handoff 2026-07-04. Lagernamn återanvänder LAYERS[].label (redan finns),
+  // bara kritikalitetsvärden behöver en egen liten etikettkarta.
+  const CRITICALITY_LABELS: Record<string, string> = { gul: 'Viktig', rod: 'Kritisk' };
+
+  function layerLabel(id?: string): string {
+    return LAYERS.find(l => l.id === id)?.label ?? id ?? '?';
+  }
+
+  function ruleSentence(rule: AlertRule) {
     const c = rule.config;
-    if (rule.type === 'threshold') return `score ≥ ${c.score_threshold ?? '?'}`;
-    if (rule.type === 'proximity') return `${c.layer ?? '?'} inom ${c.distance_m ?? '?'} m från ${c.min_criticality ?? '?'}`;
-    return `${c.min_count ?? '?'}+ i ${c.layer ?? '?'} inom ${c.radius_m ?? '?'} m`;
+    if (rule.type === 'threshold') {
+      return <>Larma när störningspoängen är ≥ <b>{c.score_threshold ?? '?'}</b></>;
+    }
+    if (rule.type === 'proximity') {
+      const crit = CRITICALITY_LABELS[c.min_criticality ?? ''] ?? c.min_criticality ?? '?';
+      return <>Larma när <b>{layerLabel(c.layer)}</b> inträffar inom <b>{c.distance_m ?? '?'} m</b> från ett objekt med kritikalitet <b>{crit}</b></>;
+    }
+    return <>Larma vid <b>{c.min_count ?? '?'}+</b> händelser i <b>{layerLabel(c.layer)}</b> inom <b>{c.radius_m ?? '?'} m</b></>;
+  }
+
+  // Rå fältsträng bevaras som liten monospace-rad för admin-felsökning — inte längre huvudinformationen.
+  function rawConfigString(rule: AlertRule): string {
+    const c = rule.config;
+    if (rule.type === 'threshold') return `${rule.type} · ${c.score_threshold ?? '?'}`;
+    if (rule.type === 'proximity') return `${rule.type} · ${c.layer ?? '?'} · ${c.min_criticality ?? '?'}`;
+    return `${rule.type} · ${c.layer ?? '?'} · ${c.min_count ?? '?'} · ${c.radius_m ?? '?'}`;
   }
 
   const inputStyle = { width: '100%', padding: '5px 8px', background: '#16162a', border: '1px solid #444', borderRadius: 4, color: '#ddd', fontSize: 12, boxSizing: 'border-box' as const };
   const labelStyle = { fontSize: 11, color: '#888', display: 'block', marginBottom: 4 };
 
   return (
-    <div style={{ position: 'fixed', inset: 0, background: '#000a', zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={onClose}>
-      <div style={{ background: '#1e1e30', border: '1px solid #444', borderRadius: 10, padding: 24, width: 420, maxHeight: '85vh', overflowY: 'auto' }} onClick={e => e.stopPropagation()}>
+    <div style={{ position: 'fixed', inset: 0, background: '#000a', zIndex: 200, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', paddingTop: '8vh' }} onClick={onClose}>
+      {/* Ankrad mot toppen — formulärets höjd ändras med vald regeltyp, annars hoppar modalen */}
+      <div style={{ background: '#1e1e30', border: '1px solid #444', borderRadius: 10, padding: 24, width: 420, maxHeight: '80vh', overflowY: 'auto' }} onClick={e => e.stopPropagation()}>
         <div style={{ display: 'flex', alignItems: 'center', marginBottom: 16 }}>
           <h3 style={{ fontSize: 14, fontWeight: 700, color: '#eee', flex: 1, margin: 0 }}>⚠ Varningsregler</h3>
           <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#666', fontSize: 16, cursor: 'pointer' }}>✕</button>
@@ -83,7 +106,8 @@ export function AlertRulesModal({ onClose }: Props) {
               <input type="checkbox" checked={rule.enabled} onChange={() => toggleEnabled(rule)} style={{ width: 13, height: 13, cursor: 'pointer' }} />
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontSize: 12, color: rule.enabled ? '#ddd' : '#667', fontWeight: 600 }}>{rule.name}</div>
-                <div style={{ fontSize: 10, color: '#666' }}>{rule.type} · {describeConfig(rule)}</div>
+                <div style={{ fontSize: 11, color: rule.enabled ? '#c7cae0' : '#667', marginTop: 2 }}>{ruleSentence(rule)}</div>
+                <div style={{ fontSize: 10.5, color: '#3d3f5c', marginTop: 2, fontFamily: 'monospace' }}>{rawConfigString(rule)}</div>
               </div>
               <button onClick={() => deleteRule(rule.id)} style={{ background: 'none', border: 'none', color: '#c55', fontSize: 13, cursor: 'pointer' }}>✕</button>
             </div>

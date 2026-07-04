@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { LAYERS } from '../types';
 import type { LayerId, LayerGroup, AlertEvent } from '../types';
+import { LayerIcon } from '../lib/layerIcons';
 
 interface Props {
   visible: Set<LayerId>;
@@ -27,10 +28,12 @@ const WMS_OVERLAYS = [
   { id: 'seamark',   label: 'Sjökort (OpenSeaMap)', icon: '⚓' },
 ];
 
-const GROUPS: { id: LayerGroup; label: string; icon: string }[] = [
-  { id: 'events',    label: 'Händelser',   icon: '🔔' },
-  { id: 'layers',    label: 'Lager',       icon: '🗂' },
-  { id: 'resources', label: 'Resurser',    icon: '📦' },
+// Ingen ikon på gruppheaders (Händelser/Lager/Resurser) — enligt mockupen bär bara
+// Varningar/Analys-sektionerna och de enskilda lagerraderna ikoner, inte gruppnivån.
+const GROUPS: { id: LayerGroup; label: string }[] = [
+  { id: 'events',    label: 'Händelser' },
+  { id: 'layers',    label: 'Lager' },
+  { id: 'resources', label: 'Resurser' },
 ];
 
 export function Sidebar({
@@ -115,8 +118,9 @@ export function Sidebar({
         <div style={{ borderBottom: '1px solid #2a2a40' }}>
           <div style={{ display: 'flex', alignItems: 'center', padding: '7px 10px 7px 12px', gap: 6, cursor: 'pointer', userSelect: 'none' }}
             onClick={() => toggleGroup('alerts')}>
-            <span style={{ fontSize: 12, flex: 1, color: alerts.length > 0 ? '#f5a' : '#ccc', fontWeight: 600 }}>
-              ⚠ Varningar
+            <span style={{ fontSize: 12, flex: 1, color: alerts.length > 0 ? '#f5a' : '#ccc', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 7 }}>
+              <svg width={14} height={14} viewBox="0 0 16 16"><path d="M8 2 1 14h14L8 2z" stroke="#f0a83c" strokeWidth={1.4} fill="none" /><path d="M8 6.5v3.5" stroke="#f0a83c" strokeWidth={1.4} /><circle cx={8} cy={11.7} r={0.8} fill="#f0a83c" /></svg>
+              Varningar
             </span>
             {alerts.length > 0 && (
               <span style={{ fontSize: 9, background: '#e74c3c', color: '#fff', borderRadius: 8, padding: '1px 5px', minWidth: 16, textAlign: 'center' }}>
@@ -166,8 +170,9 @@ export function Sidebar({
             >
               {choroplethOn && <span style={{ color: '#fff', fontSize: 9, lineHeight: 1 }}>✓</span>}
             </button>
-            <span style={{ fontSize: 12, flex: 1, color: '#ccc', fontWeight: 600, cursor: 'pointer' }} onClick={() => toggleGroup('analysis')}>
-              📊 Analys
+            <span style={{ fontSize: 12, flex: 1, color: '#ccc', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 7 }} onClick={() => toggleGroup('analysis')}>
+              <svg width={14} height={14} viewBox="0 0 16 16"><rect x={2} y={8} width={3} height={6} fill="#4fa8e8" /><rect x={6.5} y={5} width={3} height={9} fill="#4fa8e8" /><rect x={11} y={2} width={3} height={12} fill="#4fa8e8" /></svg>
+              Analys
             </span>
             <button onClick={() => toggleGroup('analysis')} style={{ background: 'none', border: 'none', color: '#555', fontSize: 11, cursor: 'pointer', padding: '0 2px' }}>
               {analysisExpanded ? '▲' : '▼'}
@@ -209,8 +214,8 @@ export function Sidebar({
                 >
                   {!allOff && <span style={{ color: '#fff', fontSize: 9, lineHeight: 1 }}>✓</span>}
                 </button>
-                <span style={{ fontSize: 12, flex: 1, color: '#ccc', fontWeight: 600 }} onClick={() => toggleGroup(group.id)}>
-                  {group.icon} {group.label}
+                <span style={{ fontSize: 12, flex: 1, color: '#ccc', fontWeight: 600, cursor: 'pointer' }} onClick={() => toggleGroup(group.id)}>
+                  {group.label}
                 </span>
                 {totalCount > 0 && (
                   <span style={{ fontSize: 10, color: '#666', minWidth: 20, textAlign: 'right' }}>{totalCount}</span>
@@ -231,7 +236,7 @@ export function Sidebar({
                         onClick={() => onToggle(layer.id)}
                         style={{ display: 'flex', alignItems: 'center', width: '100%', padding: '4px 10px 4px 28px', background: 'none', border: 'none', cursor: 'pointer', gap: 7, textAlign: 'left' }}
                       >
-                        <span style={{ fontSize: 13, opacity: on ? 1 : 0.3, flexShrink: 0 }}>{layer.icon}</span>
+                        <span style={{ opacity: on ? 1 : 0.3, display: 'flex', flexShrink: 0 }}><LayerIcon id={layer.id} /></span>
                         <span style={{ flex: 1, fontSize: 11, color: on ? '#ddd' : '#555' }}>{layer.label}</span>
                         {count > 0 && (
                           <span style={{ fontSize: 9, background: on ? layer.color : '#333', color: '#fff', borderRadius: 8, padding: '1px 5px', minWidth: 16, textAlign: 'center', flexShrink: 0 }}>

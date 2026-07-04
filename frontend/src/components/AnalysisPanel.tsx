@@ -78,7 +78,14 @@ export function AnalysisPanel({ onClose }: Props) {
             borderBottom: tab === t ? '2px solid #5b8cff' : '2px solid transparent',
             cursor: 'pointer', letterSpacing: 0.5, textTransform: 'uppercase',
           }}>
-            {t === 'opomr' ? `OpOmr (${data?.op_municipalities.join(', ') || '…'})` : 'Norrbotten BD'}
+            {t === 'opomr' ? (
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                OpOmr
+                <span style={{ background: '#23243a', color: '#9ea3c0', borderRadius: 999, fontSize: 10.5, padding: '1px 7px', fontWeight: 600, textTransform: 'none', letterSpacing: 0 }}>
+                  {data?.op_municipalities.length ?? 0} valda
+                </span>
+              </span>
+            ) : 'Norrbotten BD'}
           </button>
         ))}
       </div>
@@ -126,6 +133,10 @@ function OpOmrTab({ data }: { data: AnalysisData }) {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+
+      <div style={{ fontSize: 11, color: '#666a8c' }}>
+        Kommuner: {op_municipalities.length ? op_municipalities.join(', ') : '—'}
+      </div>
 
       {/* Snabbläge */}
       <div>

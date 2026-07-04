@@ -31,6 +31,7 @@ export function ImportDialog({ onClose, onImported }: Props) {
 
         <div className="field-row">
           <label>Lager</label>
+          {/* <option> kan bara innehålla text, inte SVG — behåller emoji här som enda undantag */}
           <select value={layer} onChange={e => setLayer(e.target.value as LayerId)}>
             {LAYERS.map(l => <option key={l.id} value={l.id}>{l.icon} {l.label}</option>)}
           </select>

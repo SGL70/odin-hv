@@ -148,9 +148,10 @@ interface JobState {
 }
 
 interface Props {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
   onImported: () => void;
+  onActivityChange?: (active: boolean) => void;
+  refreshInterval: number;
+  onRefreshIntervalChange: (v: number) => void;
 }
 
 function fmtDate(iso?: string) {
@@ -159,13 +160,10 @@ function fmtDate(iso?: string) {
   return d.toLocaleString('sv-SE', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
 }
 
-export function HarvestSidebar({ open, onOpenChange, onImported }: Props) {
+export function HarvestSidebar({ onImported, onActivityChange, refreshInterval, onRefreshIntervalChange }: Props) {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [jobs, setJobs] = useState<Record<string, JobState>>({});
   const [status, setStatus] = useState<Record<string, string>>({});
-  const [refreshInterval, setRefreshInterval] = useState<number>(
-    () => parseInt(localStorage.getItem('harvestInterval') || '15')
-  );
   const socketRef = useRef<Socket | null>(null);
   const token = localStorage.getItem('token');
 
@@ -189,6 +187,11 @@ export function HarvestSidebar({ open, onOpenChange, onImported }: Props) {
   }
 
   useEffect(() => { fetchStatus(); }, []);
+
+  // Grön aktivitetsprick på RightPanel.tsx:s "Skördare"-flik när minst en skördning pågår.
+  useEffect(() => {
+    onActivityChange?.(Object.values(jobs).some(j => !j.result));
+  }, [jobs, onActivityChange]);
 
   useEffect(() => {
     const socket = io({ path: '/socket.io' });
@@ -231,29 +234,8 @@ export function HarvestSidebar({ open, onOpenChange, onImported }: Props) {
     setJobs(prev => { const n = { ...prev }; delete n[id]; return n; });
   }
 
-  if (!open) {
-    return (
-      <button
-        onClick={() => onOpenChange(true)}
-        style={{
-          position: 'absolute', top: 66, right: 0, zIndex: 15,
-          background: '#1e1e30ee', border: '1px solid #333',
-          borderRight: 'none', borderRadius: '6px 0 0 6px',
-          color: '#aaa', fontSize: 16, width: 22, height: 40,
-          cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
-        }}
-        title="Visa skördare"
-      >‹</button>
-    );
-  }
-
   return (
-    <div style={{ position: 'absolute', top: 58, right: 0, bottom: 0, zIndex: 15, display: 'flex', flexDirection: 'row-reverse' }}>
-      {/* Panel */}
-      <div style={{
-        width: 220, background: '#1e1e30ee', borderLeft: '1px solid #333',
-        display: 'flex', flexDirection: 'column', backdropFilter: 'blur(8px)',
-      }}>
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
         {/* Header */}
         <div style={{ padding: '10px 12px 8px', borderBottom: '1px solid #2a2a40' }}>
           <div style={{ fontSize: 10, fontWeight: 700, color: '#888', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 8 }}>
@@ -269,11 +251,7 @@ export function HarvestSidebar({ open, onOpenChange, onImported }: Props) {
             <span style={{ fontSize: 10, color: '#555', flexShrink: 0 }}>↻ Auto:</span>
             <select
               value={refreshInterval}
-              onChange={e => {
-                const v = parseInt(e.target.value);
-                setRefreshInterval(v);
-                localStorage.setItem('harvestInterval', String(v));
-              }}
+              onChange={e => onRefreshIntervalChange(parseInt(e.target.value))}
               style={{
                 flex: 1, background: '#2a2a40', border: '1px solid #444', borderRadius: 4,
                 color: refreshInterval > 0 ? '#7aaeff' : '#666', fontSize: 10, padding: '2px 4px',
@@ -367,20 +345,6 @@ export function HarvestSidebar({ open, onOpenChange, onImported }: Props) {
             );
           })}
         </div>
-      </div>
-
-      {/* Collapse button — left edge of panel (mirrors left sidebar pattern) */}
-      <button
-        onClick={() => onOpenChange(false)}
-        style={{
-          background: '#1e1e30ee', border: '1px solid #333',
-          borderRight: 'none', borderRadius: '6px 0 0 6px',
-          color: '#aaa', fontSize: 16, width: 22, height: 40,
-          cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
-          alignSelf: 'flex-start', marginTop: 8, flexShrink: 0,
-        }}
-        title="Dölj skördare"
-      >›</button>
     </div>
   );
 }

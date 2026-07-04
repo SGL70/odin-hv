@@ -65,6 +65,11 @@ export const api = {
     delete: (id: number) => req('DELETE', `/auth/users/${id}`),
   },
 
+  preferences: {
+    get: () => req<Record<string, unknown>>('GET', '/auth/preferences'),
+    save: (value: Record<string, unknown>) => req<{ ok: boolean }>('PUT', '/auth/preferences', { value }),
+  },
+
   alerts: {
     listRules: () => req<AlertRule[]>('GET', '/alerts/rules'),
     createRule: (data: { name: string; type: AlertRuleType; config: AlertRuleConfig; enabled?: boolean }) =>

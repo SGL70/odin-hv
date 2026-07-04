@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useAuth } from '../contexts/AuthContext';
 
 interface County {
   name: string;
@@ -41,6 +42,14 @@ const LAYER_WEIGHT_LABELS: Record<string, string> = {
 };
 
 export function SettingsModal({ onClose }: Props) {
+  const { user: currentUser } = useAuth();
+  const [users, setUsers] = useState<{ id: number; username: string; role: string; created_at: string }[]>([]);
+  const [usersLoading, setUsersLoading] = useState(false);
+  const [newUsername, setNewUsername] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [newRole, setNewRole] = useState<'reader' | 'editor' | 'admin'>('editor');
+  const [userError, setUserError] = useState('');
+  const [creatingUser, setCreatingUser] = useState(false);
   const [municipalities, setMunicipalities] = useState<string[]>([]);
   const [retentionDays, setRetentionDays] = useState(30);
   const [distanceM, setDistanceM] = useState(500);
@@ -51,6 +60,7 @@ export function SettingsModal({ onClose }: Props) {
   const [saved, setSaved] = useState(false);
   const [snapshotting, setSnapshotting] = useState(false);
   const [expanded, setExpanded] = useState<Set<string>>(new Set(['Norrbottens län']));
+  const [activeTab, setActiveTab] = useState<'opomr' | 'weighting' | 'retention' | 'users'>('opomr');
   const token = localStorage.getItem('token');
 
   useEffect(() => {
@@ -128,14 +138,74 @@ export function SettingsModal({ onClose }: Props) {
     setSnapshotting(false);
   }
 
+  async function loadUsers() {
+    setUsersLoading(true);
+    const r = await fetch('/api/auth/users', { headers: { Authorization: `Bearer ${token}` } });
+    if (r.ok) setUsers(await r.json());
+    setUsersLoading(false);
+  }
+
+  useEffect(() => {
+    if (activeTab === 'users') loadUsers();
+  }, [activeTab]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function createUser() {
+    if (!newUsername.trim() || !newPassword.trim()) return;
+    setCreatingUser(true);
+    setUserError('');
+    const r = await fetch('/api/auth/users', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ username: newUsername.trim(), password: newPassword, role: newRole }),
+    });
+    if (r.ok) {
+      setNewUsername(''); setNewPassword(''); setNewRole('editor');
+      loadUsers();
+    } else {
+      const err = await r.json().catch(() => ({ error: 'Kunde inte skapa användare' }));
+      setUserError(err.error || 'Kunde inte skapa användare');
+    }
+    setCreatingUser(false);
+  }
+
+  async function deleteUser(id: number) {
+    if (!confirm('Ta bort användaren?')) return;
+    const r = await fetch(`/api/auth/users/${id}`, { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } });
+    if (r.ok) loadUsers();
+    else {
+      const err = await r.json().catch(() => ({ error: 'Kunde inte ta bort användaren' }));
+      alert(err.error || 'Kunde inte ta bort användaren');
+    }
+  }
+
   return (
-    <div style={{ position: 'fixed', inset: 0, background: '#000a', zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={onClose}>
-      <div style={{ background: '#1e1e30', border: '1px solid #444', borderRadius: 10, padding: 24, width: 360, maxHeight: '85vh', overflowY: 'auto' }} onClick={e => e.stopPropagation()}>
+    <div style={{ position: 'fixed', inset: 0, background: '#000a', zIndex: 200, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', paddingTop: '8vh' }} onClick={onClose}>
+      {/* Ankrad mot toppen (inte vertikalt centrerad) — annars flyttar sig hela modalen,
+          och flikraden med den, varje gång flikbyte ändrar innehållshöjden. */}
+      <div style={{ background: '#1e1e30', border: '1px solid #444', borderRadius: 10, padding: 24, width: 640, maxHeight: '80vh', overflowY: 'auto' }} onClick={e => e.stopPropagation()}>
         <div style={{ display: 'flex', alignItems: 'center', marginBottom: 16 }}>
           <h3 style={{ fontSize: 14, fontWeight: 700, color: '#eee', flex: 1, margin: 0 }}>⚙ Inställningar</h3>
           <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#666', fontSize: 16, cursor: 'pointer' }}>✕</button>
         </div>
 
+        <div style={{ display: 'flex', borderBottom: '1px solid #333', marginBottom: 16 }}>
+          {([
+            { id: 'opomr', label: 'Operativt område' },
+            { id: 'weighting', label: 'Viktning' },
+            { id: 'retention', label: 'Retention' },
+            { id: 'users', label: 'Användare' },
+          ] as const).map(t => (
+            <button key={t.id} onClick={() => setActiveTab(t.id)} style={{
+              flex: 1, padding: '7px 0', fontSize: 11, fontWeight: 700,
+              background: activeTab === t.id ? '#2a2a44' : 'none', border: 'none',
+              color: activeTab === t.id ? '#7aaeff' : '#666',
+              borderBottom: activeTab === t.id ? '2px solid #5b8cff' : '2px solid transparent',
+              cursor: 'pointer', letterSpacing: 0.5,
+            }}>{t.label}</button>
+          ))}
+        </div>
+
+        {activeTab === 'opomr' && <>
         {/* OpOmr */}
         <div style={{ fontSize: 11, color: '#888', marginBottom: 6, textTransform: 'uppercase', letterSpacing: 0.5 }}>
           Operativt Område (OpOmr)
@@ -181,7 +251,7 @@ export function SettingsModal({ onClose }: Props) {
 
                 {/* Municipalities */}
                 {isExpanded && (
-                  <div style={{ padding: '6px 8px 8px 28px', display: 'flex', flexDirection: 'column', gap: 4, background: '#1a1a2e' }}>
+                  <div style={{ padding: '6px 8px 8px 28px', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '4px 12px', background: '#1a1a2e' }}>
                     {county.municipalities.map(m => (
                       <label key={m} style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
                         <input
@@ -199,9 +269,11 @@ export function SettingsModal({ onClose }: Props) {
             );
           })}
         </div>
+        </>}
 
+        {activeTab === 'retention' && <>
         {/* Historikretention */}
-        <div style={{ borderTop: '1px solid #2a2a40', paddingTop: 16, marginBottom: 16 }}>
+        <div style={{ marginBottom: 16 }}>
           <div style={{ fontSize: 11, color: '#888', marginBottom: 10, textTransform: 'uppercase', letterSpacing: 0.5 }}>
             📅 Historik & retention
           </div>
@@ -226,9 +298,11 @@ export function SettingsModal({ onClose }: Props) {
             style={{ padding: '5px 12px', borderRadius: 4, fontSize: 11, background: '#2a2a44', color: '#aaa', border: '1px solid #444', cursor: 'pointer' }}
           >{snapshotting ? 'Sparar…' : '⚡ Spara ögonblick nu'}</button>
         </div>
+        </>}
 
+        {activeTab === 'weighting' && <>
         {/* Kritikalitetsviktning */}
-        <div style={{ borderTop: '1px solid #2a2a40', paddingTop: 16, marginBottom: 16 }}>
+        <div style={{ marginBottom: 16 }}>
           <div style={{ fontSize: 11, color: '#888', marginBottom: 10, textTransform: 'uppercase', letterSpacing: 0.5 }}>
             ⚠ Kritikalitetsviktad störningsscore
           </div>
@@ -299,15 +373,68 @@ export function SettingsModal({ onClose }: Props) {
             Vikt 0 utesluter källan helt ur störningsscoren. Nya lager läggs till av admin via API tills en UI för att lägga till rader byggs.
           </div>
         </div>
+        </>}
 
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-          <button
-            onClick={save}
-            disabled={saving}
-            style={{ flex: 1, padding: '7px 0', borderRadius: 4, fontSize: 12, background: '#5b8cff', color: '#fff', border: 'none', cursor: 'pointer' }}
-          >{saving ? 'Sparar…' : 'Spara'}</button>
-          {saved && <span style={{ fontSize: 11, color: '#4a9' }}>✓ Sparat</span>}
+        {activeTab === 'users' && <>
+        {/* Användarhantering */}
+        <div style={{ marginBottom: 16 }}>
+          <div style={{ fontSize: 11, color: '#888', marginBottom: 10, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+            👤 Användare
+          </div>
+          {usersLoading ? (
+            <div style={{ fontSize: 12, color: '#666', marginBottom: 12 }}>Laddar…</div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 16 }}>
+              {users.map(u => (
+                <div key={u.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 10px', background: '#16162a', border: '1px solid #2a2a40', borderRadius: 5 }}>
+                  <span style={{ flex: 1, fontSize: 12, color: '#ddd' }}>{u.username}</span>
+                  <span className={`badge badge-${u.role === 'admin' ? 'orange' : u.role === 'editor' ? 'blue' : 'green'}`}>{u.role}</span>
+                  {u.id !== currentUser?.id && (
+                    <button onClick={() => deleteUser(u.id)} style={{ background: 'none', border: 'none', color: '#c55', fontSize: 13, cursor: 'pointer' }}>✕</button>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+
+          <div style={{ borderTop: '1px solid #2a2a40', paddingTop: 12 }}>
+            <div style={{ fontSize: 11, color: '#888', marginBottom: 8, textTransform: 'uppercase', letterSpacing: 0.5 }}>Ny användare</div>
+            <div className="field-row">
+              <label>Användarnamn</label>
+              <input value={newUsername} onChange={e => setNewUsername(e.target.value)} />
+            </div>
+            <div className="field-row">
+              <label>Lösenord</label>
+              <input type="password" value={newPassword} onChange={e => setNewPassword(e.target.value)} />
+            </div>
+            <div className="field-row">
+              <label>Roll</label>
+              <select value={newRole} onChange={e => setNewRole(e.target.value as 'reader' | 'editor' | 'admin')}>
+                <option value="reader">Läsare</option>
+                <option value="editor">Redaktör</option>
+                <option value="admin">Admin</option>
+              </select>
+            </div>
+            {userError && <div style={{ fontSize: 11, color: '#c55', marginBottom: 8 }}>{userError}</div>}
+            <button
+              onClick={createUser}
+              disabled={creatingUser || !newUsername.trim() || !newPassword.trim()}
+              style={{ width: '100%', padding: '7px 0', borderRadius: 4, fontSize: 12, background: '#5b8cff', color: '#fff', border: 'none', cursor: 'pointer' }}
+            >{creatingUser ? 'Skapar…' : 'Skapa användare'}</button>
+          </div>
         </div>
+        </>}
+
+        {activeTab !== 'users' && (
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', borderTop: '1px solid #2a2a40', paddingTop: 16 }}>
+            <button
+              onClick={save}
+              disabled={saving}
+              style={{ flex: 1, padding: '7px 0', borderRadius: 4, fontSize: 12, background: '#5b8cff', color: '#fff', border: 'none', cursor: 'pointer' }}
+            >{saving ? 'Sparar…' : 'Spara'}</button>
+            {saved && <span style={{ fontSize: 11, color: '#4a9' }}>✓ Sparat</span>}
+          </div>
+        )}
       </div>
     </div>
   );

@@ -3,6 +3,7 @@ import { api } from '../api';
 import { getLayer, LAYERS } from '../types';
 import type { Feature, LayerId } from '../types';
 import { RelatedFeatures } from './RelatedFeatures';
+import { LayerIcon } from '../lib/layerIcons';
 import { useAuth } from '../contexts/AuthContext';
 
 // Konverterar ISO-tidsträng (lagras alltid som UTC, t.ex. 'YYYY-MM-DDTHH:mm:ss.sssZ') till
@@ -30,10 +31,22 @@ interface Props {
   addMode: boolean;
   addLayer: LayerId;
   onAddLayerChange: (l: LayerId) => void;
-  rightOffset?: number;
+  // Läggs till-flödet (klicka kartan → ange namn/fält) — ägs av MapView.tsx (map-interaktionen
+  // sitter där), men renderas här i Objekt-fliken i stället för en separat flytande dialog.
+  pendingPlacement: boolean;
+  placementInfo?: string;
+  newName: string;
+  onNewNameChange: (v: string) => void;
+  newFields: Record<string, string>;
+  onNewFieldChange: (key: string, val: string) => void;
+  onSubmitNew: () => void;
+  onCancelPlacement: () => void;
 }
 
-export function FeaturePanel({ feature, group = [], onSelectFromGroup, onClose, onSaved, onDeleted, addMode, addLayer, onAddLayerChange, rightOffset = 10 }: Props) {
+export function FeaturePanel({
+  feature, group = [], onSelectFromGroup, onClose, onSaved, onDeleted, addMode, addLayer, onAddLayerChange,
+  pendingPlacement, placementInfo, newName, onNewNameChange, newFields, onNewFieldChange, onSubmitNew, onCancelPlacement,
+}: Props) {
   const { user } = useAuth();
   const canEdit = user?.role === 'editor' || user?.role === 'admin';
 
@@ -97,36 +110,91 @@ export function FeaturePanel({ feature, group = [], onSelectFromGroup, onClose, 
 
   if (addMode) {
     return (
-      <div style={{ ...panelStyle, right: rightOffset }}>
+      <div style={panelStyle}>
         <div style={headerStyle}>
-          <span style={{ fontSize: 14, fontWeight: 600 }}>Lägg till objekt</span>
+          <span style={{ fontSize: 14, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 7 }}>
+            <LayerIcon id={addLayer} size={15} />
+            {pendingPlacement ? `Nytt ${layerCfg?.label}` : 'Lägg till objekt'}
+          </span>
           <button className="btn-ghost btn-sm" onClick={onClose}>✕</button>
         </div>
-        <div style={{ padding: 14 }}>
-          <div className="field-row">
-            <label>Lager</label>
-            <select value={addLayer} onChange={e => onAddLayerChange(e.target.value as LayerId)}>
-              {LAYERS.map(l => <option key={l.id} value={l.id}>{l.icon} {l.label}</option>)}
-            </select>
-          </div>
-          <p style={{ fontSize: 12, color: '#888', marginTop: 8 }}>
-            Klicka på kartan för att placera objektet.
-          </p>
+        <div style={{ padding: 14, overflowY: 'auto', flex: 1 }}>
+          {!pendingPlacement && (
+            <>
+              <div className="field-row">
+                <label>Lager</label>
+                {/* <option> kan bara innehålla text, inte SVG — behåller emoji här som enda undantag */}
+                <select value={addLayer} onChange={e => onAddLayerChange(e.target.value as LayerId)}>
+                  {LAYERS.map(l => <option key={l.id} value={l.id}>{l.icon} {l.label}</option>)}
+                </select>
+              </div>
+              <p style={{ fontSize: 12, color: '#888', marginTop: 8 }}>
+                Klicka på kartan för att placera objektet.
+              </p>
+            </>
+          )}
+
+          {pendingPlacement && (
+            <>
+              {placementInfo && (
+                <p style={{ fontSize: 12, color: '#5b8cff', marginBottom: 12 }}>{placementInfo}</p>
+              )}
+              <div className="field-row">
+                <label>Namn *</label>
+                <input
+                  value={newName}
+                  onChange={e => onNewNameChange(e.target.value)}
+                  autoFocus
+                  onKeyDown={e => e.key === 'Enter' && onSubmitNew()}
+                />
+              </div>
+              {layerCfg?.fields.slice(0, 3).map(f => (
+                <div key={f.key} className="field-row">
+                  <label>{f.label}{f.unit ? ` (${f.unit})` : ''}</label>
+                  {f.type === 'select' ? (
+                    <select value={newFields[f.key] || ''} onChange={e => onNewFieldChange(f.key, e.target.value)}>
+                      <option value="">Välj...</option>
+                      {f.options?.map(o => <option key={o} value={o}>{o}</option>)}
+                    </select>
+                  ) : (
+                    <input
+                      type={f.type === 'number' ? 'number' : 'text'}
+                      value={newFields[f.key] || ''}
+                      onChange={e => onNewFieldChange(f.key, e.target.value)}
+                    />
+                  )}
+                </div>
+              ))}
+              <div style={{ display: 'flex', gap: 8, marginTop: 16 }}>
+                <button className="btn-primary btn-sm" onClick={onSubmitNew} style={{ flex: 1 }} disabled={!newName.trim()}>Skapa</button>
+                <button className="btn-ghost btn-sm" onClick={onCancelPlacement}>Tillbaka</button>
+              </div>
+            </>
+          )}
         </div>
       </div>
     );
   }
 
-  if (!feature) return null;
+  if (!feature) {
+    return (
+      <div style={{ ...panelStyle, alignItems: 'center', justifyContent: 'center', padding: 24, textAlign: 'center' }}>
+        <p style={{ fontSize: 12, color: '#666a8c' }}>
+          Klicka på ett objekt i kartan för att se detaljer, eller klicka <b>+ Lägg till</b> för att skapa ett nytt.
+        </p>
+      </div>
+    );
+  }
 
   // Group navigation (multiple features at same click point)
   const groupIdx = group.length > 1 ? group.findIndex(f => f.properties.uid === feature.properties.uid) : -1;
 
   return (
-    <div style={{ ...panelStyle, right: rightOffset }}>
+    <div style={panelStyle}>
       <div style={headerStyle}>
-        <span style={{ fontSize: 14, fontWeight: 600 }}>
-          {layerCfg?.icon} {feature.properties.name}
+        <span style={{ fontSize: 14, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 7 }}>
+          {feature.properties.layer && <LayerIcon id={feature.properties.layer as LayerId} size={15} />}
+          {feature.properties.name}
         </span>
         <button className="btn-ghost btn-sm" onClick={onClose}>✕</button>
       </div>
@@ -313,11 +381,11 @@ function renderVal(key: string, val: string) {
   return val;
 }
 
+// Fyller RightPanel.tsx:s tabbytta — RightPanel äger den absoluta positioneringen/kortet
+// (tidigare stod FeaturePanel för sin egen absolut-positionerade panel, se
+// eventual-painting-codd.md steg 7).
 const panelStyle: React.CSSProperties = {
-  position: 'absolute', top: 10, bottom: 10, zIndex: 20,
-  width: 280, background: '#1e1e30', border: '1px solid #333',
-  borderRadius: 8, display: 'flex', flexDirection: 'column',
-  boxShadow: '0 4px 20px #0006',
+  display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0,
 };
 
 const headerStyle: React.CSSProperties = {

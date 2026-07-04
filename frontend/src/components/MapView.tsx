@@ -4,10 +4,9 @@ import { api } from '../api';
 import { LAYERS, getLayer } from '../types';
 import type { Feature, LayerId, AlertEvent } from '../types';
 import { Sidebar } from './Sidebar';
-import { FeaturePanel } from './FeaturePanel';
+import { RightPanel } from './RightPanel';
 import { Dashboard } from './Dashboard';
 import { ImportDialog } from './ImportDialog';
-import { HarvestSidebar } from './HarvestSidebar';
 import { SettingsModal } from './SettingsModal';
 import { AnalysisPanel } from './AnalysisPanel';
 import { AlertRulesModal } from './AlertRulesModal';
@@ -65,7 +64,21 @@ export function MapView() {
   const [addLayer, setAddLayer] = useState<LayerId>('fuel');
   const [showDash, setShowDash] = useState(false);
   const [showImport, setShowImport] = useState(false);
-  const [harvestOpen, setHarvestOpen] = useState(() => localStorage.getItem('harvestOpen') === 'true');
+  const [rightPanelOpen, setRightPanelOpen] = useState(() => localStorage.getItem('rightPanelOpen') !== 'false');
+  const [rightPanelTab, setRightPanelTab] = useState<'feature' | 'harvest'>(
+    () => (localStorage.getItem('rightPanelTab') as 'feature' | 'harvest') || 'harvest'
+  );
+  const [harvestActive, setHarvestActive] = useState(false);
+
+  // Öppnar RightPanel och växlar till Objekt-fliken så fort ett objekt väljs eller
+  // "+ Lägg till" startas — oavsett vilken flik/kollapsat läge panelen råkade stå i.
+  useEffect(() => {
+    if (selected || addMode) {
+      setRightPanelTab('feature');
+      setRightPanelOpen(true);
+    }
+  }, [selected, addMode]);
+
   const [sidebarOpen, setSidebarOpen] = useState(() => localStorage.getItem('sidebarOpen') !== 'false');
   const [showSettings, setShowSettings] = useState(false);
   const [showAnalysis, setShowAnalysis] = useState(false);
@@ -82,12 +95,53 @@ export function MapView() {
     } catch { /* ignore */ }
     return new Set();
   });
+  const [harvestInterval, setHarvestInterval] = useState<number>(
+    () => parseInt(localStorage.getItem('harvestInterval') || '15')
+  );
   const [addDialog, setAddDialog] = useState<{ lngLat: maplibregl.LngLat } | null>(null);
   const [polygonPoints, setPolygonPoints] = useState<[number, number][]>([]);
   const [polygonReady, setPolygonReady] = useState(false);
   const [newName, setNewName] = useState('');
   const [newFields, setNewFields] = useState<Record<string, string>>({});
   const [mapLoaded, setMapLoaded] = useState(false);
+  const [prefsLoaded, setPrefsLoaded] = useState(false);
+
+  // UI-preferenser per användare (i stället för bara localStorage, som är per webbläsare/enhet).
+  // Hämtas en gång vid inloggning — localStorage-värdena ovan används som direkt förstamålning
+  // tills serversvaret hunnit fram, och skrivs över av det om servern har något sparat.
+  useEffect(() => {
+    api.preferences.get().then(p => {
+      if (Array.isArray(p.layerVisible)) setVisible(new Set(p.layerVisible as LayerId[]));
+      if (typeof p.sidebarOpen === 'boolean') setSidebarOpen(p.sidebarOpen);
+      if (typeof p.rightPanelOpen === 'boolean') setRightPanelOpen(p.rightPanelOpen);
+      if (typeof p.rightPanelTab === 'string') setRightPanelTab(p.rightPanelTab as 'feature' | 'harvest');
+      if (typeof p.opomrFilter === 'boolean') setOpomrFilter(p.opomrFilter);
+      if (typeof p.baseMap === 'string') setBaseMap(p.baseMap as 'osm' | 'lm');
+      if (Array.isArray(p.wmsOverlays)) setWmsOverlays(new Set(p.wmsOverlays as string[]));
+      if (typeof p.harvestInterval === 'number') setHarvestInterval(p.harvestInterval);
+    }).catch(() => { /* ingen inloggning ännu eller nätverksfel — kör vidare på localStorage-värdena */ })
+      .finally(() => setPrefsLoaded(true));
+  }, []);
+
+  // Sparar samma preferenser till kontot, debounced så snabba klickserier (t.ex. att bocka i
+  // flera lager i rad) inte ger en request per klick. Väntar på prefsLoaded så vi inte skriver
+  // över serverns sparade värden med lokala default-värden innan hämtningen hunnit svara.
+  useEffect(() => {
+    if (!prefsLoaded) return;
+    const t = setTimeout(() => {
+      api.preferences.save({
+        layerVisible: [...visible],
+        sidebarOpen,
+        rightPanelOpen,
+        rightPanelTab,
+        opomrFilter,
+        baseMap,
+        wmsOverlays: [...wmsOverlays],
+        harvestInterval,
+      }).catch(() => { /* tyst — preferenser är inte kritiska, försöker igen vid nästa ändring */ });
+    }, 800);
+    return () => clearTimeout(t);
+  }, [prefsLoaded, visible, sidebarOpen, rightPanelOpen, rightPanelTab, opomrFilter, baseMap, wmsOverlays, harvestInterval]);
 
   const canEdit = user?.role === 'editor' || user?.role === 'admin';
   const isPolygonMode = addMode && POLYGON_LAYERS.includes(addLayer);
@@ -154,10 +208,12 @@ export function MapView() {
         id: 'choropleth-fill', type: 'fill', source: 'choropleth-src',
         layout: { visibility: 'none' },
         paint: {
+          // Tre distinkta, avgränsade zoner (låg/medel/hög) istället för en heltäckande
+          // halvtransparent ton — tidigare färgval gjorde vägar/vatten under svårlästa.
           'fill-color': ['case',
-            ['==', ['get', 'level'], 2], 'rgba(231,76,60,0.3)',
-            ['==', ['get', 'level'], 1], 'rgba(230,126,34,0.25)',
-            'rgba(74,170,90,0.2)',
+            ['==', ['get', 'level'], 2], '#f2545b45',
+            ['==', ['get', 'level'], 1], '#f0a83c40',
+            '#34c27433',
           ],
         },
       });
@@ -166,9 +222,9 @@ export function MapView() {
         layout: { visibility: 'none' },
         paint: {
           'line-color': ['case',
-            ['==', ['get', 'level'], 2], '#e74c3c',
-            ['==', ['get', 'level'], 1], '#e67e22',
-            '#4aaa5a',
+            ['==', ['get', 'level'], 2], '#f2545b',
+            ['==', ['get', 'level'], 1], '#f0a83c',
+            '#34c274',
           ],
           'line-width': 2, 'line-opacity': 0.8,
         },
@@ -481,15 +537,18 @@ export function MapView() {
       const name        = String(props.name || '');
       const levelColor  = level === 2 ? '#e74c3c' : level === 1 ? '#e67e22' : '#4aaa5a';
 
+      // Raw HTML (MapLibre setHTML, inte JSX) — samma linjeikon-språk som LayerIcon i
+      // frontend/src/lib/layerIcons.tsx, men som SVG-strängar eftersom <option>/popup-HTML
+      // inte kan hosta React-komponenter.
       const rows = [
-        { icon: '🚔', label: 'Polis (48h)', value: policeCount },
-        { icon: '🚧', label: 'Trafik',      value: roadCount   },
-        { icon: '⚡', label: 'Elavbrott',   value: avbrott     },
+        { icon: '<svg width="12" height="12" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6" stroke="#4fa8e8" stroke-width="1.3" fill="none"/><path d="M8 5v3l2 1.5" stroke="#4fa8e8" stroke-width="1.3" fill="none"/></svg>', label: 'Polis (48h)', value: policeCount },
+        { icon: '<svg width="12" height="12" viewBox="0 0 16 16"><path d="M8 2 1 14h14L8 2z" stroke="#f0a83c" stroke-width="1.3" fill="none"/></svg>', label: 'Trafik', value: roadCount },
+        { icon: '<svg width="12" height="12" viewBox="0 0 16 16"><path d="M9 1 3 9h4l-1 6 7-9H9l1-5z" fill="#f0a83c"/></svg>', label: 'Elavbrott', value: avbrott },
       ];
 
       const rowHtml = rows.map(r => `
         <div style="display:flex;justify-content:space-between;align-items:center;padding:3px 0;border-bottom:1px solid #333;font-size:11px">
-          <span style="color:#aaa">${r.icon} ${r.label}</span>
+          <span style="color:#aaa;display:flex;align-items:center;gap:5px">${r.icon} ${r.label}</span>
           <b style="color:${r.value > 0 ? '#eee' : '#555'}">${r.value}</b>
         </div>`).join('');
 
@@ -690,6 +749,16 @@ export function MapView() {
     return () => { map.off('click', onClick); };
   }, [addMode, isPolygonMode]);
 
+  // Nålmarkör på platsen där ett nytt punktobjekt just klickats ut — syns tills objektet är
+  // sparat (då tar det riktiga lagrets ikon/milsymbol över) eller placeringen avbryts, så man
+  // ser att man träffade rätt plats innan man fyller i resten av formuläret.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !addDialog) return;
+    const marker = new maplibregl.Marker({ color: '#5b8cff' }).setLngLat(addDialog.lngLat).addTo(map);
+    return () => { marker.remove(); };
+  }, [addDialog]);
+
   const cancelAdd = () => {
     setAddMode(false);
     setSelected(null);
@@ -771,6 +840,26 @@ export function MapView() {
     <div style={{ position: 'relative', flex: 1, overflow: 'hidden' }}>
       <div ref={containerRef} style={{ width: '100%', height: '100%' }} />
 
+      {/* Störningskarta-legend — visas bara när choropleth-overlayen är aktiv */}
+      {wmsOverlays.has('choropleth') && (
+        <div style={{
+          position: 'absolute', bottom: 40, left: 10, zIndex: 10,
+          background: '#1b1c2cee', border: '1px solid #2e2f45', borderRadius: 8,
+          padding: '8px 12px', display: 'flex', flexDirection: 'column', gap: 4,
+        }}>
+          {[
+            { label: 'Låg', color: '#34c274' },
+            { label: 'Medel', color: '#f0a83c' },
+            { label: 'Hög', color: '#f2545b' },
+          ].map(l => (
+            <div key={l.label} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span style={{ width: 9, height: 9, borderRadius: 2, background: l.color, flexShrink: 0 }} />
+              <span style={{ fontSize: 11, color: '#9ea3c0' }}>{l.label}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
       {/* Topbar */}
       <div style={{
         position: 'absolute', top: 0, left: 0, right: 0, height: 48,
@@ -785,9 +874,13 @@ export function MapView() {
         {canEdit && (
           <button
             className={addMode ? 'btn-danger btn-sm' : 'btn-primary btn-sm'}
-            onClick={() => addMode ? cancelAdd() : setAddMode(true)}
+            onClick={() => {
+              if (addMode) { cancelAdd(); return; }
+              setAddLayer('intelligence_reports');
+              setAddMode(true);
+            }}
           >
-            {addMode ? '✕ Avbryt' : '+ Lägg till'}
+            {addMode ? '✕ Avbryt' : '+ 7S'}
           </button>
         )}
         {canEdit && <button className="btn-ghost btn-sm" onClick={() => setShowImport(true)}>⬆ Importera</button>}
@@ -820,12 +913,6 @@ export function MapView() {
 
       {showDash && <Dashboard onClose={() => setShowDash(false)} />}
 
-      <HarvestSidebar
-        open={harvestOpen}
-        onOpenChange={v => { setHarvestOpen(v); localStorage.setItem('harvestOpen', String(v)); }}
-        onImported={loadFeatures}
-      />
-
       {showSettings && <SettingsModal onClose={() => setShowSettings(false)} />}
 
       {showAnalysis && <AnalysisPanel onClose={() => setShowAnalysis(false)} />}
@@ -840,56 +927,34 @@ export function MapView() {
 
       {showAlertRules && <AlertRulesModal onClose={() => setShowAlertRules(false)} />}
 
-      {(selected || addMode) && (
-        <FeaturePanel
-          feature={selected}
-          group={selectedGroup}
-          onSelectFromGroup={f => setSelected(f)}
-          onClose={() => { cancelAdd(); setSelected(null); setSelectedGroup([]); }}
-          onSaved={f => setSelected(f)}
-          onDeleted={uid => { setFeatures(p => p.filter(f => f.properties.uid !== uid)); setSelected(null); setSelectedGroup([]); }}
-          addMode={addMode && !showDialog}
-          addLayer={addLayer}
-          onAddLayerChange={id => { setAddLayer(id); setPolygonPoints([]); setPolygonReady(false); }}
-          rightOffset={harvestOpen ? 230 : 10}
-        />
-      )}
-
-      {/* Create dialog (point or polygon) */}
-      {showDialog && (
-        <div style={{ position: 'fixed', inset: 0, background: '#000a', zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <div style={{ background: '#1e1e30', border: '1px solid #444', borderRadius: 10, padding: 24, width: 360 }}>
-            <h3 style={{ fontSize: 15, marginBottom: 14 }}>{layerCfg?.icon} Nytt {layerCfg?.label}-objekt</h3>
-            {polygonReady && (
-              <p style={{ fontSize: 12, color: '#5b8cff', marginBottom: 12 }}>
-                {isLineMode ? `Linje med ${polygonPoints.length} punkter` : `Polygon med ${polygonPoints.length} hörn`}
-              </p>
-            )}
-            <div className="field-row">
-              <label>Namn *</label>
-              <input value={newName} onChange={e => setNewName(e.target.value)} autoFocus onKeyDown={e => e.key === 'Enter' && submitNew()} />
-            </div>
-            {layerCfg?.fields.slice(0, 3).map(f => (
-              <div key={f.key} className="field-row">
-                <label>{f.label}{f.unit ? ` (${f.unit})` : ''}</label>
-                {f.type === 'select' ? (
-                  <select value={newFields[f.key] || ''} onChange={e => setNewFields(p => ({ ...p, [f.key]: e.target.value }))}>
-                    <option value="">Välj...</option>
-                    {f.options?.map(o => <option key={o} value={o}>{o}</option>)}
-                  </select>
-                ) : (
-                  <input type={f.type === 'number' ? 'number' : 'text'} value={newFields[f.key] || ''}
-                    onChange={e => setNewFields(p => ({ ...p, [f.key]: e.target.value }))} />
-                )}
-              </div>
-            ))}
-            <div style={{ display: 'flex', gap: 8, marginTop: 16 }}>
-              <button className="btn-primary" onClick={submitNew} style={{ flex: 1 }} disabled={!newName.trim()}>Skapa</button>
-              <button className="btn-ghost" onClick={() => { setAddDialog(null); setPolygonReady(false); }}>Avbryt</button>
-            </div>
-          </div>
-        </div>
-      )}
+      <RightPanel
+        open={rightPanelOpen}
+        onOpenChange={v => { setRightPanelOpen(v); localStorage.setItem('rightPanelOpen', String(v)); }}
+        activeTab={rightPanelTab}
+        onActiveTabChange={t => { setRightPanelTab(t); localStorage.setItem('rightPanelTab', t); }}
+        harvestActive={harvestActive}
+        onHarvestActivityChange={setHarvestActive}
+        feature={selected}
+        group={selectedGroup}
+        onSelectFromGroup={f => setSelected(f)}
+        onCloseFeature={() => { cancelAdd(); setSelected(null); setSelectedGroup([]); }}
+        onSaved={f => setSelected(f)}
+        onDeleted={uid => { setFeatures(p => p.filter(f => f.properties.uid !== uid)); setSelected(null); setSelectedGroup([]); }}
+        addMode={addMode}
+        addLayer={addLayer}
+        onAddLayerChange={id => { setAddLayer(id); setPolygonPoints([]); setPolygonReady(false); }}
+        onImported={loadFeatures}
+        harvestRefreshInterval={harvestInterval}
+        onHarvestRefreshIntervalChange={v => { setHarvestInterval(v); localStorage.setItem('harvestInterval', String(v)); }}
+        pendingPlacement={!!showDialog}
+        placementInfo={polygonReady ? (isLineMode ? `Linje med ${polygonPoints.length} punkter` : `Polygon med ${polygonPoints.length} hörn`) : undefined}
+        newName={newName}
+        onNewNameChange={setNewName}
+        newFields={newFields}
+        onNewFieldChange={(key, val) => setNewFields(p => ({ ...p, [key]: val }))}
+        onSubmitNew={submitNew}
+        onCancelPlacement={() => { setAddDialog(null); setPolygonReady(false); }}
+      />
 
       {showImport && (
         <ImportDialog onClose={() => setShowImport(false)} onImported={() => { setShowImport(false); loadFeatures(); }} />
