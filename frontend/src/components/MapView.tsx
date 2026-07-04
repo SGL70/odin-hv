@@ -14,6 +14,7 @@ import { AlertBanner } from './AlertBanner';
 import { CatchupModal } from './CatchupModal';
 import { OdinLogo } from './OdinLogo';
 import { ReportListPanel } from './ReportListPanel';
+import { CriticalityPanel } from './CriticalityPanel';
 import { SmsTipsPanel } from './SmsTipsPanel';
 import { registerReportIcons, buildReportIconExpression } from '../lib/reportSymbols';
 import { useAuth } from '../contexts/AuthContext';
@@ -87,6 +88,7 @@ export function MapView() {
   const [showAnalysis, setShowAnalysis] = useState(false);
   const [showReports, setShowReports] = useState(false);
   const [showAlertRules, setShowAlertRules] = useState(false);
+  const [showCriticality, setShowCriticality] = useState(false);
   const [showSmsTips, setShowSmsTips] = useState(false);
   const [smsTipCount, setSmsTipCount] = useState(0);
   const [tipPickMode, setTipPickMode] = useState(false);
@@ -977,6 +979,7 @@ export function MapView() {
         <OdinLogo size="md" />
         <button className="btn-ghost btn-sm" onClick={() => setShowDash(d => !d)}>📊 Dashboard</button>
         <button className="btn-ghost btn-sm" onClick={() => setShowAnalysis(a => !a)}>📊 Analys</button>
+        <button className="btn-ghost btn-sm" onClick={() => setShowCriticality(c => !c)}>🎯 Kritiska objekt</button>
         {canEdit && <button className="btn-ghost btn-sm" onClick={() => setShowReports(r => !r)}>🕵 Rapporter</button>}
         {canEdit && (
           <button className="btn-ghost btn-sm" onClick={() => setShowSmsTips(s => !s)} style={{ position: 'relative' }}>
@@ -1052,7 +1055,15 @@ export function MapView() {
         />
       )}
 
-      {showAlertRules && <AlertRulesModal onClose={() => setShowAlertRules(false)} />}
+      {showAlertRules && <AlertRulesModal features={features} onClose={() => setShowAlertRules(false)} />}
+
+      {showCriticality && (
+        <CriticalityPanel
+          features={features}
+          onClose={() => setShowCriticality(false)}
+          onSelect={f => setSelected(f)}
+        />
+      )}
 
       {showSmsTips && (
         <SmsTipsPanel

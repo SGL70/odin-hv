@@ -16,6 +16,7 @@ export interface AlertRuleConfig {
   score_threshold?: number;
   layer?: LayerId;
   min_criticality?: 'gul' | 'rod';
+  target_uid?: string;
   distance_m?: number;
   min_count?: number;
   radius_m?: number;

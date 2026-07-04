@@ -1,7 +1,17 @@
 const express = require('express');
 const db = require('../db');
 const { requireAuth, requireRole } = require('../middleware/auth');
-const { evaluateAlerts } = require('../services/alertEngine');
+const { evaluateAlerts, isValidProximityConfig } = require('../services/alertEngine');
+
+function validateRuleBody(name, type, config) {
+  if (!name || !['threshold', 'proximity', 'cluster'].includes(type)) {
+    return 'name och giltig type krävs';
+  }
+  if (type === 'proximity' && !isValidProximityConfig(config || {})) {
+    return 'proximity kräver layer, distance_m och antingen min_criticality eller target_uid';
+  }
+  return null;
+}
 
 const router = express.Router();
 
@@ -16,9 +26,8 @@ router.get('/rules', requireAuth, requireRole('admin'), async (req, res) => {
 
 router.post('/rules', requireAuth, requireRole('admin'), async (req, res) => {
   const { name, type, config, enabled } = req.body;
-  if (!name || !['threshold', 'proximity', 'cluster'].includes(type)) {
-    return res.status(400).json({ error: 'name och giltig type krävs' });
-  }
+  const validationError = validateRuleBody(name, type, config);
+  if (validationError) return res.status(400).json({ error: validationError });
   try {
     const { rows } = await db.query(
       `INSERT INTO alert_rules (name, type, config, enabled, created_by, updated_by)
@@ -33,6 +42,8 @@ router.post('/rules', requireAuth, requireRole('admin'), async (req, res) => {
 
 router.put('/rules/:id', requireAuth, requireRole('admin'), async (req, res) => {
   const { name, type, config, enabled } = req.body;
+  const validationError = validateRuleBody(name, type, config);
+  if (validationError) return res.status(400).json({ error: validationError });
   try {
     const { rows } = await db.query(
       `UPDATE alert_rules SET name=$1, type=$2, config=$3, enabled=$4, updated_by=$5
