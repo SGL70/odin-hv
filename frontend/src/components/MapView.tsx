@@ -47,7 +47,30 @@ const STYLE: maplibregl.StyleSpecification = {
 
 const POLYGON_LAYERS: LayerId[] = ['staging_areas', 'airports'];
 const LINE_LAYERS: LayerId[] = ['roads', 'railways', 'tunnels', 'powerlines'];
-const DRAW_LAYERS: LayerId[] = [...POLYGON_LAYERS, ...LINE_LAYERS];
+// Exporterad för FieldReportView.tsx — fältrapporter skickar alltid en enda GPS-punkt, så
+// lager som kräver linje-/polygonritning kan inte väljas där.
+export const DRAW_LAYERS: LayerId[] = [...POLYGON_LAYERS, ...LINE_LAYERS];
+
+// "Oklassad"-ring — samma tekniska mönster som kritikalitetsringen (crit-${id}) men ett eget,
+// universellt JSONB-attribut (attributes.unclassified) satt av fältrapporteringen (FieldReportView.tsx)
+// tills en stabsmedlem godkänt rapporten i FeaturePanel. Större radie än crit-ringen så båda syns
+// samtidigt om ett fältobjekt även är kritikalitetsmärkt. Strängvärdet 'true' (inte boolean) —
+// matchar hur criticality m.fl. redan lagras, se fieldReportQueue.ts.
+function unclassifiedRingLayer(layerId: LayerId, sourceId: string): maplibregl.CircleLayerSpecification {
+  return {
+    id: `unclass-${layerId}`,
+    type: 'circle', source: sourceId,
+    filter: ['==', ['get', 'unclassified'], 'true'],
+    layout: { visibility: 'visible' },
+    paint: {
+      'circle-radius': 19,
+      'circle-color': 'rgba(0,0,0,0)',
+      'circle-stroke-width': 2,
+      'circle-stroke-color': '#f0a83c',
+      'circle-stroke-opacity': 0.9,
+    },
+  };
+}
 
 function geometryCenter(geometry: GeoJSON.Geometry): [number, number] | null {
   if (geometry.type === 'Point') return geometry.coordinates as [number, number];
@@ -237,6 +260,10 @@ export function MapView() {
 
   useEffect(() => { loadNewsItemCount(); }, [loadNewsItemCount]);
 
+  // Fältrapporter (FieldReportView.tsx) skapas direkt som riktiga features — ingen egen
+  // inkorgs-endpoint behövs, räknas bara ur den redan inladdade features-listan.
+  const unclassifiedCount = useMemo(() => features.filter(f => f.properties.unclassified === 'true').length, [features]);
+
   // Init map
   useEffect(() => {
     if (!containerRef.current) return;
@@ -382,6 +409,7 @@ export function MapView() {
           layout: { 'text-field': ['get', 'event_type'], 'text-size': 10, 'text-offset': [0, 1.6], 'text-anchor': 'top', visibility: 'visible' },
           paint: { 'text-color': '#fff', 'text-halo-color': '#000', 'text-halo-width': 1 },
         });
+        map.addLayer(unclassifiedRingLayer(layer.id, sourceId));
         map.on('mouseenter', `lyr-${layer.id}`, () => { map.getCanvas().style.cursor = 'pointer'; });
         map.on('mouseleave', `lyr-${layer.id}`, () => { map.getCanvas().style.cursor = ''; });
         return;
@@ -401,6 +429,7 @@ export function MapView() {
             visibility: 'visible',
           },
         });
+        map.addLayer(unclassifiedRingLayer(layer.id, sourceId));
         map.on('mouseenter', `lyr-${layer.id}`, () => { map.getCanvas().style.cursor = 'pointer'; });
         map.on('mouseleave', `lyr-${layer.id}`, () => { map.getCanvas().style.cursor = ''; });
         return;
@@ -491,6 +520,7 @@ export function MapView() {
             'circle-stroke-opacity': 0.85,
           },
         });
+        map.addLayer(unclassifiedRingLayer(layer.id, sourceId));
         map.addLayer({
           id: `lbl-${layer.id}`,
           type: 'symbol', source: sourceId,
@@ -1062,6 +1092,12 @@ export function MapView() {
               }}>{newsItemCount}</span>
             )}
           </button>
+        )}
+        {canEdit && unclassifiedCount > 0 && (
+          <span
+            title={`${unclassifiedCount} fältrapport(er) väntar på granskning`}
+            style={{ fontSize: 11, color: '#f0a83c', background: '#f0a83c22', padding: '3px 8px', borderRadius: 999, whiteSpace: 'nowrap' }}
+          >🚩 Oklassade ({unclassifiedCount})</span>
         )}
         {canEdit && (
           <button
