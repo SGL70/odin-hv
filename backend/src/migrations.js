@@ -1,5 +1,29 @@
 const db = require('./db');
 
+// Enda källan till sanning för features_layer_check — måste innehålla ALLA lager som någonsin
+// kan finnas i tabellen. Tidigare hade varje ensure*Layer()-funktion sin egen hårdkodade lista;
+// eftersom de körs i fast ordning vid varje omstart oavsett om DB:n redan har rader i ett senare
+// tillagt lager, orsakade en äldre funktions smalare lista ett DROP+ADD CONSTRAINT som bröts av
+// redan existerande rader — kraschade backend-omstart två gånger (railway_situations 2026-07-04,
+// news_reports 2026-07-05) innan detta fixades till en delad lista. Lägg alltid till nya lager
+// HÄR, aldrig i en enskild funktions egen kopia.
+const FEATURE_LAYERS = [
+  'fuel', 'food', 'water', 'raw_materials', 'vehicles', 'firewood', 'consumables', 'roads', 'bridges',
+  'maintenance', 'hygiene', 'staging_areas', 'transshipment', 'cameras', 'powerlines', 'telecom',
+  'railways', 'ports', 'airports', 'medical', 'emergency', 'tunnels', 'fording_points',
+  'police_events', 'road_situations', 'power_outages', 'sms_alerts', 'intelligence_reports',
+  'railway_situations', 'news_reports',
+];
+
+async function setFeatureLayerCheck(logSuffix) {
+  await db.query(`ALTER TABLE features DROP CONSTRAINT IF EXISTS features_layer_check`);
+  await db.query(`
+    ALTER TABLE features ADD CONSTRAINT features_layer_check
+      CHECK (layer IN (${FEATURE_LAYERS.map(l => `'${l}'`).join(',')}))
+  `);
+  console.log(`features_layer_check uppdaterad (${logSuffix})`);
+}
+
 async function ensureAlertSchema() {
   await db.query(`
     CREATE TABLE IF NOT EXISTS alert_rules (
@@ -52,32 +76,12 @@ async function ensureAlertSchema() {
 // Utökar features_layer_check med 'intelligence_reports' (underrättelserapporter).
 // Inline CHECK-constraint saknar ADD VALUE-genväg (till skillnad från ENUM) — måste drop+recreate.
 async function ensureIntelligenceReportsLayer() {
-  await db.query(`ALTER TABLE features DROP CONSTRAINT IF EXISTS features_layer_check`);
-  await db.query(`
-    ALTER TABLE features ADD CONSTRAINT features_layer_check CHECK (layer IN (
-      'fuel','food','water','raw_materials','vehicles','firewood','consumables','roads','bridges',
-      'maintenance','hygiene','staging_areas','transshipment','cameras','powerlines','telecom',
-      'railways','ports','airports','medical','emergency','tunnels','fording_points',
-      'police_events','road_situations','power_outages','sms_alerts','intelligence_reports',
-      'railway_situations'
-    ))
-  `);
-  console.log('features_layer_check uppdaterad (intelligence_reports)');
+  await setFeatureLayerCheck('intelligence_reports');
 }
 
 // Utökar features_layer_check med 'railway_situations' (tågstörningar via TrainAnnouncement).
 async function ensureRailwaySituationsLayer() {
-  await db.query(`ALTER TABLE features DROP CONSTRAINT IF EXISTS features_layer_check`);
-  await db.query(`
-    ALTER TABLE features ADD CONSTRAINT features_layer_check CHECK (layer IN (
-      'fuel','food','water','raw_materials','vehicles','firewood','consumables','roads','bridges',
-      'maintenance','hygiene','staging_areas','transshipment','cameras','powerlines','telecom',
-      'railways','ports','airports','medical','emergency','tunnels','fording_points',
-      'police_events','road_situations','power_outages','sms_alerts','intelligence_reports',
-      'railway_situations'
-    ))
-  `);
-  console.log('features_layer_check uppdaterad (railway_situations)');
+  await setFeatureLayerCheck('railway_situations');
 }
 
 // ABI sekvensneutralitet: rådata som annars skulle raderas vid skördning/TTL flyttas hit
@@ -154,17 +158,7 @@ async function ensureLastLoginColumn() {
 
 // Utökar features_layer_check med 'news_reports' (mediabevakning, roadmap-punkt 15).
 async function ensureNewsReportsLayer() {
-  await db.query(`ALTER TABLE features DROP CONSTRAINT IF EXISTS features_layer_check`);
-  await db.query(`
-    ALTER TABLE features ADD CONSTRAINT features_layer_check CHECK (layer IN (
-      'fuel','food','water','raw_materials','vehicles','firewood','consumables','roads','bridges',
-      'maintenance','hygiene','staging_areas','transshipment','cameras','powerlines','telecom',
-      'railways','ports','airports','medical','emergency','tunnels','fording_points',
-      'police_events','road_situations','power_outages','sms_alerts','intelligence_reports',
-      'railway_situations','news_reports'
-    ))
-  `);
-  console.log('features_layer_check uppdaterad (news_reports)');
+  await setFeatureLayerCheck('news_reports');
 }
 
 // Mediabevakning (roadmap #15) — nyhetskällor konfigureras i Inställningar och hämtas
