@@ -337,8 +337,15 @@ export function FeaturePanel({
           <div style={{ marginTop: 12 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
               <span style={{ fontSize: 11, color: '#888' }}>📷 Live-bild (var 30 s)</span>
-              <a href={`${fields.photo_url}?t=${imgTs}`} target="_blank" rel="noreferrer"
-                style={{ fontSize: 11, color: '#5b8cff', textDecoration: 'none' }}>↗ Öppna</a>
+              <div style={{ display: 'flex', gap: 10 }}>
+                <button
+                  onClick={() => setImgTs(Date.now())}
+                  title="Begär en ny ögonblicksbild nu"
+                  style={{ background: 'none', border: 'none', color: '#5b8cff', fontSize: 11, cursor: 'pointer', padding: 0 }}
+                >🔄 Uppdatera nu</button>
+                <a href={`${fields.photo_url}?t=${imgTs}`} target="_blank" rel="noreferrer"
+                  style={{ fontSize: 11, color: '#5b8cff', textDecoration: 'none' }}>↗ Öppna</a>
+              </div>
             </div>
             <img
               key={imgTs}
