@@ -1,5 +1,6 @@
 const express = require('express');
 const http = require('http');
+const fs = require('fs');
 const { Server } = require('socket.io');
 const cors = require('cors');
 const helmet = require('helmet');
@@ -30,6 +31,9 @@ app.use('/api/settings', require('./routes/settings'));
 app.use('/api/sms', require('./routes/sms'));
 app.use('/api/alerts', require('./routes/alerts'));
 app.use('/api/news', require('./routes/news'));
+app.use('/api/uploads', require('./routes/uploads'));
+const UPLOAD_DIR = process.env.UPLOAD_DIR || '/app/uploads';
+app.use('/uploads', express.static(UPLOAD_DIR));
 
 const analysisRouter = require('./routes/analysis');
 app.use('/api/analysis', analysisRouter);
@@ -110,6 +114,7 @@ async function start() {
   await ensureLastLoginColumn();
   await ensureNewsReportsLayer();
   await ensureNewsSchema();
+  fs.mkdirSync(UPLOAD_DIR, { recursive: true });
   scheduleDailySnapshot();
   scheduleNewsPolling();
   server.listen(PORT, () => console.log(`Resursläge backend på port ${PORT}`));

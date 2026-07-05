@@ -27,6 +27,8 @@ services:
       TRAFIKVERKET_API_KEY: ${TRAFIKVERKET_API_KEY}
       TRAFIKVERKET_DATEX_KEY: ${TRAFIKVERKET_DATEX_KEY}
       PORT: 3000
+    volumes:
+      - uploads_data:/app/uploads
     depends_on:
       db:
         condition: service_healthy
@@ -45,6 +47,7 @@ services:
 
 volumes:
   pgdata:
+  uploads_data:
 
 # FreeTAK Server (opt-in — avkommentera för TAK-integration)
 # freetakserver:

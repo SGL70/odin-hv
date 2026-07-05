@@ -1,0 +1,12 @@
+{
+  "name": "ODIN hv Fältrapport",
+  "short_name": "ODIN Fält",
+  "start_url": "/report",
+  "scope": "/report",
+  "display": "standalone",
+  "background_color": "#0d0d16",
+  "theme_color": "#1b1c2c",
+  "icons": [
+    { "src": "/korp.png", "sizes": "1200x1600", "type": "image/png", "purpose": "any" }
+  ]
+}

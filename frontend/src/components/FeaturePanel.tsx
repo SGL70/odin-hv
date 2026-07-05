@@ -53,6 +53,7 @@ export function FeaturePanel({
   const [name, setName] = useState('');
   const [fields, setFields] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
+  const [markingClassified, setMarkingClassified] = useState(false);
   const [error, setError] = useState('');
   const [imgTs, setImgTs] = useState(() => Date.now());
   const refreshRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -99,6 +100,22 @@ export function FeaturePanel({
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Fel');
     } finally { setSaving(false); }
+  };
+
+  // Fältrapporter (FieldReportView.tsx) skapas direkt med attributes.unclassified: 'true' —
+  // en egen, omedelbar åtgärd i stället för det vanliga Spara-flödet, samma mönster som
+  // "Sätt känd"/"Blockera" i Avsändarnummer-fliken i Inställningar.
+  const markClassified = async () => {
+    if (!feature || !canEdit) return;
+    setMarkingClassified(true);
+    try {
+      const saved = await api.updateFeature(feature.properties.uid, {
+        name, geometry: feature.geometry, cot_type: feature.properties.cot_type, ...fields, unclassified: 'false',
+      });
+      onSaved(saved as Feature);
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Kunde inte markera som klassad');
+    } finally { setMarkingClassified(false); }
   };
 
   const del = async () => {
@@ -230,6 +247,21 @@ export function FeaturePanel({
           )}
         </div>
 
+        {/* Oklassad — satt av fältrapportering (FieldReportView.tsx), universellt fält */}
+        {fields.unclassified === 'true' && (
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: 10, padding: '8px 10px', marginBottom: 12,
+            background: '#f0a83c22', border: '1px solid #f0a83c55', borderRadius: 6,
+          }}>
+            <span style={{ fontSize: 12, color: '#f0a83c', flex: 1 }}>🚩 Oklassad rapport — väntar på granskning</span>
+            {canEdit && (
+              <button className="btn-ghost btn-sm" onClick={markClassified} disabled={markingClassified}>
+                {markingClassified ? 'Markerar…' : '✓ Markera som klassad'}
+              </button>
+            )}
+          </div>
+        )}
+
         {/* Kritikalitet — universellt fält på alla features */}
         <div className="field-row">
           <label>Kritikalitet</label>
@@ -295,7 +327,7 @@ export function FeaturePanel({
         {/* Extra attributes not in layer config */}
         {(() => {
           const HIDDEN = new Set([
-            'uid', 'layer', 'cot_type', 'name', 'criticality', 'display_name', 'created_by', 'updated_by', 'created_at', 'updated_at',
+            'uid', 'layer', 'cot_type', 'name', 'criticality', 'display_name', 'unclassified', 'created_by', 'updated_by', 'created_at', 'updated_at',
             'photo_url', 'station_url', 'scraped_at', 'trv_source_id', 'osm_id', '_source_id', 'police_id', 'external_id',
             ...(layerCfg?.fields.map(f => f.key) || []),
           ]);
