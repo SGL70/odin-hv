@@ -13,6 +13,12 @@ import { DRAW_LAYERS } from './MapView';
 // täcker redan behovet av att logga en egen fältobservation.
 const REPORTABLE_LAYERS = LAYERS.filter(l => !DRAW_LAYERS.includes(l.id) && l.id !== 'police_events');
 
+// STANAG 2511-bedömningen (källans tillförlitlighet/uppgiftens trovärdighet) görs av den som
+// GRANSKAR rapporten, inte av den som samlade in den på fältet — en fältobservatör ska inte
+// betygsätta sin egen källas tillförlitlighet. Dessa två fält finns kvar i FeaturePanel.tsx för
+// den som markerar rapporten som klassad, men visas inte i fältformuläret.
+const STAFF_ONLY_FIELDS = new Set(['source_value', 'info_value']);
+
 // Avskalad fältvy (roadmap "Mobil fältrapportering") — egen, medvetet enklare formulärrenderare
 // än FeaturePanel.tsx:s täta skrivbordslayout. Rapporter skapas direkt (attributes.unclassified:
 // true) i stället för att gå via en granskningsinkorg som Tips via SMS/Mediabevakning, eftersom
@@ -173,7 +179,7 @@ export function FieldReportView() {
           <input value={name} onChange={e => setName(e.target.value)} style={inputStyle} placeholder="Kort beskrivning..." autoFocus />
         </div>
 
-        {layerCfg.fields.map(f => (
+        {layerCfg.fields.filter(f => !STAFF_ONLY_FIELDS.has(f.key)).map(f => (
           <div key={f.key}>
             <label style={labelStyle}>{f.label}</label>
             {f.type === 'select' ? (
