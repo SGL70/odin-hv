@@ -1,10 +1,11 @@
 import { lazy, Suspense } from 'react';
 import { useAuth } from './contexts/AuthContext';
 import { Login } from './components/Login';
+import { isMobileClientPath } from './lib/isMobileClient';
 
 // Ingen routingbibliotek i appen — den mobila PWA:n (kartläsning + fältrapportering, se
-// MobileApp.tsx) avgörs enklast med en path-koll i stället för att införa react-router.
-const isMobilePath = window.location.pathname.startsWith('/report');
+// MobileApp.tsx) avgörs med en path-/user-agent-koll, se lib/isMobileClient.ts.
+const isMobilePath = isMobileClientPath();
 
 // lazy() ger separata bundlar per väg — annars skulle mobil-PWA:n dra in skrivbordets
 // MapView-kod (klustring, rit-lägen, alla skrivbordspaneler) i onödan.
