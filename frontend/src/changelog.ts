@@ -19,4 +19,9 @@ export const CHANGELOG: ChangelogEntry[] = [
     title: 'Tågstörningar',
     description: 'Nytt lager för tågförseningar och inställda tåg via Trafikverkets öppna data.',
   },
+  {
+    date: '2026-07-05',
+    title: 'Mediabevakning',
+    description: 'Ny "📰 Nyheter"-inkorg som automatiskt skördar SVT, SR, TV4 och Norrbottens-Kuriren via RSS. Tagga en rubrik med kommun/plats för att göra den till ett kartobjekt, eller ta bort den till Läst-listan (Slasken) längst ned — inget försvinner permanent. Egna källor kan läggas till i Inställningar → Nyhetskällor.',
+  },
 ];
