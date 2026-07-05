@@ -4,7 +4,7 @@ import { OdinLogo } from './OdinLogo';
 import { LAYERS, getLayer } from '../types';
 import type { LayerId } from '../types';
 import { trySubmitOrQueue, flushQueue, getQueueCount } from '../lib/fieldReportQueue';
-import { DRAW_LAYERS } from './MapView';
+import { DRAW_LAYERS } from '../lib/mapConfig';
 
 // En fältrapport är alltid en enda GPS-punkt — lager som kräver linje-/polygonritning
 // (vägar, järnvägar, uppställningsplatser m.fl.) går inte att välja här. police_events
@@ -56,7 +56,11 @@ const inputStyle: React.CSSProperties = {
 };
 const labelStyle: React.CSSProperties = { fontSize: 13, color: '#9ea3c0', fontWeight: 600 };
 
-export function FieldReportView() {
+interface Props {
+  onBack?: () => void;
+}
+
+export function FieldReportView({ onBack }: Props = {}) {
   const { user, logout } = useAuth();
   const [layer, setLayer] = useState<LayerId>('intelligence_reports');
   const [name, setName] = useState('');
@@ -143,6 +147,7 @@ export function FieldReportView() {
         position: 'sticky', top: 0, zIndex: 5, background: '#1b1c2ce6', backdropFilter: 'blur(8px)',
         borderBottom: '1px solid #2e2f45', padding: '14px 16px', display: 'flex', alignItems: 'center', gap: 10,
       }}>
+        {onBack && <button className="btn-ghost btn-sm" onClick={onBack}>← Karta</button>}
         <OdinLogo size="sm" />
         <span style={{ fontSize: 13, color: '#9ea3c0', flex: 1 }}>Fältrapport · {user?.username}</span>
         {queueCount > 0 && (
