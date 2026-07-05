@@ -132,7 +132,7 @@ export function FieldReportView() {
   }
 
   return (
-    <div style={{ minHeight: '100vh', background: '#0d0d16', color: '#eee', paddingBottom: 40 }}>
+    <div style={{ height: '100vh', overflowY: 'auto', WebkitOverflowScrolling: 'touch', background: '#0d0d16', color: '#eee', paddingBottom: 40 }}>
       <div style={{
         position: 'sticky', top: 0, zIndex: 5, background: '#1b1c2ce6', backdropFilter: 'blur(8px)',
         borderBottom: '1px solid #2e2f45', padding: '14px 16px', display: 'flex', alignItems: 'center', gap: 10,
