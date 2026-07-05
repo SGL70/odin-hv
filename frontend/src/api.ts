@@ -99,6 +99,7 @@ export const api = {
       tag: (id: number, data: { municipality?: string; area?: string; lat?: number; lng?: number }) =>
         req<{ ok: boolean; feature_uid: string }>('POST', `/news/items/${id}/tag`, data),
       discard: (id: number) => req<{ ok: boolean }>('POST', `/news/items/${id}/discard`),
+      restore: (id: number) => req<{ ok: boolean }>('POST', `/news/items/${id}/restore`),
     },
   },
 

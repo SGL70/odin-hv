@@ -7,6 +7,21 @@ import type { NewsItem } from '../types';
 // och services/newsFeeds.js). Ligger helt utanför kartan tills någon läst rubriken och geotaggat den
 // manuellt (Län/Kommun/Område + valfri finjustering genom att klicka på kartan) — annars skulle
 // oplacerade nyheter synas på en Norrbotten-mittpunkt som om det vore en bekräftad händelse.
+//
+// "Ta bort" raderar aldrig — precis som slasken i en förundersökning flyttas posten bara till
+// Läst-listan längst ned, återställningsbar om den visar sig relevant igen (se /items/:id/restore).
+
+const PILL_CLASSES = ['badge-blue', 'badge-green', 'badge-orange', 'badge-red'];
+function sourcePillClass(name: string) {
+  let hash = 0;
+  for (let i = 0; i < name.length; i++) hash = (hash * 31 + name.charCodeAt(i)) >>> 0;
+  return PILL_CLASSES[hash % PILL_CLASSES.length];
+}
+
+function fmtTime(iso: string) {
+  return new Date(iso).toLocaleString('sv-SE', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+}
+
 interface Props {
   onClose: () => void;
   onTagged: () => void;
@@ -26,6 +41,9 @@ export function NewsPanel({ onClose, onTagged, newsPickMode, onArmNewsPick, news
   const [pickedCoords, setPickedCoords] = useState<{ lat: number; lng: number } | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const [discardedOpen, setDiscardedOpen] = useState(false);
+  const [discarded, setDiscarded] = useState<NewsItem[]>([]);
+  const [discardedLoading, setDiscardedLoading] = useState(false);
 
   function load() {
     setLoading(true);
@@ -72,10 +90,27 @@ export function NewsPanel({ onClose, onTagged, newsPickMode, onArmNewsPick, news
   }
 
   async function discard(id: number) {
-    if (!confirm('Kasta nyheten utan att placera den på kartan?')) return;
     await api.news.items.discard(id);
     setItems(prev => prev.filter(i => i.id !== id));
     if (selected?.id === id) setSelected(null);
+    onTagged();
+  }
+
+  function loadDiscarded() {
+    setDiscardedLoading(true);
+    api.news.items.list('discarded').then(setDiscarded).finally(() => setDiscardedLoading(false));
+  }
+
+  function toggleDiscarded() {
+    const next = !discardedOpen;
+    setDiscardedOpen(next);
+    if (next) loadDiscarded();
+  }
+
+  async function restore(id: number) {
+    await api.news.items.restore(id);
+    setDiscarded(prev => prev.filter(i => i.id !== id));
+    load();
     onTagged();
   }
 
@@ -110,19 +145,29 @@ export function NewsPanel({ onClose, onTagged, newsPickMode, onArmNewsPick, news
               {item.summary && (
                 <div style={{ fontSize: 11, color: '#888', marginBottom: 3, wordBreak: 'break-word' }}>{item.summary}</div>
               )}
-              <div style={{ fontSize: 10, color: '#666', display: 'flex', justifyContent: 'space-between', gap: 8 }}>
-                <span>{item.source_name}</span>
-                <span>{new Date(item.published_at || item.fetched_at).toLocaleString('sv-SE', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
-              </div>
               {item.link && (
                 <a
                   href={item.link}
                   target="_blank"
                   rel="noreferrer"
                   onClick={e => e.stopPropagation()}
-                  style={{ fontSize: 10, color: '#5b8cff', display: 'inline-block', marginTop: 3 }}
+                  style={{ fontSize: 10, color: '#5b8cff', display: 'inline-block', marginBottom: 4 }}
                 >Öppna artikel ↗</a>
               )}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <span className={`badge ${sourcePillClass(item.source_name)}`} style={{ fontSize: 9 }}>{item.source_name}</span>
+                <span style={{ fontSize: 10, color: '#666', flex: 1 }}>{fmtTime(item.published_at || item.fetched_at)}</span>
+                <button
+                  className="btn-ghost btn-sm"
+                  title="Tagga"
+                  onClick={e => { e.stopPropagation(); selectItem(item); }}
+                >✓ Tagga</button>
+                <button
+                  className="btn-ghost btn-sm"
+                  title="Ta bort (hamnar i Läst)"
+                  onClick={e => { e.stopPropagation(); discard(item.id); }}
+                >🗑 Ta bort</button>
+              </div>
             </div>
 
             {selected?.id === item.id && (
@@ -156,16 +201,41 @@ export function NewsPanel({ onClose, onTagged, newsPickMode, onArmNewsPick, news
 
                 {error && <div style={{ fontSize: 11, color: '#f2545b', marginBottom: 8 }}>{error}</div>}
 
-                <div style={{ display: 'flex', gap: 8 }}>
-                  <button className="btn-primary btn-sm" onClick={tag} disabled={saving} style={{ flex: 1 }}>
-                    {saving ? 'Taggar…' : 'Tagga'}
-                  </button>
-                  <button className="btn-danger btn-sm" onClick={() => discard(item.id)}>Kasta</button>
-                </div>
+                <button className="btn-primary btn-sm" onClick={tag} disabled={saving} style={{ width: '100%' }}>
+                  {saving ? 'Taggar…' : '✓ Bekräfta plats och tagga'}
+                </button>
               </div>
             )}
           </div>
         ))}
+
+        <div style={{ borderTop: '1px solid #333', marginTop: 8, paddingTop: 8 }}>
+          <div
+            onClick={toggleDiscarded}
+            style={{ cursor: 'pointer', fontSize: 11, color: '#888', display: 'flex', justifyContent: 'space-between', padding: '2px 2px 6px' }}
+          >
+            <span>🗑 Läst (Slasken)</span>
+            <span>{discardedOpen ? '▲' : '▼'}</span>
+          </div>
+          {discardedOpen && (
+            <div>
+              {discardedLoading && <div style={{ fontSize: 11, color: '#666', padding: 8 }}>Laddar…</div>}
+              {!discardedLoading && discarded.length === 0 && (
+                <div style={{ fontSize: 11, color: '#666', padding: 8 }}>Inget i Slasken.</div>
+              )}
+              {discarded.map(item => (
+                <div key={item.id} style={{ padding: '8px 10px', background: '#16162a', border: '1px solid #2a2a40', borderRadius: 5, marginBottom: 6, opacity: 0.75 }}>
+                  <div style={{ fontSize: 11, color: '#aaa', marginBottom: 4, wordBreak: 'break-word' }}>{item.title}</div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <span className={`badge ${sourcePillClass(item.source_name)}`} style={{ fontSize: 9 }}>{item.source_name}</span>
+                    <span style={{ fontSize: 10, color: '#555', flex: 1 }}>{fmtTime(item.published_at || item.fetched_at)}</span>
+                    <button className="btn-ghost btn-sm" title="Återställ till inkorgen" onClick={() => restore(item.id)}>↩ Återställ</button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
