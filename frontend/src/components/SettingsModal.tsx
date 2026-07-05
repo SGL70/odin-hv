@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { SWEDEN, type County } from '../lib/sweden';
+import { api } from '../api';
+import type { NewsSource } from '../types';
 
 interface Props {
   onClose: () => void;
@@ -32,7 +34,14 @@ export function SettingsModal({ onClose }: Props) {
   const [saved, setSaved] = useState(false);
   const [snapshotting, setSnapshotting] = useState(false);
   const [expanded, setExpanded] = useState<Set<string>>(new Set(['Norrbottens län']));
-  const [activeTab, setActiveTab] = useState<'opomr' | 'weighting' | 'retention' | 'users' | 'senders'>('opomr');
+  const [activeTab, setActiveTab] = useState<'opomr' | 'weighting' | 'retention' | 'users' | 'senders' | 'news'>('opomr');
+  const [newsSources, setNewsSources] = useState<NewsSource[]>([]);
+  const [newsSourcesLoading, setNewsSourcesLoading] = useState(false);
+  const [newSourceName, setNewSourceName] = useState('');
+  const [newSourceUrl, setNewSourceUrl] = useState('');
+  const [addingSource, setAddingSource] = useState(false);
+  const [sourceError, setSourceError] = useState('');
+  const [discoveringId, setDiscoveringId] = useState<number | null>(null);
   const [senders, setSenders] = useState<{ phone: string; status: string; label: string | null; message_count: number; last_seen_at: string }[]>([]);
   const [sendersLoading, setSendersLoading] = useState(false);
   const [editingSender, setEditingSender] = useState<string | null>(null);
@@ -200,6 +209,46 @@ export function SettingsModal({ onClose }: Props) {
 
   const senderMunicipalities = SWEDEN.find(c => c.name === senderCounty)?.municipalities ?? [];
 
+  async function loadNewsSources() {
+    setNewsSourcesLoading(true);
+    try { setNewsSources(await api.news.sources.list()); } finally { setNewsSourcesLoading(false); }
+  }
+
+  useEffect(() => {
+    if (activeTab === 'news') loadNewsSources();
+  }, [activeTab]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function addNewsSource() {
+    if (!newSourceName.trim() || !newSourceUrl.trim()) return;
+    setAddingSource(true);
+    setSourceError('');
+    try {
+      await api.news.sources.add({ name: newSourceName.trim(), url: newSourceUrl.trim() });
+      setNewSourceName(''); setNewSourceUrl('');
+      loadNewsSources();
+    } catch (e: unknown) {
+      setSourceError(e instanceof Error ? e.message : 'Kunde inte lägga till källan');
+    } finally {
+      setAddingSource(false);
+    }
+  }
+
+  async function rediscoverSource(id: number) {
+    setDiscoveringId(id);
+    try { await api.news.sources.discover(id); loadNewsSources(); } finally { setDiscoveringId(null); }
+  }
+
+  async function toggleSourceEnabled(source: NewsSource) {
+    await api.news.sources.update(source.id, { enabled: !source.enabled });
+    loadNewsSources();
+  }
+
+  async function removeSource(id: number) {
+    if (!confirm('Ta bort nyhetskällan?')) return;
+    await api.news.sources.remove(id);
+    loadNewsSources();
+  }
+
   return (
     <div style={{ position: 'fixed', inset: 0, background: '#000a', zIndex: 200, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', paddingTop: '8vh' }} onClick={onClose}>
       {/* Ankrad mot toppen (inte vertikalt centrerad) — annars flyttar sig hela modalen,
@@ -217,6 +266,7 @@ export function SettingsModal({ onClose }: Props) {
             { id: 'retention', label: 'Retention' },
             { id: 'users', label: 'Användare' },
             { id: 'senders', label: 'Avsändarnummer' },
+            { id: 'news', label: 'Nyhetskällor' },
           ] as const).map(t => (
             <button key={t.id} onClick={() => setActiveTab(t.id)} style={{
               flex: 1, padding: '7px 0', fontSize: 11, fontWeight: 700,
@@ -515,7 +565,80 @@ export function SettingsModal({ onClose }: Props) {
         </div>
         </>}
 
-        {activeTab !== 'users' && activeTab !== 'senders' && (
+        {activeTab === 'news' && <>
+        {/* Nyhetskällor */}
+        <div style={{ marginBottom: 16 }}>
+          <div style={{ fontSize: 11, color: '#888', marginBottom: 10, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+            📰 Nyhetskällor
+          </div>
+          <div style={{ fontSize: 11, color: '#555', marginBottom: 12 }}>
+            Skördas automatiskt via RSS var 10:e minut. Nya rubriker hamnar i granskningsinkorgen "📰 Nyheter" tills någon geotaggar dem.
+          </div>
+          {newsSourcesLoading ? (
+            <div style={{ fontSize: 12, color: '#666', marginBottom: 12 }}>Laddar…</div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 16 }}>
+              {newsSources.map(s => (
+                <div key={s.id} style={{ padding: '6px 10px', background: '#16162a', border: '1px solid #2a2a40', borderRadius: 5 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 12, color: '#ddd' }}>{s.name}</div>
+                      <div style={{ fontSize: 10, color: '#666', wordBreak: 'break-all' }}>{s.site_url}</div>
+                    </div>
+                    <span className={`badge badge-${s.feed_url ? 'green' : 'red'}`}>
+                      {s.feed_url ? 'Feed hittad' : 'Ingen feed'}
+                    </span>
+                    <button className="btn-ghost btn-sm" onClick={() => toggleSourceEnabled(s)}>
+                      {s.enabled ? 'Aktiv' : 'Avstängd'}
+                    </button>
+                    <button className="btn-danger btn-sm" onClick={() => removeSource(s.id)}>✕</button>
+                  </div>
+                  {s.last_error && (
+                    <div style={{ fontSize: 10, color: '#f2545b', marginTop: 4 }}>
+                      {s.last_error}
+                      <button
+                        className="btn-ghost btn-sm"
+                        onClick={() => rediscoverSource(s.id)}
+                        disabled={discoveringId === s.id}
+                        style={{ marginLeft: 8 }}
+                      >{discoveringId === s.id ? 'Söker…' : 'Testa igen'}</button>
+                    </div>
+                  )}
+                  {s.last_fetched_at && !s.last_error && (
+                    <div style={{ fontSize: 10, color: '#555', marginTop: 4 }}>
+                      Senast hämtad {new Date(s.last_fetched_at).toLocaleString('sv-SE', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                    </div>
+                  )}
+                </div>
+              ))}
+              {newsSources.length === 0 && <div style={{ fontSize: 12, color: '#666' }}>Inga källor konfigurerade.</div>}
+            </div>
+          )}
+
+          <div style={{ borderTop: '1px solid #2a2a40', paddingTop: 12 }}>
+            <div style={{ fontSize: 11, color: '#888', marginBottom: 8, textTransform: 'uppercase', letterSpacing: 0.5 }}>Lägg till källa</div>
+            <div className="field-row">
+              <label>Namn</label>
+              <input value={newSourceName} onChange={e => setNewSourceName(e.target.value)} placeholder="T.ex. Piteå-Tidningen" />
+            </div>
+            <div className="field-row">
+              <label>URL</label>
+              <input value={newSourceUrl} onChange={e => setNewSourceUrl(e.target.value)} placeholder="https://www.exempel.se" />
+            </div>
+            <div style={{ fontSize: 11, color: '#555', marginBottom: 8 }}>
+              Systemet försöker automatiskt hitta en RSS/Atom-feed för adressen. Hittas ingen sparas källan ändå, med ett felmeddelande — kräver riktad skrapning som inte stöds ännu.
+            </div>
+            {sourceError && <div style={{ fontSize: 11, color: '#c55', marginBottom: 8 }}>{sourceError}</div>}
+            <button
+              onClick={addNewsSource}
+              disabled={addingSource || !newSourceName.trim() || !newSourceUrl.trim()}
+              style={{ width: '100%', padding: '7px 0', borderRadius: 4, fontSize: 12, background: '#5b8cff', color: '#fff', border: 'none', cursor: 'pointer' }}
+            >{addingSource ? 'Söker feed…' : 'Lägg till källa'}</button>
+          </div>
+        </div>
+        </>}
+
+        {activeTab !== 'users' && activeTab !== 'senders' && activeTab !== 'news' && (
           <div style={{ display: 'flex', gap: 8, alignItems: 'center', borderTop: '1px solid #2a2a40', paddingTop: 16 }}>
             <button
               onClick={save}

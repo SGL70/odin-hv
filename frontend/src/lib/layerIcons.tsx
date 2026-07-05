@@ -19,6 +19,7 @@ const EVENT_ICON_COLOR: Partial<Record<LayerId, string>> = {
   power_outages: '#f0a83c',
   sms_alerts: '#4fa8e8',
   intelligence_reports: '#34c274',
+  news_reports: '#16a085',
 };
 
 const DEFAULT_COLOR = '#9ea3c0';
@@ -161,6 +162,12 @@ const ICONS: Record<LayerId, IconRender> = {
     <>
       <path d="M3 13V6l5-4 5 4v7" stroke={c} strokeWidth={1.3} fill="none" />
       <path d="M6 13v-4h4v4" stroke={c} strokeWidth={1.3} fill="none" />
+    </>
+  ),
+  news_reports: c => (
+    <>
+      <rect x={2} y={2.5} width={12} height={11} rx={1} stroke={c} strokeWidth={1.3} fill="none" />
+      <path d="M4.5 5.5h4M4.5 8h7M4.5 10.5h7" stroke={c} strokeWidth={1.1} />
     </>
   ),
 };

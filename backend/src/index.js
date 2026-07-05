@@ -5,7 +5,8 @@ const cors = require('cors');
 const helmet = require('helmet');
 const bcrypt = require('bcryptjs');
 const db = require('./db');
-const { ensureAlertSchema, ensureIntelligenceReportsLayer, ensureRailwaySituationsLayer, ensureFeatureHistorySchema, ensureUserPreferencesColumn, ensureSmsTablesSchema, ensureLastLoginColumn } = require('./migrations');
+const { ensureAlertSchema, ensureIntelligenceReportsLayer, ensureRailwaySituationsLayer, ensureFeatureHistorySchema, ensureUserPreferencesColumn, ensureSmsTablesSchema, ensureLastLoginColumn, ensureNewsReportsLayer, ensureNewsSchema } = require('./migrations');
+const { pollAllSources } = require('./services/newsFeeds');
 
 const app = express();
 const server = http.createServer(app);
@@ -28,6 +29,7 @@ app.use('/api/harvest', require('./routes/harvest'));
 app.use('/api/settings', require('./routes/settings'));
 app.use('/api/sms', require('./routes/sms'));
 app.use('/api/alerts', require('./routes/alerts'));
+app.use('/api/news', require('./routes/news'));
 
 const analysisRouter = require('./routes/analysis');
 app.use('/api/analysis', analysisRouter);
@@ -76,6 +78,13 @@ function scheduleDailySnapshot() {
   }, msUntilNext);
 }
 
+// Mediabevakning — pollar RSS-källor med jämna mellanrum (se services/newsFeeds.js).
+// Första körningen dröjer 15s för att låta servern/db-anslutningen bli klar.
+function scheduleNewsPolling() {
+  setTimeout(() => pollAllSources(io), 15000);
+  setInterval(() => pollAllSources(io), 10 * 60 * 1000);
+}
+
 const PORT = process.env.PORT || 3000;
 
 async function start() {
@@ -99,7 +108,10 @@ async function start() {
   await ensureUserPreferencesColumn();
   await ensureSmsTablesSchema();
   await ensureLastLoginColumn();
+  await ensureNewsReportsLayer();
+  await ensureNewsSchema();
   scheduleDailySnapshot();
+  scheduleNewsPolling();
   server.listen(PORT, () => console.log(`Resursläge backend på port ${PORT}`));
 }
 

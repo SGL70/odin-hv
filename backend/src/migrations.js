@@ -152,7 +152,76 @@ async function ensureLastLoginColumn() {
   console.log('users.last_login_at-kolumn klar');
 }
 
+// Utökar features_layer_check med 'news_reports' (mediabevakning, roadmap-punkt 15).
+async function ensureNewsReportsLayer() {
+  await db.query(`ALTER TABLE features DROP CONSTRAINT IF EXISTS features_layer_check`);
+  await db.query(`
+    ALTER TABLE features ADD CONSTRAINT features_layer_check CHECK (layer IN (
+      'fuel','food','water','raw_materials','vehicles','firewood','consumables','roads','bridges',
+      'maintenance','hygiene','staging_areas','transshipment','cameras','powerlines','telecom',
+      'railways','ports','airports','medical','emergency','tunnels','fording_points',
+      'police_events','road_situations','power_outages','sms_alerts','intelligence_reports',
+      'railway_situations','news_reports'
+    ))
+  `);
+  console.log('features_layer_check uppdaterad (news_reports)');
+}
+
+// Mediabevakning (roadmap #15) — nyhetskällor konfigureras i Inställningar och hämtas
+// automatiskt via RSS. Liksom Tips via SMS hamnar poster i en granskningsinkorg (news_items,
+// status 'pending') tills någon geotaggar dem manuellt — annars skulle nyheter utan platsangivelse
+// felaktigt hamna på en kommun-mittpunkt. news_sources.feed_url är null tills discoverFeedUrl()
+// (se services/newsFeeds.js) hittat en fungerande RSS/Atom-feed; last_error förklarar varför inte.
+async function ensureNewsSchema() {
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS news_sources (
+      id SERIAL PRIMARY KEY,
+      name VARCHAR(200) NOT NULL UNIQUE,
+      site_url TEXT NOT NULL,
+      feed_url TEXT,
+      enabled BOOLEAN NOT NULL DEFAULT true,
+      last_fetched_at TIMESTAMPTZ,
+      last_error TEXT,
+      created_by INTEGER REFERENCES users(id),
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS news_items (
+      id SERIAL PRIMARY KEY,
+      source_id INTEGER NOT NULL REFERENCES news_sources(id) ON DELETE CASCADE,
+      guid TEXT NOT NULL,
+      title TEXT NOT NULL,
+      link TEXT,
+      summary TEXT,
+      published_at TIMESTAMPTZ,
+      fetched_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      status VARCHAR(20) NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','tagged','discarded')),
+      tagged_feature_uid UUID REFERENCES features(uid) ON DELETE SET NULL,
+      UNIQUE (source_id, guid)
+    )
+  `);
+  await db.query(`CREATE INDEX IF NOT EXISTS news_items_status_idx ON news_items(status)`);
+
+  // Startkällor beslutade 2026-07-05: SVT/SR/TV4 fritt tillgängliga, Kuriren vald framför
+  // NSD (samma NTM-koncern, i praktiken dubblettinnehåll — se roadmap-punkt 15).
+  const defaults = [
+    ['SVT Nyheter Norrbotten', 'https://www.svt.se/nyheter/lokalt/norrbotten/', 'https://www.svt.se/nyheter/lokalt/norrbotten/rss.xml'],
+    ['SR P4 Norrbotten', 'https://sverigesradio.se/norrbotten', 'https://api.sr.se/api/rss/channel/209'],
+    ['TV4 Nyheterna', 'https://www.tv4.se/nyheter', 'https://www.tv4.se/rss'],
+    ['Norrbottens-Kuriren', 'https://www.kuriren.nu/', 'https://www.kuriren.nu/rss'],
+  ];
+  for (const [name, siteUrl, feedUrl] of defaults) {
+    await db.query(
+      `INSERT INTO news_sources (name, site_url, feed_url) VALUES ($1,$2,$3) ON CONFLICT (name) DO NOTHING`,
+      [name, siteUrl, feedUrl]
+    );
+  }
+  console.log('news_sources/news_items-schema klart');
+}
+
 module.exports = {
   ensureAlertSchema, ensureIntelligenceReportsLayer, ensureRailwaySituationsLayer, ensureFeatureHistorySchema,
   ensureUserPreferencesColumn, ensureSmsTablesSchema, ensureLastLoginColumn,
+  ensureNewsReportsLayer, ensureNewsSchema,
 };

@@ -16,6 +16,7 @@ import { OdinLogo } from './OdinLogo';
 import { ReportListPanel } from './ReportListPanel';
 import { CriticalityPanel } from './CriticalityPanel';
 import { SmsTipsPanel } from './SmsTipsPanel';
+import { NewsPanel } from './NewsPanel';
 import { registerReportIcons, buildReportIconExpression } from '../lib/reportSymbols';
 import { useAuth } from '../contexts/AuthContext';
 import { STATUS } from '../styles/tokens';
@@ -108,6 +109,10 @@ export function MapView() {
   const [smsTipCount, setSmsTipCount] = useState(0);
   const [tipPickMode, setTipPickMode] = useState(false);
   const [tipPickResult, setTipPickResult] = useState<{ lat: number; lng: number } | null>(null);
+  const [showNewsPanel, setShowNewsPanel] = useState(false);
+  const [newsItemCount, setNewsItemCount] = useState(0);
+  const [newsPickMode, setNewsPickMode] = useState(false);
+  const [newsPickResult, setNewsPickResult] = useState<{ lat: number; lng: number } | null>(null);
   const [openAlerts, setOpenAlerts] = useState<AlertEvent[]>([]);
   const [bannerAlerts, setBannerAlerts] = useState<AlertEvent[]>([]);
   const [opomrFilter, setOpomrFilter] = useState(() => localStorage.getItem('opomrFilter') === 'true');
@@ -212,6 +217,7 @@ export function MapView() {
       setBannerAlerts(prev => prev.filter(e => e.id !== event.id));
     });
     socket.on('sms_tip:new', () => loadSmsTipCount());
+    socket.on('news_item:new', () => loadNewsItemCount());
     return () => { socket.disconnect(); };
   }, [loadFeatures]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -222,6 +228,14 @@ export function MapView() {
   }, [canEdit]);
 
   useEffect(() => { loadSmsTipCount(); }, [loadSmsTipCount]);
+
+  // Mediabevakning — badge-räknare för väntande nyhetsrubriker (se NewsPanel.tsx)
+  const loadNewsItemCount = useCallback(() => {
+    if (!canEdit) return;
+    api.news.items.list('pending').then(items => setNewsItemCount(items.length)).catch(() => {});
+  }, [canEdit]);
+
+  useEffect(() => { loadNewsItemCount(); }, [loadNewsItemCount]);
 
   // Init map
   useEffect(() => {
@@ -883,6 +897,30 @@ export function MapView() {
     return () => { marker.remove(); };
   }, [tipPickResult]);
 
+  // "Finjustera på karta" för Nyheter — samma mönster som Tips via SMS ovan, se NewsPanel.tsx.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    if (newsPickMode) map.getCanvas().style.cursor = 'crosshair';
+    const onClick = (e: maplibregl.MapMouseEvent) => {
+      if (!newsPickMode) return;
+      setNewsPickResult({ lat: e.lngLat.lat, lng: e.lngLat.lng });
+      setNewsPickMode(false);
+    };
+    map.on('click', onClick);
+    return () => {
+      map.off('click', onClick);
+      if (!addMode) map.getCanvas().style.cursor = '';
+    };
+  }, [newsPickMode, addMode]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !newsPickResult) return;
+    const marker = new maplibregl.Marker({ color: '#16a085' }).setLngLat([newsPickResult.lng, newsPickResult.lat]).addTo(map);
+    return () => { marker.remove(); };
+  }, [newsPickResult]);
+
   const cancelAdd = () => {
     setAddMode(false);
     setSelected(null);
@@ -1015,6 +1053,17 @@ export function MapView() {
           </button>
         )}
         {canEdit && (
+          <button className="btn-ghost btn-sm" onClick={() => setShowNewsPanel(s => !s)} style={{ position: 'relative' }}>
+            📰 Nyheter
+            {newsItemCount > 0 && (
+              <span style={{
+                position: 'absolute', top: -5, right: -5, background: '#f2545b', color: '#fff',
+                borderRadius: 999, fontSize: 9, fontWeight: 700, padding: '1px 5px', minWidth: 14, textAlign: 'center',
+              }}>{newsItemCount}</span>
+            )}
+          </button>
+        )}
+        {canEdit && (
           <button
             className={addMode ? 'btn-danger btn-sm' : 'btn-primary btn-sm'}
             onClick={() => {
@@ -1095,6 +1144,17 @@ export function MapView() {
           onArmTipPick={() => setTipPickMode(true)}
           tipPickResult={tipPickResult}
           onConsumeTipPick={() => setTipPickResult(null)}
+        />
+      )}
+
+      {showNewsPanel && (
+        <NewsPanel
+          onClose={() => { setShowNewsPanel(false); setNewsPickMode(false); }}
+          onTagged={loadNewsItemCount}
+          newsPickMode={newsPickMode}
+          onArmNewsPick={() => setNewsPickMode(true)}
+          newsPickResult={newsPickResult}
+          onConsumeNewsPick={() => setNewsPickResult(null)}
         />
       )}
 

@@ -55,6 +55,30 @@ export interface SmsSender {
   last_seen_at: string;
 }
 
+export interface NewsSource {
+  id: number;
+  name: string;
+  site_url: string;
+  feed_url: string | null;
+  enabled: boolean;
+  last_fetched_at: string | null;
+  last_error: string | null;
+  created_at: string;
+}
+
+export interface NewsItem {
+  id: number;
+  source_id: number;
+  source_name: string;
+  guid: string;
+  title: string;
+  link: string | null;
+  summary: string | null;
+  published_at: string | null;
+  fetched_at: string;
+  status: 'pending' | 'tagged' | 'discarded';
+}
+
 export interface AlertEvent {
   id: number;
   rule_id: number | null;
@@ -76,7 +100,7 @@ export interface CatchupData {
   changelogEntries: ChangelogEntry[];
 }
 
-export type LayerId = 'fuel' | 'food' | 'water' | 'raw_materials' | 'vehicles' | 'firewood' | 'consumables' | 'roads' | 'bridges' | 'maintenance' | 'hygiene' | 'staging_areas' | 'transshipment' | 'cameras' | 'powerlines' | 'telecom' | 'railways' | 'ports' | 'airports' | 'medical' | 'emergency' | 'tunnels' | 'fording_points' | 'police_events' | 'road_situations' | 'power_outages' | 'sms_alerts' | 'intelligence_reports' | 'railway_situations';
+export type LayerId = 'fuel' | 'food' | 'water' | 'raw_materials' | 'vehicles' | 'firewood' | 'consumables' | 'roads' | 'bridges' | 'maintenance' | 'hygiene' | 'staging_areas' | 'transshipment' | 'cameras' | 'powerlines' | 'telecom' | 'railways' | 'ports' | 'airports' | 'medical' | 'emergency' | 'tunnels' | 'fording_points' | 'police_events' | 'road_situations' | 'power_outages' | 'sms_alerts' | 'intelligence_reports' | 'railway_situations' | 'news_reports';
 
 export interface LayerConfig {
   id: LayerId;
@@ -507,6 +531,19 @@ export const LAYERS: LayerConfig[] = [
       { key: 'source',       label: 'Avsändare',    type: 'text' },
       { key: 'description',  label: 'Meddelande',   type: 'text' },
       { key: 'received_at',  label: 'Mottaget',     type: 'text' },
+    ],
+  },
+  {
+    id: 'news_reports',
+    label: 'Nyhetsrapporter',
+    color: '#16a085',
+    icon: '📰',
+    group: 'events',
+    fields: [
+      { key: 'source',        label: 'Källa',        type: 'text' },
+      { key: 'description',   label: 'Sammanfattning', type: 'text' },
+      { key: 'link',          label: 'Länk',         type: 'text' },
+      { key: 'published_at',  label: 'Publicerad',   type: 'text' },
     ],
   },
   {

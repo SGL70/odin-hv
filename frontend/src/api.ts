@@ -1,4 +1,4 @@
-import type { AlertRule, AlertRuleType, AlertRuleConfig, AlertEvent, AlertStatus, Feature, SmsTip, SmsSender } from './types';
+import type { AlertRule, AlertRuleType, AlertRuleConfig, AlertEvent, AlertStatus, Feature, SmsTip, SmsSender, NewsSource, NewsItem } from './types';
 
 const BASE = '/api';
 
@@ -81,6 +81,24 @@ export const api = {
       list: () => req<SmsSender[]>('GET', '/sms/senders'),
       update: (phone: string, data: { status: SmsSender['status']; label?: string; municipality?: string; lat?: number; lng?: number }) =>
         req<{ ok: boolean }>('PUT', `/sms/senders/${encodeURIComponent(phone)}`, data),
+    },
+  },
+
+  news: {
+    sources: {
+      list: () => req<NewsSource[]>('GET', '/news/sources'),
+      add: (data: { name: string; url: string }) => req<NewsSource>('POST', '/news/sources', data),
+      update: (id: number, data: { name?: string; url?: string; enabled?: boolean }) =>
+        req<NewsSource>('PUT', `/news/sources/${id}`, data),
+      discover: (id: number) => req<NewsSource>('POST', `/news/sources/${id}/discover`),
+      remove: (id: number) => req<{ ok: boolean }>('DELETE', `/news/sources/${id}`),
+      poll: () => req<{ ok: boolean }>('POST', '/news/poll'),
+    },
+    items: {
+      list: (status: 'pending' | 'tagged' | 'discarded' = 'pending') => req<NewsItem[]>('GET', `/news/items?status=${status}`),
+      tag: (id: number, data: { municipality?: string; area?: string; lat?: number; lng?: number }) =>
+        req<{ ok: boolean; feature_uid: string }>('POST', `/news/items/${id}/tag`, data),
+      discard: (id: number) => req<{ ok: boolean }>('POST', `/news/items/${id}/discard`),
     },
   },
 
