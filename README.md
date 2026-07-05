@@ -101,6 +101,19 @@ Går att avfärda med ✕ men kan öppnas igen under sessionen via en knapp i to
 - **Tips via SMS** — okända avsändare hamnar i en granskningsinkorg (📨 Tips-knapp med räknare i topbaren) i stället för att gissa en Norrbotten-mittpunkt. Geotaggas manuellt via Län/Kommun/Område-dropdowns, med valfri finjustering genom att klicka på kartan, innan de blir ett riktigt objekt
 - **Avsändarregister** — ny flik i Inställningar listar alla nummer som någonsin hörts av; admin kan sätta ett nummer som känt (etikett + kommun) eller blockera det, utan att koda om
 
+### Persistent identitet vid skördning (2026-07-05)
+Skördade lager (broar, vägar m.fl.) raderade och återskapade tidigare alla rader vid varje körning, så namnändringar/kritikalitetsmärkning/`target_uid`-varningsregler gick förlorade vid nästa skördning:
+- `captureIdentity()` i harvest.js matchar mot en stabil extern nyckel som redan hämtades men slängdes tidigare (NVDB `GID`, OSM `way/id`, Polisen-id, avbrott.se-id, Trafikverkets `SiteId`) och bevarar `uid`, kritikalitet och eget namn vid omskördning i stället för att radera blint
+- Lantmäteriet Topo blev standardkartunderlag i samma PR
+
+### Mediabevakning (2026-07-05)
+Automatisk RSS-skördning av lokala nyhetskällor som ytterligare underrättelsekälla vid sidan av Trafikverket/polisen:
+- Skördar SVT Nyheter Norrbotten, SR P4 Norrbotten, TV4 Nyheterna och Norrbottens-Kuriren var 10:e minut (NSD uteslöts — samma NTM-koncern som Kuriren, dubblettinnehåll)
+- Granskningsinkorg ("📰 Nyheter", samma mönster som Tips via SMS) — en rubrik blir inte ett kartobjekt förrän någon geotaggar den manuellt (kommun/område eller finjustering via kartklick)
+- "Ta bort" raderar aldrig — posten flyttas till en Läst-lista (Slasken) längst ned, återställningsbar
+- Egna källor läggs till i Inställningar → Nyhetskällor; systemet försöker automatiskt hitta en RSS/Atom-feed för en godtycklig URL (egen sida, `<link rel="alternate">`, eller vanliga gissningsvägar) innan källan sparas
+- Manuell "🔄 Uppdatera alla källor nu"-knapp, utöver den schemalagda pollningen
+
 ---
 
 ## Roadmap
@@ -115,36 +128,35 @@ Prioriteringen nedan väger även mot ABI-pelarna (se Metodik ovan) — t.ex. st
 
 3. **Videoströmmar från drönare** — realtids- eller nära-realtidsvideo i FeaturePanel (nytt lager, samma mönster som dagens `photo_url`-kameror men video i stället för stillbild). Kräver en självhostad relay (RTSP/RTMP → WebRTC eller HLS, t.ex. MediaMTX/go2rtc) som ny docker-compose-tjänst, eftersom webbläsare inte kan spela råa drönarströmmar direkt. Ingen drönare tillgänglig för test i nuläget — se separat plan innan implementation påbörjas
 
-4. **Persistent identitet vid skördning** — skördade lager (broar, vägar m.fl.) raderar och återskapar alla rader vid varje körning (`clearHarvested()` + `saveFeatures()` utan matchning), så ett nytt `uid` skapas varje gång. Namnändringar, kritikalitetsmärkning och `target_uid`-varningsregler mot skördade objekt går därför förlorade vid nästa skördning av samma lager. Lösning: matcha mot en stabil extern nyckel som redan hämtas men slängs idag (`osm_id` för broar, `GID` för NVDB-vägar) och bevara `uid`/kritikalitet/ev. eget namn vid omskördning i stället för att radera blint
-
 ### Backlog
 
-5. **Mobil fältrapportering (PWA)** — avskalad vy `/report` för rapportering i fält
+4. **Mobil fältrapportering (PWA)** — avskalad vy `/report` för rapportering i fält
    - Auto-GPS, kamerabild, touch-vänligt formulär
    - Rapporterar in händelser och resurser med positionsdata
 
-6. **Mobildata-integration** — självkonfigurabel via inställningar (URL, nyckel, dokumentationslänk)
+5. **Mobildata-integration** — självkonfigurabel via inställningar (URL, nyckel, dokumentationslänk)
 
-7. **Trendvisning** — linjediagram i analyspanelen (snapshot-historik finns, UI saknas)
+6. **Trendvisning** — linjediagram i analyspanelen (snapshot-historik finns, UI saknas)
 
-8. **Rutting** med fordonsklassbegränsning (OpenRouteService)
+7. **Rutting** med fordonsklassbegränsning (OpenRouteService)
 
-9. **Polygon-verktyg** - Implementera ritverktyg för polygoner, för avgränsning av ytor.
+8. **Polygon-verktyg** - Implementera ritverktyg för polygoner, för avgränsning av ytor.
 
-10. **Mätverktyg med waypoints** - Enkelt mötverktyg för avstånd.
+9. **Mätverktyg med waypoints** - Enkelt mötverktyg för avstånd.
 
-11. **Kommentarsfuntktion på objekt** - Genom att kommentera (och tagga kollegor??) flaggar man upp saker som behöver flera ögon och hjärnor.
+10. **Kommentarsfuntktion på objekt** - Genom att kommentera (och tagga kollegor??) flaggar man upp saker som behöver flera ögon och hjärnor.
 
-12. **Ta fram utbildningsmaterial** — filmer/screencasts och genomgångar utöver den befintliga textbaserade användarguiden (`/docs`), för onboarding av nya användare
+11. **Ta fram utbildningsmaterial** — filmer/screencasts och genomgångar utöver den befintliga textbaserade användarguiden (`/docs`), för onboarding av nya användare
 
-13. **Ta fram API endpoints för integration mot överordnade system** - Skapa möjligheten att framtida system och för andra delar av FM och blåsljusverksamheten att ta del av informationen digital. Detta omfattar även API-dokumentationen.
+12. **Ta fram API endpoints för integration mot överordnade system** - Skapa möjligheten att framtida system och för andra delar av FM och blåsljusverksamheten att ta del av informationen digital. Detta omfattar även API-dokumentationen.
 
-14. **Förfina varningssystemet** - Idag kan tex en 7S-rapport skapa en varning givet hur regel och varningsfunktionen är uppsatt. En förfining kanske att _allt_ utom Egna ska trigga en varning, osv. Inleds med utredning.
+13. **Förfina varningssystemet** - Idag kan tex en 7S-rapport skapa en varning givet hur regel och varningsfunktionen är uppsatt. En förfining kanske att _allt_ utom Egna ska trigga en varning, osv. Inleds med utredning.
 
-15. **Precisionsnivå-tagg på objekt** — flera källor har grov positionsangivelse (polishändelser = läns-/ortcentroid, framtida mediebevakning = ingen riktig plats alls), men det syns inte på objektet idag; en spatial join mot en sådan "falsk" punkt kan ge missvisande resultat. Lägg till `attributes.location_precision` (`exact`/`kommun`/`lan`), satt per källa vid skördning, så framtida funktioner (t.ex. polygon-sökning, se nedan) kan välja rätt matchningslogik per objekt i stället för att anta att alla punkter är exakta
+14. **Precisionsnivå-tagg på objekt** — flera källor har grov positionsangivelse (polishändelser = läns-/ortcentroid, mediebevakning = ingen riktig plats alls), men det syns inte på objektet idag; en spatial join mot en sådan "falsk" punkt kan ge missvisande resultat. Lägg till `attributes.location_precision` (`exact`/`kommun`/`lan`), satt per källa vid skördning, så framtida funktioner (t.ex. polygon-sökning, se nedan) kan välja rätt matchningslogik per objekt i stället för att anta att alla punkter är exakta
 
-16. **Polygon-sökning: händelser inom ritad yta** — kräver polygonverktyget (punkt 9) samt precisionsnivå-taggen (punkt 15) för att fungera korrekt. Tre träfftyper i samma modal: exakta träffar inuti polygonen (`ST_Within`), kommunnivå-träffar för objekt vars polygon skär en eller flera kommuner, länsnivå-träffar för det som bara har grov plats. Norrbottens kommunstorlekar gör kommunnivå-träffar potentiellt bullriga (en polygon i centrala Kiruna kan dra in händelser 15 mil bort) — bör visas nedtonat/separat från exakta träffar, inte blandat rakt av
-17. **Mediabevakning (dagstidningar, TV, radio)** — skörda lokala nyhetskällor (t.ex. NSD, Kuriren, SVT Nyheter Norrbotten, SR Norrbotten) som ytterligare underrättelsekälla vid sidan av Trafikverket/polisen/Krisinformation.se. Ingen enhetlig öppen API finns för detta till skillnad från övriga källor — troligen RSS-flöden där sådana finns plus riktad webbskrapning per utgivare, med manuell granskning/taggning innan ett nyhetsinslag blir ett riktigt objekt (liknande mönstret för Tips via SMS). Inleds med en utredning av vilka källor som faktiskt har RSS/strukturerad data kontra kräver skrapning
+15. **Polygon-sökning: händelser inom ritad yta** — kräver polygonverktyget (punkt 8) samt precisionsnivå-taggen (punkt 14) för att fungera korrekt. Tre träfftyper i samma modal: exakta träffar inuti polygonen (`ST_Within`), kommunnivå-träffar för objekt vars polygon skär en eller flera kommuner, länsnivå-träffar för det som bara har grov plats. Norrbottens kommunstorlekar gör kommunnivå-träffar potentiellt bullriga (en polygon i centrala Kiruna kan dra in händelser 15 mil bort) — bör visas nedtonat/separat från exakta träffar, inte blandat rakt av
+
+16. **Aviseringar via SMS/e-post för varningar** — larm (alert_events) syns idag bara i appen (banner + kvitteringsbar lista i sidopanelen), så den som inte har appen öppen missar dem. Skicka en avisering via SMS (46elks är redan integrerat för inkommande, kräver utgående-stöd) eller e-post (Mailbox.org-SMTP finns i infrastrukturen men är inte kopplat till appen) när en varning triggas — konfigurerbart per användare, både vilka regler/kritikalitetsnivåer man vill aviseras om och via vilken kanal
 
 ---
 
