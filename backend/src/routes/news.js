@@ -157,4 +157,15 @@ router.post('/items/:id/discard', requireAuth, requireRole('editor', 'admin'), a
   res.json({ ok: true });
 });
 
+// "Slasken" — kastade poster raderas aldrig, bara flyttas ur inkorgen. Går att återställa
+// härifrån om en tidigare bortvald rubrik visar sig vara relevant efter allt.
+router.post('/items/:id/restore', requireAuth, requireRole('editor', 'admin'), async (req, res) => {
+  const { rows } = await db.query(
+    `UPDATE news_items SET status = 'pending' WHERE id = $1 AND status = 'discarded' RETURNING id`,
+    [req.params.id]
+  );
+  if (!rows.length) return res.status(404).json({ error: 'Hittades inte i Slasken' });
+  res.json({ ok: true });
+});
+
 module.exports = router;
