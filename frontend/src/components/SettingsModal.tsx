@@ -42,6 +42,7 @@ export function SettingsModal({ onClose }: Props) {
   const [addingSource, setAddingSource] = useState(false);
   const [sourceError, setSourceError] = useState('');
   const [discoveringId, setDiscoveringId] = useState<number | null>(null);
+  const [polling, setPolling] = useState(false);
   const [senders, setSenders] = useState<{ phone: string; status: string; label: string | null; message_count: number; last_seen_at: string }[]>([]);
   const [sendersLoading, setSendersLoading] = useState(false);
   const [editingSender, setEditingSender] = useState<string | null>(null);
@@ -223,8 +224,9 @@ export function SettingsModal({ onClose }: Props) {
     setAddingSource(true);
     setSourceError('');
     try {
-      await api.news.sources.add({ name: newSourceName.trim(), url: newSourceUrl.trim() });
+      const source = await api.news.sources.add({ name: newSourceName.trim(), url: newSourceUrl.trim() });
       setNewSourceName(''); setNewSourceUrl('');
+      if (source.feed_url) await api.news.sources.poll();
       loadNewsSources();
     } catch (e: unknown) {
       setSourceError(e instanceof Error ? e.message : 'Kunde inte lägga till källan');
@@ -247,6 +249,11 @@ export function SettingsModal({ onClose }: Props) {
     if (!confirm('Ta bort nyhetskällan?')) return;
     await api.news.sources.remove(id);
     loadNewsSources();
+  }
+
+  async function pollNewsNow() {
+    setPolling(true);
+    try { await api.news.sources.poll(); loadNewsSources(); } finally { setPolling(false); }
   }
 
   return (
@@ -571,9 +578,14 @@ export function SettingsModal({ onClose }: Props) {
           <div style={{ fontSize: 11, color: '#888', marginBottom: 10, textTransform: 'uppercase', letterSpacing: 0.5 }}>
             📰 Nyhetskällor
           </div>
-          <div style={{ fontSize: 11, color: '#555', marginBottom: 12 }}>
+          <div style={{ fontSize: 11, color: '#555', marginBottom: 8 }}>
             Skördas automatiskt via RSS var 10:e minut. Nya rubriker hamnar i granskningsinkorgen "📰 Nyheter" tills någon geotaggar dem.
           </div>
+          <button
+            onClick={pollNewsNow}
+            disabled={polling}
+            style={{ padding: '5px 12px', borderRadius: 4, fontSize: 11, background: '#2a2a44', color: '#aaa', border: '1px solid #444', cursor: 'pointer', marginBottom: 12 }}
+          >{polling ? 'Hämtar…' : '🔄 Uppdatera alla källor nu'}</button>
           {newsSourcesLoading ? (
             <div style={{ fontSize: 12, color: '#666', marginBottom: 12 }}>Laddar…</div>
           ) : (
