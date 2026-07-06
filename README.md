@@ -122,6 +122,15 @@ Avskalad `/report`-vy för rapportering direkt i fält, installerbar som PWA:
 - Handrullad IndexedDB-kö vid utebliven mobiltäckning, skickas automatiskt när anslutningen är tillbaka
 - Egen lazy-laddad bundle så fältvyn inte drar in hela kart-/MapLibre-koden (~2 MB) på dålig uppkoppling
 
+### Mobil kartvy (2026-07-05)
+Ny förmåga i samma mobil-PWA, utifrån en mockup med tre use cases — lägger inget till skrivbordskartan eller fältrapportformuläret, som är oförändrade:
+- Hamburgermeny (☰) öppnar lagermenyn (Analys/Händelser/Lager/Resurser) som overlay — återanvänder skrivbordets sidopanel rakt av
+- Tryck på en markör öppnar ett read-only bottom sheet med objektets fält, plus "✓ Markera som klassad" för oklassade fältrapporter
+- "+"-knappen växlar till fältrapportformuläret internt (samma installerade app, ingen sidladdning) i stället för att bygga om skapa-flödet
+- Endast punkt-representerbara lager visas på mobilkartan (samma uteslutning som fältrapportering redan använder för linje-/polygonlager)
+- Delad kartkonfiguration (`lib/mapConfig.ts`) mellan skrivbord och mobil, så mobilappen bara laddar ner det gemensamt nödvändiga MapLibre-biblioteket — inte skrivbordets fulla kartkomponent
+- Mobila webbläsare som surfar in på huvudadressen (utan att känna till `/report`) får automatiskt samma mobilvy; pinch-zoom är låst till kartan i stället för att zooma hela sidan
+
 ---
 
 ## Roadmap
