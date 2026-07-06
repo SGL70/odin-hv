@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { SWEDEN, type County } from '../lib/sweden';
 import { api } from '../api';
@@ -14,6 +14,21 @@ const LAYER_WEIGHT_LABELS: Record<string, string> = {
   police_events: 'Polishändelser',
   railway_situations: 'Tågstörningar',
 };
+
+// Roadmap #1: auto-skördning vid OpOmr-byte. Precis den här delmängden av harvest.js:s källor
+// är OpOmr-filtrerade (bekräftat mot backend-koden, inte bara HarvestSidebar.tsx:s UI-notiser
+// som visade sig sakna "OpOmr" för Trafikhändelser trots att den faktiskt är det) — power/bridges/
+// fuel-källorna är inte kommunbegränsade och ska inte triggas om här.
+const OPOMR_HARVEST_ENDPOINTS = [
+  '/api/harvest/police/scrape',
+  '/api/harvest/situations/scrape',
+  '/api/harvest/trv-cameras/scrape',
+  '/api/harvest/trv-atk/scrape',
+  '/api/harvest/trv-roads/scrape',
+  '/api/harvest/trv-ferries/scrape',
+  '/api/harvest/trv-traffic/scrape',
+  '/api/harvest/railway-situations/scrape',
+];
 
 export function SettingsModal({ onClose }: Props) {
   const { user: currentUser } = useAuth();
@@ -49,6 +64,8 @@ export function SettingsModal({ onClose }: Props) {
   const [senderLabel, setSenderLabel] = useState('');
   const [senderCounty, setSenderCounty] = useState('');
   const [senderMunicipality, setSenderMunicipality] = useState('');
+  const [opomrHarvestMsg, setOpomrHarvestMsg] = useState('');
+  const originalMunicipalitiesRef = useRef<string[]>([]);
   const token = localStorage.getItem('token');
 
   useEffect(() => {
@@ -56,6 +73,7 @@ export function SettingsModal({ onClose }: Props) {
       .then(r => r.json())
       .then(s => {
         setMunicipalities(s.op_municipalities || []);
+        originalMunicipalitiesRef.current = s.op_municipalities || [];
         setRetentionDays(s.snapshot_retention_days ?? 30);
         setDistanceM(s.criticality_weighting?.distance_m ?? 500);
         setGulMultiplier(s.criticality_weighting?.gul_multiplier ?? 1.5);
@@ -115,6 +133,19 @@ export function SettingsModal({ onClose }: Props) {
     ]);
     setSaving(false);
     setSaved(true);
+
+    const opomrChanged = [...municipalities].sort().join(',') !== [...originalMunicipalitiesRef.current].sort().join(',');
+    if (opomrChanged && municipalities.length > 0) {
+      originalMunicipalitiesRef.current = municipalities;
+      setOpomrHarvestMsg(`Skördar ${OPOMR_HARVEST_ENDPOINTS.length} källor för det nya området…`);
+      await Promise.all(OPOMR_HARVEST_ENDPOINTS.map(endpoint =>
+        fetch(endpoint, { method: 'POST', headers: { Authorization: `Bearer ${token}` } }).catch(() => {})
+      ));
+      setOpomrHarvestMsg('Omskördning av OpOmr-källor startad — se 📦 Skördare för status.');
+      setTimeout(() => setOpomrHarvestMsg(''), 6000);
+    } else if (opomrChanged) {
+      originalMunicipalitiesRef.current = municipalities;
+    }
   }
 
   async function triggerSnapshot() {
@@ -658,6 +689,7 @@ export function SettingsModal({ onClose }: Props) {
               style={{ flex: 1, padding: '7px 0', borderRadius: 4, fontSize: 12, background: '#5b8cff', color: '#fff', border: 'none', cursor: 'pointer' }}
             >{saving ? 'Sparar…' : 'Spara'}</button>
             {saved && <span style={{ fontSize: 11, color: '#4a9' }}>✓ Sparat</span>}
+            {opomrHarvestMsg && <span style={{ fontSize: 11, color: '#5b8cff' }}>{opomrHarvestMsg}</span>}
           </div>
         )}
       </div>
