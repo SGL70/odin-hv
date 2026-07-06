@@ -15,6 +15,7 @@ import { CatchupModal } from './CatchupModal';
 import { OdinLogo } from './OdinLogo';
 import { ReportListPanel } from './ReportListPanel';
 import { CriticalityPanel } from './CriticalityPanel';
+import { UnclassifiedPanel } from './UnclassifiedPanel';
 import { SmsTipsPanel } from './SmsTipsPanel';
 import { NewsPanel } from './NewsPanel';
 import { registerReportIcons, buildReportIconExpression } from '../lib/reportSymbols';
@@ -79,6 +80,7 @@ export function MapView() {
   const [showReports, setShowReports] = useState(false);
   const [showAlertRules, setShowAlertRules] = useState(false);
   const [showCriticality, setShowCriticality] = useState(false);
+  const [showUnclassified, setShowUnclassified] = useState(false);
   const [showSmsTips, setShowSmsTips] = useState(false);
   const [smsTipCount, setSmsTipCount] = useState(0);
   const [tipPickMode, setTipPickMode] = useState(false);
@@ -1045,10 +1047,14 @@ export function MapView() {
           </button>
         )}
         {canEdit && unclassifiedCount > 0 && (
-          <span
+          <button
+            onClick={() => setShowUnclassified(s => !s)}
             title={`${unclassifiedCount} fältrapport(er) väntar på granskning`}
-            style={{ fontSize: 11, color: '#f0a83c', background: '#f0a83c22', padding: '3px 8px', borderRadius: 999, whiteSpace: 'nowrap' }}
-          >🚩 Oklassade ({unclassifiedCount})</span>
+            style={{
+              fontSize: 11, color: '#f0a83c', background: '#f0a83c22', padding: '3px 8px', borderRadius: 999,
+              whiteSpace: 'nowrap', border: '1px solid #f0a83c55', cursor: 'pointer',
+            }}
+          >🚩 Oklassade ({unclassifiedCount})</button>
         )}
         {canEdit && (
           <button
@@ -1119,6 +1125,14 @@ export function MapView() {
         <CriticalityPanel
           features={features}
           onClose={() => setShowCriticality(false)}
+          onSelect={f => { setSelected(f); centerOnFeature(f); }}
+        />
+      )}
+
+      {showUnclassified && (
+        <UnclassifiedPanel
+          features={features}
+          onClose={() => setShowUnclassified(false)}
           onSelect={f => { setSelected(f); centerOnFeature(f); }}
         />
       )}
