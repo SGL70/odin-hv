@@ -6,7 +6,7 @@ const cors = require('cors');
 const helmet = require('helmet');
 const bcrypt = require('bcryptjs');
 const db = require('./db');
-const { ensureAlertSchema, ensureIntelligenceReportsLayer, ensureRailwaySituationsLayer, ensureFeatureHistorySchema, ensureUserPreferencesColumn, ensureSmsTablesSchema, ensureLastLoginColumn, ensureNewsReportsLayer, ensureNewsSchema } = require('./migrations');
+const { ensureAlertSchema, ensureIntelligenceReportsLayer, ensureRailwaySituationsLayer, ensureFeatureHistorySchema, ensureUserPreferencesColumn, ensureSmsTablesSchema, ensureLastLoginColumn, ensureNewsReportsLayer, ensureNewsSchema, ensureLocationPrecisionBackfill } = require('./migrations');
 const { pollAllSources } = require('./services/newsFeeds');
 
 const app = express();
@@ -114,6 +114,7 @@ async function start() {
   await ensureLastLoginColumn();
   await ensureNewsReportsLayer();
   await ensureNewsSchema();
+  await ensureLocationPrecisionBackfill();
   fs.mkdirSync(UPLOAD_DIR, { recursive: true });
   scheduleDailySnapshot();
   scheduleNewsPolling();

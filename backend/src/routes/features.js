@@ -151,6 +151,9 @@ router.get('/:uid/related', requireAuth, async (req, res) => {
 
 router.post('/', requireAuth, requireRole('editor', 'admin'), async (req, res) => {
   const { layer, name, geometry, cot_type, ...rest } = req.body;
+  // Manuellt placerade objekt ("+ 7S") och fältrapporter (mobil GPS) är alltid en medveten,
+  // exakt platsangivelse — till skillnad från t.ex. skördade polishändelser (roadmap #10).
+  if (rest.location_precision == null) rest.location_precision = 'exact';
   try {
     const { rows } = await db.query(
       `INSERT INTO features (layer, name, geom, cot_type, attributes, created_by, updated_by)

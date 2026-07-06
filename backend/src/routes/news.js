@@ -138,6 +138,7 @@ router.post('/items/:id/tag', requireAuth, requireRole('editor', 'admin'), async
         {
           description: item.summary, link: item.link, area: area || null, municipality: municipality || null,
           published_at: item.published_at, source: item.source_name,
+          location_precision: (lat != null && lng != null) ? 'exact' : 'kommun',
         },
         req.user.id,
       ]

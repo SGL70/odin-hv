@@ -262,6 +262,14 @@ export function FeaturePanel({
           </div>
         )}
 
+        {/* Precisionsnivå — tyst infobadge, ingen åtgärd (roadmap #10), bara synlig när
+            platsen INTE är exakt (kommun-centroid m.m.) */}
+        {fields.location_precision && fields.location_precision !== 'exact' && (
+          <div style={{ fontSize: 11, color: '#888', marginBottom: 10 }}>
+            📍 Ungefärlig plats ({fields.location_precision === 'kommun' ? 'kommunnivå' : 'länsnivå'})
+          </div>
+        )}
+
         {/* Kritikalitet — universellt fält på alla features */}
         <div className="field-row">
           <label>Kritikalitet</label>
@@ -327,7 +335,7 @@ export function FeaturePanel({
         {/* Extra attributes not in layer config */}
         {(() => {
           const HIDDEN = new Set([
-            'uid', 'layer', 'cot_type', 'name', 'criticality', 'display_name', 'unclassified', 'created_by', 'updated_by', 'created_at', 'updated_at',
+            'uid', 'layer', 'cot_type', 'name', 'criticality', 'display_name', 'unclassified', 'location_precision', 'created_by', 'updated_by', 'created_at', 'updated_at',
             'photo_url', 'station_url', 'scraped_at', 'trv_source_id', 'osm_id', '_source_id', 'police_id', 'external_id',
             ...(layerCfg?.fields.map(f => f.key) || []),
           ]);
