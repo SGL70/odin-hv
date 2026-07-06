@@ -214,8 +214,24 @@ async function ensureNewsSchema() {
   console.log('news_sources/news_items-schema klart');
 }
 
+// Bakfyllnad för roadmap #10 (precisionsnivå-tagg). saveFeatures() i harvest.js sätter taggen
+// på nya rader, men identitetsbevarade rader (broar, vägar m.fl.) skrivs aldrig om vid en vanlig
+// omskördning (ON CONFLICT DO NOTHING) — utan denna körs de aldrig ikapp. Idempotent, körs vid
+// varje serverstart precis som övriga ensure*-funktioner.
+async function ensureLocationPrecisionBackfill() {
+  await db.query(`
+    UPDATE features SET attributes = attributes || '{"location_precision":"kommun"}'::jsonb
+    WHERE layer = 'police_events' AND attributes->>'location_precision' IS NULL
+  `);
+  await db.query(`
+    UPDATE features SET attributes = attributes || '{"location_precision":"exact"}'::jsonb
+    WHERE layer != 'police_events' AND attributes->>'location_precision' IS NULL
+  `);
+  console.log('location_precision-bakfyllnad klar');
+}
+
 module.exports = {
   ensureAlertSchema, ensureIntelligenceReportsLayer, ensureRailwaySituationsLayer, ensureFeatureHistorySchema,
   ensureUserPreferencesColumn, ensureSmsTablesSchema, ensureLastLoginColumn,
-  ensureNewsReportsLayer, ensureNewsSchema,
+  ensureNewsReportsLayer, ensureNewsSchema, ensureLocationPrecisionBackfill,
 };

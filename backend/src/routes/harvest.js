@@ -336,6 +336,11 @@ async function saveFeatures(features, userId, identityMap = null) {
     const { layer, name, ...attrs } = f.properties;
     if (!layer || !name || !f.geometry) { skipped++; continue; }
     if (!attrs.occurred_at) attrs.occurred_at = deriveOccurredAt(attrs);
+    // Polishändelser normaliseras alltid till en kommun-centroid (se resolveCoords ovan) —
+    // alla andra skördekällor ger en riktig koordinat/geometri från källan (roadmap #10).
+    if (!attrs.location_precision) {
+      attrs.location_precision = layer === 'police_events' ? 'kommun' : 'exact';
+    }
 
     const identity = identityMap && attrs.external_id != null
       ? identityMap.get(String(attrs.external_id))

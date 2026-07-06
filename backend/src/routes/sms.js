@@ -108,6 +108,7 @@ router.post('/tips/:id/tag', requireAuth, requireRole('editor', 'admin'), async 
         {
           from: tip.from_number, description, area: area || null, municipality: municipality || null,
           received_at: tip.received_at, raw_message: tip.message, source: 'Tips via SMS', elks_id: tip.elks_id,
+          location_precision: (lat != null && lng != null) ? 'exact' : 'kommun',
         },
         req.user.id,
       ]
