@@ -1136,7 +1136,7 @@ export function MapView() {
         <UnclassifiedPanel
           features={features}
           onClose={() => setShowUnclassified(false)}
-          onSelect={f => { setSelected(f); centerOnFeature(f); }}
+          onSelect={f => { setSelected(f); centerOnFeature(f); setShowUnclassified(false); }}
         />
       )}
 
