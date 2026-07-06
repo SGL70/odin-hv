@@ -71,6 +71,43 @@ router.get('/', requireAuth, async (req, res) => {
   }
 });
 
+// Polygon-sökning (roadmap #11) — tre skilda träfftyper i stället för en naiv ST_Within på
+// alla objekt, eftersom location_precision (roadmap #10) skiljer på riktiga koordinater och
+// kommun-centroider. Kommunnivå-träffar avgörs av att KOMMUNENS yta skär polygonen, inte att
+// centroid-punkten råkar ligga innanför — objektet kan vara var som helst i kommunen.
+router.post('/search-polygon', requireAuth, async (req, res) => {
+  const { polygon } = req.body;
+  if (!polygon || polygon.type !== 'Polygon') return res.status(400).json({ error: 'Ogiltig polygon' });
+  // OPSEC: samma uteslutning som GET / — annars skulle polygon-sökningen läcka 7S-rapporter
+  // till läsare som annars aldrig ser dem.
+  const readerExclude = req.user.role === 'reader' ? `AND f.layer != 'intelligence_reports'` : '';
+  try {
+    const geomParam = JSON.stringify(polygon);
+    const exact = await db.query(`
+      ${BASE_QUERY}
+      WHERE f.attributes->>'location_precision' = 'exact' ${readerExclude}
+        AND ST_Within(f.geom, ST_SetSRID(ST_GeomFromGeoJSON($1), 4326))
+    `, [geomParam]);
+    const kommun = await db.query(`
+      ${BASE_QUERY}
+      JOIN municipalities m ON m.short_name = f.attributes->>'municipality'
+      WHERE f.attributes->>'location_precision' = 'kommun' ${readerExclude}
+        AND ST_Intersects(m.geom, ST_SetSRID(ST_GeomFromGeoJSON($1), 4326))
+    `, [geomParam]);
+    const lan = await db.query(`
+      ${BASE_QUERY}
+      WHERE f.attributes->>'location_precision' = 'lan' ${readerExclude}
+    `);
+    res.json({
+      exact: toGeoJSON(exact.rows).features,
+      kommun: toGeoJSON(kommun.rows).features,
+      lan: toGeoJSON(lan.rows).features,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ABI sekvensneutralitet: läs ut arkiverad rådata (annars vore features_history skrivbar men oanvändbar)
 router.get('/history', requireAuth, requireRole('editor', 'admin'), async (req, res) => {
   try {

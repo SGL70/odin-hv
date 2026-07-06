@@ -610,9 +610,9 @@ const MUNI_COORDS = {
 function resolveCoords(eventName, fallbackLat, fallbackLon) {
   const lower = (eventName || '').toLowerCase();
   for (const [muni, coords] of Object.entries(MUNI_COORDS)) {
-    if (lower.includes(muni)) return coords;
+    if (lower.includes(muni)) return { coords, municipality: muni };
   }
-  return [fallbackLon, fallbackLat];
+  return { coords: [fallbackLon, fallbackLat], municipality: null };
 }
 
 async function policeEvents(municipalities) {
@@ -634,7 +634,7 @@ async function policeEvents(municipalities) {
     .map(e => {
       const [fallbackLat, fallbackLon] = (e.location?.gps || '0,0').split(',').map(Number);
       if (!fallbackLat || !fallbackLon) return null;
-      const [lon, lat] = resolveCoords(e.name, fallbackLat, fallbackLon);
+      const { coords: [lon, lat], municipality } = resolveCoords(e.name, fallbackLat, fallbackLon);
       return {
         type: 'Feature',
         geometry: { type: 'Point', coordinates: [lon, lat] },
@@ -645,6 +645,7 @@ async function policeEvents(municipalities) {
           datetime: e.datetime,
           summary: e.summary || '',
           location: e.location?.name || '',
+          municipality,
           url: `https://polisen.se${e.url}`,
           source: 'Polisen',
           police_id: String(e.id),

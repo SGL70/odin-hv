@@ -16,6 +16,7 @@ import { OdinLogo } from './OdinLogo';
 import { ReportListPanel } from './ReportListPanel';
 import { CriticalityPanel } from './CriticalityPanel';
 import { UnclassifiedPanel } from './UnclassifiedPanel';
+import { PolygonSearchPanel } from './PolygonSearchPanel';
 import { SmsTipsPanel } from './SmsTipsPanel';
 import { NewsPanel } from './NewsPanel';
 import { registerReportIcons, buildReportIconExpression } from '../lib/reportSymbols';
@@ -82,7 +83,7 @@ export function MapView() {
   // en enda "vilken är aktiv"-state i stället för sex oberoende booleaner, annars kan flera
   // stå öppna samtidigt och staplas osynligt på varandra (ett klick på en annan panelknapp
   // ser då ut att inte göra något eftersom den redan öppna panelen ligger kvar ovanpå).
-  type SidePanel = 'analysis' | 'reports' | 'criticality' | 'unclassified' | 'smsTips' | 'news';
+  type SidePanel = 'analysis' | 'reports' | 'criticality' | 'unclassified' | 'smsTips' | 'news' | 'polygonSearch';
   const [activeSidePanel, setActiveSidePanel] = useState<SidePanel | null>(null);
   const toggleSidePanel = (panel: SidePanel) => setActiveSidePanel(p => (p === panel ? null : panel));
   const [smsTipCount, setSmsTipCount] = useState(0);
@@ -113,6 +114,10 @@ export function MapView() {
   // Dessa verktyg skapar inga databasobjekt, bara en avläsning (area/distans).
   const [activeTool, setActiveTool] = useState<'polygon' | 'measure' | null>(null);
   const [toolPoints, setToolPoints] = useState<[number, number][]>([]);
+  // Polygon-sökning (roadmap #11) — resultatet av "🔍 Sök i yta", visas via activeSidePanel
+  // precis som övriga sidopaneler (samma ömsesidiga uteslutning, ingen ny stapling att oroa sig för).
+  const [polygonSearchResults, setPolygonSearchResults] = useState<{ exact: Feature[]; kommun: Feature[]; lan: Feature[] } | null>(null);
+  const [searchingPolygon, setSearchingPolygon] = useState(false);
   const [newName, setNewName] = useState('');
   const [newFields, setNewFields] = useState<Record<string, string>>({});
   const [mapLoaded, setMapLoaded] = useState(false);
@@ -993,6 +998,21 @@ export function MapView() {
     });
   };
 
+  const searchPolygon = async () => {
+    if (toolPoints.length < 3) return;
+    setSearchingPolygon(true);
+    try {
+      const ring = [...toolPoints, toolPoints[0]];
+      const results = await api.searchPolygon({ type: 'Polygon', coordinates: [ring] });
+      setPolygonSearchResults(results);
+      setActiveSidePanel('polygonSearch');
+    } catch (err) {
+      console.error('Polygon-sökning misslyckades:', err);
+    } finally {
+      setSearchingPolygon(false);
+    }
+  };
+
   const toggleLayer = (id: LayerId) => {
     setVisible(prev => {
       const next = new Set(prev);
@@ -1243,6 +1263,14 @@ export function MapView() {
         />
       )}
 
+      {activeSidePanel === 'polygonSearch' && polygonSearchResults && (
+        <PolygonSearchPanel
+          results={polygonSearchResults}
+          onClose={() => setActiveSidePanel(null)}
+          onSelect={f => { setSelected(f); centerOnFeature(f); setActiveSidePanel(null); }}
+        />
+      )}
+
       <RightPanel
         open={rightPanelOpen}
         onOpenChange={v => { setRightPanelOpen(v); localStorage.setItem('rightPanelOpen', String(v)); }}
@@ -1322,6 +1350,11 @@ export function MapView() {
             toolPoints.length < 2
               ? `Klicka punkter för sträckan (${toolPoints.length} av minst 2)`
               : `Sträcka: ${formatDistance(lineLengthM(toolPoints))}`
+          )}
+          {activeTool === 'polygon' && toolPoints.length >= 3 && (
+            <button className="btn-primary btn-sm" disabled={searchingPolygon} onClick={searchPolygon}>
+              {searchingPolygon ? 'Söker…' : '🔍 Sök i yta'}
+            </button>
           )}
           <button className="btn-ghost btn-sm" onClick={() => setToolPoints([])}>Rensa</button>
           <button className="btn-ghost btn-sm" onClick={closeTool}>✕ Stäng</button>

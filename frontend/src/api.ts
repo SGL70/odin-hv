@@ -44,6 +44,9 @@ export const api = {
   getRelatedFeatures: (uid: string, radiusM: number) =>
     req<Feature[]>('GET', `/features/${uid}/related?radius_m=${radiusM}`),
 
+  searchPolygon: (polygon: GeoJSON.Polygon) =>
+    req<{ exact: Feature[]; kommun: Feature[]; lan: Feature[] }>('POST', '/features/search-polygon', { polygon }),
+
   dashboard: () =>
     req<{ totals: unknown[]; alerts: unknown[]; activity: unknown[] }>('GET', '/dashboard'),
 
