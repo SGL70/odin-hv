@@ -76,16 +76,17 @@ export function MapView() {
 
   const [sidebarOpen, setSidebarOpen] = useState(() => localStorage.getItem('sidebarOpen') !== 'false');
   const [showSettings, setShowSettings] = useState(false);
-  const [showAnalysis, setShowAnalysis] = useState(false);
-  const [showReports, setShowReports] = useState(false);
   const [showAlertRules, setShowAlertRules] = useState(false);
-  const [showCriticality, setShowCriticality] = useState(false);
-  const [showUnclassified, setShowUnclassified] = useState(false);
-  const [showSmsTips, setShowSmsTips] = useState(false);
+  // Analys/Rapporter/Kritiska/Oklassade/Tips/Nyheter delar samma skärmposition (left:190) —
+  // en enda "vilken är aktiv"-state i stället för sex oberoende booleaner, annars kan flera
+  // stå öppna samtidigt och staplas osynligt på varandra (ett klick på en annan panelknapp
+  // ser då ut att inte göra något eftersom den redan öppna panelen ligger kvar ovanpå).
+  type SidePanel = 'analysis' | 'reports' | 'criticality' | 'unclassified' | 'smsTips' | 'news';
+  const [activeSidePanel, setActiveSidePanel] = useState<SidePanel | null>(null);
+  const toggleSidePanel = (panel: SidePanel) => setActiveSidePanel(p => (p === panel ? null : panel));
   const [smsTipCount, setSmsTipCount] = useState(0);
   const [tipPickMode, setTipPickMode] = useState(false);
   const [tipPickResult, setTipPickResult] = useState<{ lat: number; lng: number } | null>(null);
-  const [showNewsPanel, setShowNewsPanel] = useState(false);
   const [newsItemCount, setNewsItemCount] = useState(0);
   const [newsPickMode, setNewsPickMode] = useState(false);
   const [newsPickResult, setNewsPickResult] = useState<{ lat: number; lng: number } | null>(null);
@@ -1024,11 +1025,11 @@ export function MapView() {
       }}>
         <OdinLogo size="md" />
         <button className="btn-ghost btn-sm" onClick={() => setShowDash(d => !d)}>📊 Dashboard</button>
-        <button className="btn-ghost btn-sm" onClick={() => setShowAnalysis(a => !a)}>📊 Analys</button>
-        <button className="btn-ghost btn-sm" onClick={() => setShowCriticality(c => !c)}>🎯 Kritiska objekt</button>
-        {canEdit && <button className="btn-ghost btn-sm" onClick={() => setShowReports(r => !r)}>🕵 Rapporter</button>}
+        <button className="btn-ghost btn-sm" onClick={() => toggleSidePanel('analysis')}>📊 Analys</button>
+        <button className="btn-ghost btn-sm" onClick={() => toggleSidePanel('criticality')}>🎯 Kritiska objekt</button>
+        {canEdit && <button className="btn-ghost btn-sm" onClick={() => toggleSidePanel('reports')}>🕵 Rapporter</button>}
         {canEdit && (
-          <button className="btn-ghost btn-sm" onClick={() => setShowSmsTips(s => !s)} style={{ position: 'relative' }}>
+          <button className="btn-ghost btn-sm" onClick={() => toggleSidePanel('smsTips')} style={{ position: 'relative' }}>
             📨 Tips
             {smsTipCount > 0 && (
               <span style={{
@@ -1039,7 +1040,7 @@ export function MapView() {
           </button>
         )}
         {canEdit && (
-          <button className="btn-ghost btn-sm" onClick={() => setShowNewsPanel(s => !s)} style={{ position: 'relative' }}>
+          <button className="btn-ghost btn-sm" onClick={() => toggleSidePanel('news')} style={{ position: 'relative' }}>
             📰 Nyheter
             {newsItemCount > 0 && (
               <span style={{
@@ -1051,7 +1052,7 @@ export function MapView() {
         )}
         {canEdit && unclassifiedCount > 0 && (
           <button
-            onClick={() => setShowUnclassified(s => !s)}
+            onClick={() => toggleSidePanel('unclassified')}
             title={`${unclassifiedCount} fältrapport(er) väntar på granskning`}
             style={{
               fontSize: 11, color: '#f0a83c', background: '#f0a83c22', padding: '3px 8px', borderRadius: 999,
@@ -1112,37 +1113,37 @@ export function MapView() {
 
       {showSettings && <SettingsModal onClose={() => setShowSettings(false)} />}
 
-      {showAnalysis && <AnalysisPanel onClose={() => setShowAnalysis(false)} />}
+      {activeSidePanel === 'analysis' && <AnalysisPanel onClose={() => setActiveSidePanel(null)} />}
 
-      {showReports && (
+      {activeSidePanel === 'reports' && (
         <ReportListPanel
           features={features}
-          onClose={() => setShowReports(false)}
+          onClose={() => setActiveSidePanel(null)}
           onSelect={f => setSelected(f)}
         />
       )}
 
       {showAlertRules && <AlertRulesModal features={features} onClose={() => setShowAlertRules(false)} />}
 
-      {showCriticality && (
+      {activeSidePanel === 'criticality' && (
         <CriticalityPanel
           features={features}
-          onClose={() => setShowCriticality(false)}
+          onClose={() => setActiveSidePanel(null)}
           onSelect={f => { setSelected(f); centerOnFeature(f); }}
         />
       )}
 
-      {showUnclassified && (
+      {activeSidePanel === 'unclassified' && (
         <UnclassifiedPanel
           features={features}
-          onClose={() => setShowUnclassified(false)}
-          onSelect={f => { setSelected(f); centerOnFeature(f); setShowUnclassified(false); }}
+          onClose={() => setActiveSidePanel(null)}
+          onSelect={f => { setSelected(f); centerOnFeature(f); setActiveSidePanel(null); }}
         />
       )}
 
-      {showSmsTips && (
+      {activeSidePanel === 'smsTips' && (
         <SmsTipsPanel
-          onClose={() => { setShowSmsTips(false); setTipPickMode(false); }}
+          onClose={() => { setActiveSidePanel(null); setTipPickMode(false); }}
           onTagged={loadSmsTipCount}
           tipPickMode={tipPickMode}
           onArmTipPick={() => setTipPickMode(true)}
@@ -1151,9 +1152,9 @@ export function MapView() {
         />
       )}
 
-      {showNewsPanel && (
+      {activeSidePanel === 'news' && (
         <NewsPanel
-          onClose={() => { setShowNewsPanel(false); setNewsPickMode(false); }}
+          onClose={() => { setActiveSidePanel(null); setNewsPickMode(false); }}
           onTagged={loadNewsItemCount}
           newsPickMode={newsPickMode}
           onArmNewsPick={() => setNewsPickMode(true)}
