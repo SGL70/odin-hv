@@ -131,6 +131,9 @@ Ny förmåga i samma mobil-PWA, utifrån en mockup med tre use cases — lägger
 - Delad kartkonfiguration (`lib/mapConfig.ts`) mellan skrivbord och mobil, så mobilappen bara laddar ner det gemensamt nödvändiga MapLibre-biblioteket — inte skrivbordets fulla kartkomponent
 - Mobila webbläsare som surfar in på huvudadressen (utan att känna till `/report`) får automatiskt samma mobilvy; pinch-zoom är låst till kartan i stället för att zooma hela sidan
 
+### Auto-skördning vid OpOmr-byte (2026-07-06)
+Ändras kommunvalet i Inställningar → Operativt område triggas de 8 OpOmr-filtrerade källorna om automatiskt (Polishändelser, Trafikhändelser, Trafikkameror, ATK-kameror, Vägbärighet, Färjeleder, Trafikflöde, Tågstörningar), i stället för att kräva manuell "Skörda alla". `power`/`bridges`/`fuel`-källorna är inte kommunbegränsade och rörs inte. Ingen backend-ändring — återanvänder samma scrape-endpoints som "Skörda alla" redan gör, bara triggat automatiskt när valet faktiskt ändras.
+
 ---
 
 ## Roadmap
@@ -139,37 +142,35 @@ Prioriteringen nedan väger även mot ABI-pelarna (se Metodik ovan) — t.ex. st
 
 ### Prioriterat
 
-1. **Auto-skördning vid OpOmr-byte** — när operativt område ändras i Inställningar ska relevanta källor skördas om automatiskt, i stället för att kräva manuell "Skörda alla"
+1. **Krisinformation.se API:er** — utreda om Krisinformations öppna data har relevanta källor att integrera (liknande utredningen som gjordes för Sjöfartsverket)
 
-2. **Krisinformation.se API:er** — utreda om Krisinformations öppna data har relevanta källor att integrera (liknande utredningen som gjordes för Sjöfartsverket)
-
-3. **Videoströmmar från drönare** — realtids- eller nära-realtidsvideo i FeaturePanel (nytt lager, samma mönster som dagens `photo_url`-kameror men video i stället för stillbild). Kräver en självhostad relay (RTSP/RTMP → WebRTC eller HLS, t.ex. MediaMTX/go2rtc) som ny docker-compose-tjänst, eftersom webbläsare inte kan spela råa drönarströmmar direkt. Ingen drönare tillgänglig för test i nuläget — se separat plan innan implementation påbörjas
+2. **Videoströmmar från drönare** — realtids- eller nära-realtidsvideo i FeaturePanel (nytt lager, samma mönster som dagens `photo_url`-kameror men video i stället för stillbild). Kräver en självhostad relay (RTSP/RTMP → WebRTC eller HLS, t.ex. MediaMTX/go2rtc) som ny docker-compose-tjänst, eftersom webbläsare inte kan spela råa drönarströmmar direkt. Ingen drönare tillgänglig för test i nuläget — se separat plan innan implementation påbörjas
 
 ### Backlog
 
-4. **Mobildata-integration** — självkonfigurabel via inställningar (URL, nyckel, dokumentationslänk)
+3. **Mobildata-integration** — självkonfigurabel via inställningar (URL, nyckel, dokumentationslänk)
 
-5. **Trendvisning** — linjediagram i analyspanelen (snapshot-historik finns, UI saknas)
+4. **Trendvisning** — linjediagram i analyspanelen (snapshot-historik finns, UI saknas)
 
-6. **Rutting** med fordonsklassbegränsning (OpenRouteService)
+5. **Rutting** med fordonsklassbegränsning (OpenRouteService)
 
-7. **Polygon-verktyg** - Implementera ritverktyg för polygoner, för avgränsning av ytor.
+6. **Polygon-verktyg** - Implementera ritverktyg för polygoner, för avgränsning av ytor.
 
-8. **Mätverktyg med waypoints** - Enkelt mötverktyg för avstånd.
+7. **Mätverktyg med waypoints** - Enkelt mötverktyg för avstånd.
 
-9. **Kommentarsfuntktion på objekt** - Genom att kommentera (och tagga kollegor??) flaggar man upp saker som behöver flera ögon och hjärnor.
+8. **Kommentarsfuntktion på objekt** - Genom att kommentera (och tagga kollegor??) flaggar man upp saker som behöver flera ögon och hjärnor.
 
-10. **Ta fram utbildningsmaterial** — filmer/screencasts och genomgångar utöver den befintliga textbaserade användarguiden (`/docs`), för onboarding av nya användare
+9. **Ta fram utbildningsmaterial** — filmer/screencasts och genomgångar utöver den befintliga textbaserade användarguiden (`/docs`), för onboarding av nya användare
 
-11. **Ta fram API endpoints för integration mot överordnade system** - Skapa möjligheten att framtida system och för andra delar av FM och blåsljusverksamheten att ta del av informationen digital. Detta omfattar även API-dokumentationen.
+10. **Ta fram API endpoints för integration mot överordnade system** - Skapa möjligheten att framtida system och för andra delar av FM och blåsljusverksamheten att ta del av informationen digital. Detta omfattar även API-dokumentationen.
 
-12. **Förfina varningssystemet** - Idag kan tex en 7S-rapport skapa en varning givet hur regel och varningsfunktionen är uppsatt. En förfining kanske att _allt_ utom Egna ska trigga en varning, osv. Inleds med utredning.
+11. **Förfina varningssystemet** - Idag kan tex en 7S-rapport skapa en varning givet hur regel och varningsfunktionen är uppsatt. En förfining kanske att _allt_ utom Egna ska trigga en varning, osv. Inleds med utredning.
 
-13. **Precisionsnivå-tagg på objekt** — flera källor har grov positionsangivelse (polishändelser = läns-/ortcentroid, mediebevakning = ingen riktig plats alls), men det syns inte på objektet idag; en spatial join mot en sådan "falsk" punkt kan ge missvisande resultat. Lägg till `attributes.location_precision` (`exact`/`kommun`/`lan`), satt per källa vid skördning, så framtida funktioner (t.ex. polygon-sökning, se nedan) kan välja rätt matchningslogik per objekt i stället för att anta att alla punkter är exakta
+12. **Precisionsnivå-tagg på objekt** — flera källor har grov positionsangivelse (polishändelser = läns-/ortcentroid, mediebevakning = ingen riktig plats alls), men det syns inte på objektet idag; en spatial join mot en sådan "falsk" punkt kan ge missvisande resultat. Lägg till `attributes.location_precision` (`exact`/`kommun`/`lan`), satt per källa vid skördning, så framtida funktioner (t.ex. polygon-sökning, se nedan) kan välja rätt matchningslogik per objekt i stället för att anta att alla punkter är exakta
 
-14. **Polygon-sökning: händelser inom ritad yta** — kräver polygonverktyget (punkt 7) samt precisionsnivå-taggen (punkt 13) för att fungera korrekt. Tre träfftyper i samma modal: exakta träffar inuti polygonen (`ST_Within`), kommunnivå-träffar för objekt vars polygon skär en eller flera kommuner, länsnivå-träffar för det som bara har grov plats. Norrbottens kommunstorlekar gör kommunnivå-träffar potentiellt bullriga (en polygon i centrala Kiruna kan dra in händelser 15 mil bort) — bör visas nedtonat/separat från exakta träffar, inte blandat rakt av
+13. **Polygon-sökning: händelser inom ritad yta** — kräver polygonverktyget (punkt 6) samt precisionsnivå-taggen (punkt 12) för att fungera korrekt. Tre träfftyper i samma modal: exakta träffar inuti polygonen (`ST_Within`), kommunnivå-träffar för objekt vars polygon skär en eller flera kommuner, länsnivå-träffar för det som bara har grov plats. Norrbottens kommunstorlekar gör kommunnivå-träffar potentiellt bullriga (en polygon i centrala Kiruna kan dra in händelser 15 mil bort) — bör visas nedtonat/separat från exakta träffar, inte blandat rakt av
 
-15. **Aviseringar via SMS/e-post för varningar** — larm (alert_events) syns idag bara i appen (banner + kvitteringsbar lista i sidopanelen), så den som inte har appen öppen missar dem. Skicka en avisering via SMS (46elks är redan integrerat för inkommande, kräver utgående-stöd) eller e-post (Mailbox.org-SMTP finns i infrastrukturen men är inte kopplat till appen) när en varning triggas — konfigurerbart per användare, både vilka regler/kritikalitetsnivåer man vill aviseras om och via vilken kanal
+14. **Aviseringar via SMS/e-post för varningar** — larm (alert_events) syns idag bara i appen (banner + kvitteringsbar lista i sidopanelen), så den som inte har appen öppen missar dem. Skicka en avisering via SMS (46elks är redan integrerat för inkommande, kräver utgående-stöd) eller e-post (Mailbox.org-SMTP finns i infrastrukturen men är inte kopplat till appen) när en varning triggas — konfigurerbart per användare, både vilka regler/kritikalitetsnivåer man vill aviseras om och via vilken kanal
 
 ---
 
