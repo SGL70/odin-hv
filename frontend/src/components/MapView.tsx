@@ -23,6 +23,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { STATUS } from '../styles/tokens';
 import { io } from 'socket.io-client';
 import { STYLE, DRAW_LAYERS, POLYGON_LAYERS, LINE_LAYERS, unclassifiedRingLayer } from '../lib/mapConfig';
+import { lineLengthM, polygonAreaM2, formatDistance, formatArea } from '../lib/geoMath';
 
 function geometryCenter(geometry: GeoJSON.Geometry): [number, number] | null {
   if (geometry.type === 'Point') return geometry.coordinates as [number, number];
@@ -107,6 +108,11 @@ export function MapView() {
   const [addDialog, setAddDialog] = useState<{ lngLat: maplibregl.LngLat } | null>(null);
   const [polygonPoints, setPolygonPoints] = useState<[number, number][]>([]);
   const [polygonReady, setPolygonReady] = useState(false);
+  // Polygon-/mätverktyg (roadmap #6/#7) — helt egen state, separat från ovanstående
+  // polygonPoints/polygonReady som är hårt kopplade till add-feature-flödet (submitNew m.m.).
+  // Dessa verktyg skapar inga databasobjekt, bara en avläsning (area/distans).
+  const [activeTool, setActiveTool] = useState<'polygon' | 'measure' | null>(null);
+  const [toolPoints, setToolPoints] = useState<[number, number][]>([]);
   const [newName, setNewName] = useState('');
   const [newFields, setNewFields] = useState<Record<string, string>>({});
   const [mapLoaded, setMapLoaded] = useState(false);
@@ -712,12 +718,69 @@ export function MapView() {
     }
   }, [polygonPoints]);
 
+  // Polygon-/mätverktyg (roadmap #6/#7) — egen liveförhandsvisning, egna käll-/lagernamn
+  // (tool-preview-*) så den aldrig krockar med draw-preview/draw-vertices ovan.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !map.isStyleLoaded()) return;
+    const pts = toolPoints;
+    const isPolygon = activeTool === 'polygon';
+    const ring: [number, number][] = isPolygon && pts.length >= 2 ? [...pts, pts[0]] : pts;
+    const lineGeojson: GeoJSON.FeatureCollection = pts.length >= 2 ? {
+      type: 'FeatureCollection',
+      features: [{
+        type: 'Feature',
+        geometry: isPolygon ? { type: 'Polygon', coordinates: [ring] } : { type: 'LineString', coordinates: pts },
+        properties: {},
+      }],
+    } : { type: 'FeatureCollection', features: [] };
+
+    const vertexGeojson: GeoJSON.FeatureCollection = {
+      type: 'FeatureCollection',
+      features: pts.map(p => ({ type: 'Feature', geometry: { type: 'Point', coordinates: p }, properties: {} })),
+    };
+
+    if (map.getSource('tool-preview')) {
+      (map.getSource('tool-preview') as maplibregl.GeoJSONSource).setData(lineGeojson);
+      (map.getSource('tool-vertices') as maplibregl.GeoJSONSource).setData(vertexGeojson);
+    } else {
+      map.addSource('tool-preview', { type: 'geojson', data: lineGeojson });
+      map.addSource('tool-vertices', { type: 'geojson', data: vertexGeojson });
+      map.addLayer({ id: 'tool-preview-fill', type: 'fill', source: 'tool-preview', paint: { 'fill-color': '#4fd1e8', 'fill-opacity': 0.15 } });
+      map.addLayer({ id: 'tool-preview-line', type: 'line', source: 'tool-preview', paint: { 'line-color': '#4fd1e8', 'line-width': 2, 'line-dasharray': [3, 2] } });
+      map.addLayer({ id: 'tool-preview-dots', type: 'circle', source: 'tool-vertices', paint: { 'circle-radius': 5, 'circle-color': '#4fd1e8', 'circle-stroke-color': '#fff', 'circle-stroke-width': 1.5 } });
+    }
+  }, [toolPoints, activeTool]);
+
+  // Klick-hanterare för polygon-/mätverktyget — lägger till en punkt per klick medan verktyget är aktivt
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    const onClick = (e: maplibregl.MapMouseEvent) => {
+      if (!activeTool) return;
+      setToolPoints(prev => [...prev, [e.lngLat.lng, e.lngLat.lat]]);
+    };
+    map.on('click', onClick);
+    return () => { map.off('click', onClick); };
+  }, [activeTool]);
+
+  // Escape stänger aktivt verktyg eller avbryter add-läget — vanligt i klick-tunga ritflöden
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      if (activeTool) closeTool();
+      else if (addMode) cancelAdd();
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [activeTool, addMode]);
+
   // Single map-level click handler — picks topmost feature (point > line) via queryRenderedFeatures
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !mapLoaded) return;
     const handleClick = (e: maplibregl.MapMouseEvent) => {
-      if (addMode) return;
+      if (addMode || activeTool) return;
       try {
         // Build clickable layer list — include cluster layer only if it exists
         const clusterLayerId = 'lyr-police_events-cluster';
@@ -833,7 +896,7 @@ export function MapView() {
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
-    map.getCanvas().style.cursor = addMode ? 'crosshair' : '';
+    map.getCanvas().style.cursor = (addMode || activeTool) ? 'crosshair' : '';
 
     const onClick = (e: maplibregl.MapMouseEvent) => {
       if (!addMode) return;
@@ -847,7 +910,7 @@ export function MapView() {
     };
     map.on('click', onClick);
     return () => { map.off('click', onClick); };
-  }, [addMode, isPolygonMode]);
+  }, [addMode, isPolygonMode, activeTool]);
 
   // Nålmarkör på platsen där ett nytt punktobjekt just klickats ut — syns tills objektet är
   // sparat (då tar det riktiga lagrets ikon/milsymbol över) eller placeringen avbryts, så man
@@ -914,6 +977,20 @@ export function MapView() {
     setPolygonPoints([]);
     setPolygonReady(false);
     setAddDialog(null);
+  };
+
+  const closeTool = () => {
+    setActiveTool(null);
+    setToolPoints([]);
+  };
+
+  const toggleTool = (tool: 'polygon' | 'measure') => {
+    setActiveTool(t => {
+      if (t === tool) { setToolPoints([]); return null; }
+      if (addMode) cancelAdd();
+      setToolPoints([]);
+      return tool;
+    });
   };
 
   const toggleLayer = (id: LayerId) => {
@@ -1027,6 +1104,8 @@ export function MapView() {
         <button className="btn-ghost btn-sm" onClick={() => setShowDash(d => !d)}>📊 Dashboard</button>
         <button className="btn-ghost btn-sm" onClick={() => toggleSidePanel('analysis')}>📊 Analys</button>
         <button className="btn-ghost btn-sm" onClick={() => toggleSidePanel('criticality')}>🎯 Kritiska objekt</button>
+        <button className={activeTool === 'polygon' ? 'btn-primary btn-sm' : 'btn-ghost btn-sm'} onClick={() => toggleTool('polygon')}>📐 Polygon</button>
+        <button className={activeTool === 'measure' ? 'btn-primary btn-sm' : 'btn-ghost btn-sm'} onClick={() => toggleTool('measure')}>📏 Mät</button>
         {canEdit && <button className="btn-ghost btn-sm" onClick={() => toggleSidePanel('reports')}>🕵 Rapporter</button>}
         {canEdit && (
           <button className="btn-ghost btn-sm" onClick={() => toggleSidePanel('smsTips')} style={{ position: 'relative' }}>
@@ -1065,6 +1144,7 @@ export function MapView() {
             className={addMode ? 'btn-danger btn-sm' : 'btn-primary btn-sm'}
             onClick={() => {
               if (addMode) { cancelAdd(); return; }
+              closeTool();
               setAddLayer('intelligence_reports');
               setAddMode(true);
             }}
@@ -1224,6 +1304,27 @@ export function MapView() {
               {isLineMode ? 'Avsluta linje' : 'Avsluta yta'}
             </button>
           )}
+        </div>
+      )}
+
+      {activeTool && (
+        <div style={{
+          position: 'absolute', bottom: 60, left: '50%', transform: 'translateX(-50%)',
+          background: '#1e1e30cc', border: '1px solid #4fd1e8', borderRadius: 8,
+          padding: '8px 16px', fontSize: 13, color: '#4fd1e8', zIndex: 10,
+          display: 'flex', alignItems: 'center', gap: 12,
+        }}>
+          {activeTool === 'polygon' ? (
+            toolPoints.length < 3
+              ? `Klicka punkter för ytan (${toolPoints.length} av minst 3)`
+              : `Yta: ${formatArea(polygonAreaM2(toolPoints))}`
+          ) : (
+            toolPoints.length < 2
+              ? `Klicka punkter för sträckan (${toolPoints.length} av minst 2)`
+              : `Sträcka: ${formatDistance(lineLengthM(toolPoints))}`
+          )}
+          <button className="btn-ghost btn-sm" onClick={() => setToolPoints([])}>Rensa</button>
+          <button className="btn-ghost btn-sm" onClick={closeTool}>✕ Stäng</button>
         </div>
       )}
     </div>
