@@ -723,7 +723,10 @@ export function MapView() {
         const extraLayers = map.getLayer(clusterLayerId) ? [clusterLayerId] : [];
         const layerIds = [
           ...extraLayers,
-          ...LAYERS.flatMap(l => [`lyr-${l.id}`, `lyr-${l.id}-outline`, `hit-${l.id}`])
+          // crit-/unclass-: ringarna har större radie (14/19) än basmarkören (8) och är det
+          // mest synliga målet att klicka på — utan dem i listan missar queryRenderedFeatures
+          // klick som träffar ringen men inte den lilla prick i mitten.
+          ...LAYERS.flatMap(l => [`lyr-${l.id}`, `lyr-${l.id}-outline`, `hit-${l.id}`, `crit-${l.id}`, `unclass-${l.id}`])
             .filter(id => !!map.getLayer(id)),
         ];
 
@@ -1133,7 +1136,7 @@ export function MapView() {
         <UnclassifiedPanel
           features={features}
           onClose={() => setShowUnclassified(false)}
-          onSelect={f => { setSelected(f); centerOnFeature(f); }}
+          onSelect={f => { setSelected(f); centerOnFeature(f); setShowUnclassified(false); }}
         />
       )}
 
