@@ -55,11 +55,14 @@ router.get('/', requireAuth, async (req, res) => {
     }
 
     if (opomr === '1') {
+      // ST_Intersects, inte ST_Within — en storskalig polygon (t.ex. en SMHI-länsvarning som
+      // täcker alla kommuner samtidigt) ligger aldrig HELT innanför en enda kommungräns, men ska
+      // ändå räknas som relevant för OpOmr så snart den överlappar minst en av kommunerna.
       conditions.push(`EXISTS (
         SELECT 1 FROM municipalities m
         JOIN settings s ON s.key = 'op_municipalities'
         WHERE m.short_name = ANY(ARRAY(SELECT jsonb_array_elements_text(s.value)))
-          AND ST_Within(f.geom, m.geom)
+          AND ST_Intersects(f.geom, m.geom)
       )`);
     }
 
