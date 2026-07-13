@@ -287,7 +287,12 @@ export function FeaturePanel({
           )}
         </div>
         {layerCfg?.fields.map(f => {
-          const val = fields[f.key];
+          // Aldrig undefined: flera lager delar fältnycklar (t.ex. "description"), och ett
+          // kontrollerat React-element (textarea/input/select) som får value={undefined} slutar
+          // vara kontrollerat — DOM-noden (återanvänd via key={f.key} när man byter mellan två
+          // objekt vars lager delar samma nyckel) behåller då sitt GAMLA visade värde i stället
+          // för att tömmas, trots att den nya featurens data faktiskt saknar värdet.
+          const val = fields[f.key] ?? '';
           if (!canEdit && !val && val !== '0') return null;
           const isMultiline = MULTILINE_KEYS.has(f.key) || (val && val.length > 80);
           if (!canEdit) {
