@@ -6,7 +6,7 @@ const cors = require('cors');
 const helmet = require('helmet');
 const bcrypt = require('bcryptjs');
 const db = require('./db');
-const { ensureAlertSchema, ensureIntelligenceReportsLayer, ensureRailwaySituationsLayer, ensureFeatureHistorySchema, ensureUserPreferencesColumn, ensureSmsTablesSchema, ensureLastLoginColumn, ensureNewsReportsLayer, ensureNewsSchema, ensureLocationPrecisionBackfill } = require('./migrations');
+const { ensureAlertSchema, ensureIntelligenceReportsLayer, ensureRailwaySituationsLayer, ensureFeatureHistorySchema, ensureUserPreferencesColumn, ensureSmsTablesSchema, ensureLastLoginColumn, ensureNewsReportsLayer, ensureNewsSchema, ensureLocationPrecisionBackfill, ensureWeatherWarningsLayer } = require('./migrations');
 const { pollAllSources } = require('./services/newsFeeds');
 
 const app = express();
@@ -31,6 +31,7 @@ app.use('/api/settings', require('./routes/settings'));
 app.use('/api/sms', require('./routes/sms'));
 app.use('/api/alerts', require('./routes/alerts'));
 app.use('/api/news', require('./routes/news'));
+app.use('/api/weather', require('./routes/weather'));
 app.use('/api/uploads', require('./routes/uploads'));
 const UPLOAD_DIR = process.env.UPLOAD_DIR || '/app/uploads';
 app.use('/uploads', express.static(UPLOAD_DIR));
@@ -115,6 +116,7 @@ async function start() {
   await ensureNewsReportsLayer();
   await ensureNewsSchema();
   await ensureLocationPrecisionBackfill();
+  await ensureWeatherWarningsLayer();
   fs.mkdirSync(UPLOAD_DIR, { recursive: true });
   scheduleDailySnapshot();
   scheduleNewsPolling();

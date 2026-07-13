@@ -12,7 +12,7 @@ const FEATURE_LAYERS = [
   'maintenance', 'hygiene', 'staging_areas', 'transshipment', 'cameras', 'powerlines', 'telecom',
   'railways', 'ports', 'airports', 'medical', 'emergency', 'tunnels', 'fording_points',
   'police_events', 'road_situations', 'power_outages', 'sms_alerts', 'intelligence_reports',
-  'railway_situations', 'news_reports',
+  'railway_situations', 'news_reports', 'weather_warnings',
 ];
 
 async function setFeatureLayerCheck(logSuffix) {
@@ -230,8 +230,14 @@ async function ensureLocationPrecisionBackfill() {
   console.log('location_precision-bakfyllnad klar');
 }
 
+// Utökar features_layer_check med 'weather_warnings' (SMHI Impact Based Weather Warnings).
+async function ensureWeatherWarningsLayer() {
+  await setFeatureLayerCheck('weather_warnings');
+}
+
 module.exports = {
   ensureAlertSchema, ensureIntelligenceReportsLayer, ensureRailwaySituationsLayer, ensureFeatureHistorySchema,
   ensureUserPreferencesColumn, ensureSmsTablesSchema, ensureLastLoginColumn,
   ensureNewsReportsLayer, ensureNewsSchema, ensureLocationPrecisionBackfill,
+  ensureWeatherWarningsLayer,
 };

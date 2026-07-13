@@ -95,12 +95,30 @@ export interface AlertEvent {
   created_at: string;
 }
 
+export interface WeatherHourly {
+  time: string;
+  temperature: number | null;
+  wind_direction: number | null;
+  wind_speed: number | null;
+  wind_gust: number | null;
+  precipitation_mm: number | null;
+  precipitation_probability: number | null;
+}
+
+export interface WeatherForecast {
+  lat: number;
+  lng: number;
+  reference_time: string | null;
+  current: WeatherHourly | null;
+  hourly: WeatherHourly[];
+}
+
 export interface CatchupData {
   alerts: AlertEvent[];
   changelogEntries: ChangelogEntry[];
 }
 
-export type LayerId = 'fuel' | 'food' | 'water' | 'raw_materials' | 'vehicles' | 'firewood' | 'consumables' | 'roads' | 'bridges' | 'maintenance' | 'hygiene' | 'staging_areas' | 'transshipment' | 'cameras' | 'powerlines' | 'telecom' | 'railways' | 'ports' | 'airports' | 'medical' | 'emergency' | 'tunnels' | 'fording_points' | 'police_events' | 'road_situations' | 'power_outages' | 'sms_alerts' | 'intelligence_reports' | 'railway_situations' | 'news_reports';
+export type LayerId = 'fuel' | 'food' | 'water' | 'raw_materials' | 'vehicles' | 'firewood' | 'consumables' | 'roads' | 'bridges' | 'maintenance' | 'hygiene' | 'staging_areas' | 'transshipment' | 'cameras' | 'powerlines' | 'telecom' | 'railways' | 'ports' | 'airports' | 'medical' | 'emergency' | 'tunnels' | 'fording_points' | 'police_events' | 'road_situations' | 'power_outages' | 'sms_alerts' | 'intelligence_reports' | 'railway_situations' | 'news_reports' | 'weather_warnings';
 
 export interface LayerConfig {
   id: LayerId;
@@ -544,6 +562,21 @@ export const LAYERS: LayerConfig[] = [
       { key: 'description',   label: 'Sammanfattning', type: 'text' },
       { key: 'link',          label: 'Länk',         type: 'text' },
       { key: 'published_at',  label: 'Publicerad',   type: 'text' },
+    ],
+  },
+  {
+    id: 'weather_warnings',
+    label: 'Vädervarningar',
+    color: '#e8a33c',
+    icon: '⛈',
+    group: 'events',
+    fields: [
+      { key: 'event_type',  label: 'Typ',          type: 'text' },
+      { key: 'severity',    label: 'Allvarlighet',  type: 'text' },
+      { key: 'start_time',  label: 'Gäller från',   type: 'text' },
+      { key: 'end_time',    label: 'Gäller till',   type: 'text' },
+      { key: 'description', label: 'Beskrivning',   type: 'text' },
+      { key: 'source',      label: 'Källa',         type: 'text' },
     ],
   },
   {

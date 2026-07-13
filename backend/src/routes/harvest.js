@@ -880,6 +880,103 @@ router.post('/railway-situations/scrape', requireAuth, requireRole('editor', 'ad
   } finally { activeJobs.delete('railway-situations'); }
 });
 
+// ── SMHI Vädervarningar (Impact Based Weather Warnings) ───────────────────────
+// Öppen data, ingen API-nyckel. Varje varning kan ha flera warningAreas (ett per
+// län/område); vi bryter ut en feature per warningArea eftersom det är den nivån
+// som har egen geometri, giltighetstid och allvarlighetsgrad.
+
+const SMHI_WARNINGS_URL = 'https://opendata-download-warnings.smhi.se/ibww/api/version/1/warning.json';
+
+function bboxOfRing(coords) {
+  let minlng = Infinity, minlat = Infinity, maxlng = -Infinity, maxlat = -Infinity;
+  for (const [lng, lat] of coords) {
+    if (lng < minlng) minlng = lng;
+    if (lng > maxlng) maxlng = lng;
+    if (lat < minlat) minlat = lat;
+    if (lat > maxlat) maxlat = lat;
+  }
+  return { minlng, minlat, maxlng, maxlat };
+}
+
+function bboxOverlaps(a, b) {
+  return a.minlng <= b.maxlng && a.maxlng >= b.minlng && a.minlat <= b.maxlat && a.maxlat >= b.minlat;
+}
+
+async function fetchSmhiWarnings(bbox) {
+  const res = await fetch(SMHI_WARNINGS_URL, { signal: AbortSignal.timeout(15000) });
+  if (!res.ok) throw new Error(`SMHI warnings HTTP ${res.status}`);
+  const warnings = await res.json();
+  const now = new Date().toISOString();
+  const features = [];
+
+  for (const w of warnings) {
+    for (const wa of w.warningAreas || []) {
+      const geom = wa.area?.geometry;
+      if (!geom || geom.type !== 'Polygon') continue;
+      const areaBbox = bboxOfRing(geom.coordinates[0]);
+      if (!bboxOverlaps(areaBbox, bbox)) continue;
+
+      const firstDesc = (wa.descriptions || [])[0]?.text?.sv || '';
+      features.push({
+        type: 'Feature',
+        geometry: geom,
+        properties: {
+          layer: 'weather_warnings',
+          name: `${wa.eventDescription?.sv || w.event?.sv || 'Vädervarning'} — ${wa.areaName?.sv || ''}`,
+          external_id: `${w.id}_${wa.id}`,
+          event_type: w.event?.sv || '',
+          severity: wa.warningLevel?.sv || '',
+          start_time: wa.approximateStart || '',
+          end_time: wa.approximateEnd || '',
+          description: firstDesc,
+          source: 'SMHI',
+          scraped_at: now,
+        },
+      });
+    }
+  }
+  return features;
+}
+
+router.get('/weather-warnings/preview', requireAuth, async (_req, res) => {
+  try {
+    const bbox = await getOpOmrBbox();
+    const features = await fetchSmhiWarnings(bbox);
+    res.json({ count: features.length, features });
+  } catch (err) {
+    res.status(502).json({ error: err.message });
+  }
+});
+
+router.post('/weather-warnings/scrape', requireAuth, requireRole('editor', 'admin'), async (req, res) => {
+  const ctrl = startJob('weather-warnings');
+  res.json({ started: true });
+  const io = req.io;
+  io.emit('harvest:progress', { source: 'weather-warnings', phase: 'Hämtar från SMHI…', done: 0, total: 1 });
+  try {
+    if (ctrl.signal.aborted) throw cancelledError('weather-warnings');
+    const bbox = await getOpOmrBbox();
+    const features = await fetchSmhiWarnings(bbox);
+    if (ctrl.signal.aborted) throw cancelledError('weather-warnings');
+    io.emit('harvest:progress', { source: 'weather-warnings', phase: 'Sparar…', done: 1, total: 1 });
+    // Rensa varningar som gått ut (arkiveras, raderas inte) — SMHI tar själva bort dem ur
+    // flödet men vi vill inte att en tillfällig felad skördning låter en gammal varning ligga kvar.
+    await archiveAndDelete(
+      `layer = 'weather_warnings' AND attributes->>'end_time' <> '' AND (attributes->>'end_time')::timestamptz < NOW()`,
+      [],
+      'ttl_expired',
+    );
+    const identityMap = await captureIdentity('weather_warnings', null);
+    await clearHarvested('weather_warnings');
+    const { imported, skipped } = await saveFeatures(features, req.user?.id || 0, identityMap);
+    io.emit('harvest:done', { source: 'weather-warnings', imported, skipped });
+    if (imported > 0) io.emit('features:reloaded', {});
+    afterHarvest(io);
+  } catch (err) {
+    io.emit('harvest:done', { source: 'weather-warnings', imported: 0, skipped: 0, error: err.message });
+  } finally { activeJobs.delete('weather-warnings'); }
+});
+
 router.get('/bridges/preview', requireAuth, async (_req, res) => {
   try {
     const features = await fetchBridges();

@@ -19,6 +19,7 @@ import { UnclassifiedPanel } from './UnclassifiedPanel';
 import { PolygonSearchPanel } from './PolygonSearchPanel';
 import { SmsTipsPanel } from './SmsTipsPanel';
 import { NewsPanel } from './NewsPanel';
+import { WeatherPanel } from './WeatherPanel';
 import { registerReportIcons, buildReportIconExpression } from '../lib/reportSymbols';
 import { useAuth } from '../contexts/AuthContext';
 import { STATUS } from '../styles/tokens';
@@ -83,7 +84,7 @@ export function MapView() {
   // en enda "vilken är aktiv"-state i stället för sex oberoende booleaner, annars kan flera
   // stå öppna samtidigt och staplas osynligt på varandra (ett klick på en annan panelknapp
   // ser då ut att inte göra något eftersom den redan öppna panelen ligger kvar ovanpå).
-  type SidePanel = 'analysis' | 'reports' | 'criticality' | 'unclassified' | 'smsTips' | 'news' | 'polygonSearch';
+  type SidePanel = 'analysis' | 'reports' | 'criticality' | 'unclassified' | 'smsTips' | 'news' | 'weather' | 'polygonSearch';
   const [activeSidePanel, setActiveSidePanel] = useState<SidePanel | null>(null);
   const toggleSidePanel = (panel: SidePanel) => setActiveSidePanel(p => (p === panel ? null : panel));
   const [smsTipCount, setSmsTipCount] = useState(0);
@@ -92,6 +93,8 @@ export function MapView() {
   const [newsItemCount, setNewsItemCount] = useState(0);
   const [newsPickMode, setNewsPickMode] = useState(false);
   const [newsPickResult, setNewsPickResult] = useState<{ lat: number; lng: number } | null>(null);
+  const [weatherPickMode, setWeatherPickMode] = useState(false);
+  const [weatherPickResult, setWeatherPickResult] = useState<{ lat: number; lng: number } | null>(null);
   const [openAlerts, setOpenAlerts] = useState<AlertEvent[]>([]);
   const [bannerAlerts, setBannerAlerts] = useState<AlertEvent[]>([]);
   const [opomrFilter, setOpomrFilter] = useState(() => localStorage.getItem('opomrFilter') === 'true');
@@ -976,6 +979,30 @@ export function MapView() {
     return () => { marker.remove(); };
   }, [newsPickResult]);
 
+  // "Välj plats på karta" för Väder vid plats — samma mönster som Nyheter/Tips ovan, se WeatherPanel.tsx.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    if (weatherPickMode) map.getCanvas().style.cursor = 'crosshair';
+    const onClick = (e: maplibregl.MapMouseEvent) => {
+      if (!weatherPickMode) return;
+      setWeatherPickResult({ lat: e.lngLat.lat, lng: e.lngLat.lng });
+      setWeatherPickMode(false);
+    };
+    map.on('click', onClick);
+    return () => {
+      map.off('click', onClick);
+      if (!addMode) map.getCanvas().style.cursor = '';
+    };
+  }, [weatherPickMode, addMode]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !weatherPickResult) return;
+    const marker = new maplibregl.Marker({ color: '#5bc0eb' }).setLngLat([weatherPickResult.lng, weatherPickResult.lat]).addTo(map);
+    return () => { marker.remove(); };
+  }, [weatherPickResult]);
+
   const cancelAdd = () => {
     setAddMode(false);
     setSelected(null);
@@ -1149,6 +1176,7 @@ export function MapView() {
             )}
           </button>
         )}
+        <button className="btn-ghost btn-sm" onClick={() => toggleSidePanel('weather')}>🌤 Väder</button>
         {canEdit && unclassifiedCount > 0 && (
           <button
             onClick={() => toggleSidePanel('unclassified')}
@@ -1260,6 +1288,16 @@ export function MapView() {
           onArmNewsPick={() => setNewsPickMode(true)}
           newsPickResult={newsPickResult}
           onConsumeNewsPick={() => setNewsPickResult(null)}
+        />
+      )}
+
+      {activeSidePanel === 'weather' && (
+        <WeatherPanel
+          onClose={() => { setActiveSidePanel(null); setWeatherPickMode(false); }}
+          weatherPickMode={weatherPickMode}
+          onArmWeatherPick={() => setWeatherPickMode(true)}
+          weatherPickResult={weatherPickResult}
+          onConsumeWeatherPick={() => setWeatherPickResult(null)}
         />
       )}
 

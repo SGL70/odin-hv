@@ -20,6 +20,7 @@ const EVENT_ICON_COLOR: Partial<Record<LayerId, string>> = {
   sms_alerts: '#4fa8e8',
   intelligence_reports: '#34c274',
   news_reports: '#16a085',
+  weather_warnings: '#e8a33c',
 };
 
 const DEFAULT_COLOR = '#9ea3c0';
@@ -168,6 +169,12 @@ const ICONS: Record<LayerId, IconRender> = {
     <>
       <rect x={2} y={2.5} width={12} height={11} rx={1} stroke={c} strokeWidth={1.3} fill="none" />
       <path d="M4.5 5.5h4M4.5 8h7M4.5 10.5h7" stroke={c} strokeWidth={1.1} />
+    </>
+  ),
+  weather_warnings: c => (
+    <>
+      <path d="M4.5 9.5a3 3 0 0 1 .3-6 3.6 3.6 0 0 1 6.8-1 3 3 0 0 1 .4 6" stroke={c} strokeWidth={1.2} fill="none" />
+      <path d="M8.5 9.5 6.5 12.5h2.5L7.5 15" stroke={c} strokeWidth={1.2} fill="none" />
     </>
   ),
 };

@@ -1,4 +1,4 @@
-import type { AlertRule, AlertRuleType, AlertRuleConfig, AlertEvent, AlertStatus, Feature, SmsTip, SmsSender, NewsSource, NewsItem } from './types';
+import type { AlertRule, AlertRuleType, AlertRuleConfig, AlertEvent, AlertStatus, Feature, SmsTip, SmsSender, NewsSource, NewsItem, WeatherForecast } from './types';
 
 const BASE = '/api';
 
@@ -104,6 +104,10 @@ export const api = {
       discard: (id: number) => req<{ ok: boolean }>('POST', `/news/items/${id}/discard`),
       restore: (id: number) => req<{ ok: boolean }>('POST', `/news/items/${id}/restore`),
     },
+  },
+
+  weather: {
+    forecast: (lat: number, lng: number) => req<WeatherForecast>('GET', `/weather/forecast?lat=${lat}&lng=${lng}`),
   },
 
   alerts: {
