@@ -66,11 +66,11 @@ const CATEGORIES: Category[] = [
     id: 'weather',
     label: 'Vädervarningar',
     icon: '⛈',
-    defaultSource: 'smhi-warnings',
+    defaultSource: 'weather-warnings',
     auto: true,
     note: 'SMHI IBW · OpOmr-filtrerat',
     sources: [
-      { id: 'smhi-warnings', label: 'SMHI IBW', previewEndpoint: '/api/harvest/weather-warnings/preview', scrapeEndpoint: '/api/harvest/weather-warnings/scrape' },
+      { id: 'weather-warnings', label: 'SMHI IBW', previewEndpoint: '/api/harvest/weather-warnings/preview', scrapeEndpoint: '/api/harvest/weather-warnings/scrape' },
     ],
   },
   {
