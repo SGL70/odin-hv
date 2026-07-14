@@ -24,9 +24,10 @@ interface Props {
   onArmWeatherPick: () => void;
   weatherPickResult: { lat: number; lng: number } | null;
   onConsumeWeatherPick: () => void;
+  onCoordsChange: (c: { lat: number; lng: number } | null) => void;
 }
 
-export function WeatherPanel({ onClose, weatherPickMode, onArmWeatherPick, weatherPickResult, onConsumeWeatherPick }: Props) {
+export function WeatherPanel({ onClose, weatherPickMode, onArmWeatherPick, weatherPickResult, onConsumeWeatherPick, onCoordsChange }: Props) {
   const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(null);
   const [forecast, setForecast] = useState<WeatherForecast | null>(null);
   const [loading, setLoading] = useState(false);
@@ -35,8 +36,9 @@ export function WeatherPanel({ onClose, weatherPickMode, onArmWeatherPick, weath
   useEffect(() => {
     if (!weatherPickResult) return;
     setCoords(weatherPickResult);
+    onCoordsChange(weatherPickResult);
     onConsumeWeatherPick();
-  }, [weatherPickResult, onConsumeWeatherPick]);
+  }, [weatherPickResult, onConsumeWeatherPick, onCoordsChange]);
 
   useEffect(() => {
     if (!coords) return;

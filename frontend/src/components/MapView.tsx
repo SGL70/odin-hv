@@ -95,6 +95,10 @@ export function MapView() {
   const [newsPickResult, setNewsPickResult] = useState<{ lat: number; lng: number } | null>(null);
   const [weatherPickMode, setWeatherPickMode] = useState(false);
   const [weatherPickResult, setWeatherPickResult] = useState<{ lat: number; lng: number } | null>(null);
+  // Beständig, till skillnad från weatherPickResult ovan (som WeatherPanel nollställer direkt vid
+  // mottagning) — annars skapas och tas bort kartmarkören i praktiken samma ögonblick (ett kort
+  // "blink") eftersom useEffect-städningen kör så fort weatherPickResult blir null igen.
+  const [weatherCoords, setWeatherCoords] = useState<{ lat: number; lng: number } | null>(null);
   const [openAlerts, setOpenAlerts] = useState<AlertEvent[]>([]);
   const [bannerAlerts, setBannerAlerts] = useState<AlertEvent[]>([]);
   const [opomrFilter, setOpomrFilter] = useState(() => localStorage.getItem('opomrFilter') === 'true');
@@ -998,10 +1002,10 @@ export function MapView() {
 
   useEffect(() => {
     const map = mapRef.current;
-    if (!map || !weatherPickResult) return;
-    const marker = new maplibregl.Marker({ color: '#5bc0eb' }).setLngLat([weatherPickResult.lng, weatherPickResult.lat]).addTo(map);
+    if (!map || !weatherCoords) return;
+    const marker = new maplibregl.Marker({ color: '#5bc0eb' }).setLngLat([weatherCoords.lng, weatherCoords.lat]).addTo(map);
     return () => { marker.remove(); };
-  }, [weatherPickResult]);
+  }, [weatherCoords]);
 
   const cancelAdd = () => {
     setAddMode(false);
@@ -1293,11 +1297,12 @@ export function MapView() {
 
       {activeSidePanel === 'weather' && (
         <WeatherPanel
-          onClose={() => { setActiveSidePanel(null); setWeatherPickMode(false); }}
+          onClose={() => { setActiveSidePanel(null); setWeatherPickMode(false); setWeatherCoords(null); }}
           weatherPickMode={weatherPickMode}
           onArmWeatherPick={() => setWeatherPickMode(true)}
           weatherPickResult={weatherPickResult}
           onConsumeWeatherPick={() => setWeatherPickResult(null)}
+          onCoordsChange={setWeatherCoords}
         />
       )}
 
