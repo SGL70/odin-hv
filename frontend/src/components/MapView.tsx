@@ -987,7 +987,10 @@ export function MapView() {
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
-    if (weatherPickMode) map.getCanvas().style.cursor = 'crosshair';
+    // getCanvasContainer(), inte getCanvas() — det är containerdiven som äger "grab"-cursorn via
+    // MapLibres egen CSS-klass (maplibregl-canvas-container.maplibregl-interactive), så en
+    // inline-style på själva canvas-elementet vann aldrig över den.
+    if (weatherPickMode) map.getCanvasContainer().style.cursor = 'crosshair';
     const onClick = (e: maplibregl.MapMouseEvent) => {
       if (!weatherPickMode) return;
       setWeatherPickResult({ lat: e.lngLat.lat, lng: e.lngLat.lng });
@@ -996,7 +999,7 @@ export function MapView() {
     map.on('click', onClick);
     return () => {
       map.off('click', onClick);
-      if (!addMode) map.getCanvas().style.cursor = '';
+      if (!addMode) map.getCanvasContainer().style.cursor = '';
     };
   }, [weatherPickMode, addMode]);
 
