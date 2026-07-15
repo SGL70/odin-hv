@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { LAYERS } from '../types';
 import type { LayerId, LayerGroup, AlertEvent } from '../types';
 import { LayerIcon } from '../lib/layerIcons';
+import { IconChevronUp, IconChevronDown, IconSettings } from '../lib/uiIcons';
 
 interface Props {
   visible: Set<LayerId>;
@@ -128,7 +129,7 @@ export function Sidebar({
               </span>
             )}
             <button onClick={e => { e.stopPropagation(); toggleGroup('alerts'); }} style={{ background: 'none', border: 'none', color: '#555', fontSize: 11, cursor: 'pointer', padding: '0 2px' }}>
-              {expanded.has('alerts') ? '▲' : '▼'}
+              {expanded.has('alerts') ? <IconChevronUp size={11} /> : <IconChevronDown size={11} />}
             </button>
           </div>
           {expanded.has('alerts') && (
@@ -148,8 +149,8 @@ export function Sidebar({
               {isAdmin && (
                 <button
                   onClick={onManageAlertRules}
-                  style={{ display: 'block', width: 'calc(100% - 38px)', margin: '6px 10px 0 28px', padding: '4px 0', borderRadius: 4, fontSize: 11, background: '#2a2a40', color: '#aaa', border: '1px solid #444', cursor: 'pointer' }}
-                >⚙ Hantera regler</button>
+                  style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5, width: 'calc(100% - 38px)', margin: '6px 10px 0 28px', padding: '4px 0', borderRadius: 4, fontSize: 11, background: '#2a2a40', color: '#aaa', border: '1px solid #444', cursor: 'pointer' }}
+                ><IconSettings size={11} /> Hantera regler</button>
               )}
             </div>
           )}
@@ -175,7 +176,7 @@ export function Sidebar({
               Analys
             </span>
             <button onClick={() => toggleGroup('analysis')} style={{ background: 'none', border: 'none', color: '#555', fontSize: 11, cursor: 'pointer', padding: '0 2px' }}>
-              {analysisExpanded ? '▲' : '▼'}
+              {analysisExpanded ? <IconChevronUp size={11} /> : <IconChevronDown size={11} />}
             </button>
           </div>
           {analysisExpanded && (
@@ -221,7 +222,7 @@ export function Sidebar({
                   <span style={{ fontSize: 10, color: '#666', minWidth: 20, textAlign: 'right' }}>{totalCount}</span>
                 )}
                 <button onClick={() => toggleGroup(group.id)} style={{ background: 'none', border: 'none', color: '#555', fontSize: 11, cursor: 'pointer', padding: '0 2px' }}>
-                  {isExpanded ? '▲' : '▼'}
+                  {isExpanded ? <IconChevronUp size={11} /> : <IconChevronDown size={11} />}
                 </button>
               </div>
 
@@ -257,7 +258,7 @@ export function Sidebar({
           <div style={{ display: 'flex', alignItems: 'center', padding: '7px 10px 7px 12px', gap: 6, cursor: 'pointer' }}
             onClick={() => toggleGroup('basemap')}>
             <span style={{ fontSize: 12, flex: 1, color: '#ccc', fontWeight: 600 }}>🗺 Kartunderlag</span>
-            <span style={{ fontSize: 11, color: '#555' }}>{expanded.has('basemap') ? '▲' : '▼'}</span>
+            <span style={{ fontSize: 11, color: '#555' }}>{expanded.has('basemap') ? <IconChevronUp size={11} /> : <IconChevronDown size={11} />}</span>
           </div>
           {expanded.has('basemap') && (
             <div style={{ padding: '0 12px 10px' }}>

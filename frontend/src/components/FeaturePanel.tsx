@@ -5,6 +5,7 @@ import type { Feature, LayerId } from '../types';
 import { RelatedFeatures } from './RelatedFeatures';
 import { LayerIcon } from '../lib/layerIcons';
 import { useAuth } from '../contexts/AuthContext';
+import { IconClose } from '../lib/uiIcons';
 
 // Konverterar ISO-tidsträng (lagras alltid som UTC, t.ex. 'YYYY-MM-DDTHH:mm:ss.sssZ') till
 // det lokala 'YYYY-MM-DDTHH:mm'-format som <input type="datetime-local"> kräver, och tillbaka.
@@ -133,7 +134,7 @@ export function FeaturePanel({
             <LayerIcon id={addLayer} size={15} />
             {pendingPlacement ? `Nytt ${layerCfg?.label}` : 'Lägg till objekt'}
           </span>
-          <button className="btn-ghost btn-sm" onClick={onClose}>✕</button>
+          <button className="btn-ghost btn-sm" onClick={onClose}><IconClose /></button>
         </div>
         <div style={{ padding: 14, overflowY: 'auto', flex: 1 }}>
           {!pendingPlacement && (
@@ -213,7 +214,7 @@ export function FeaturePanel({
           {feature.properties.layer && <LayerIcon id={feature.properties.layer as LayerId} size={15} />}
           {feature.properties.name}
         </span>
-        <button className="btn-ghost btn-sm" onClick={onClose}>✕</button>
+        <button className="btn-ghost btn-sm" onClick={onClose}><IconClose /></button>
       </div>
 
       {/* Group navigation */}

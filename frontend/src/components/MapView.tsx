@@ -20,6 +20,7 @@ import { PolygonSearchPanel } from './PolygonSearchPanel';
 import { SmsTipsPanel } from './SmsTipsPanel';
 import { NewsPanel } from './NewsPanel';
 import { WeatherPanel } from './WeatherPanel';
+import { IconClose, IconSettings, IconImport } from '../lib/uiIcons';
 import { registerReportIcons, buildReportIconExpression } from '../lib/reportSymbols';
 import { useAuth } from '../contexts/AuthContext';
 import { STATUS } from '../styles/tokens';
@@ -1204,12 +1205,12 @@ export function MapView() {
               setAddMode(true);
             }}
           >
-            {addMode ? '✕ Avbryt' : '+ 7S'}
+            {addMode ? <><IconClose size={12} /> Avbryt</> : '+ 7S'}
           </button>
         )}
-        {canEdit && <button className="btn-ghost btn-sm" onClick={() => setShowImport(true)}>⬆ Importera</button>}
+        {canEdit && <button className="btn-ghost btn-sm" onClick={() => setShowImport(true)}><IconImport size={13} /> Importera</button>}
         {user?.role === 'admin' && (
-          <button className="btn-ghost btn-sm" onClick={() => setShowSettings(true)}>⚙ Inställningar</button>
+          <button className="btn-ghost btn-sm" onClick={() => setShowSettings(true)}><IconSettings size={13} /> Inställningar</button>
         )}
         <div style={{ flex: 1 }} />
         {catchupData && (catchupData.alerts.length + catchupData.changelogEntries.length > 0) && (
@@ -1403,7 +1404,7 @@ export function MapView() {
             </button>
           )}
           <button className="btn-ghost btn-sm" onClick={() => setToolPoints([])}>Rensa</button>
-          <button className="btn-ghost btn-sm" onClick={closeTool}>✕ Stäng</button>
+          <button className="btn-ghost btn-sm" onClick={closeTool}><IconClose size={12} /> Stäng</button>
         </div>
       )}
     </div>

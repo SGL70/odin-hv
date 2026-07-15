@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { api } from '../api';
 import { SWEDEN } from '../lib/sweden';
 import type { NewsItem } from '../types';
+import { IconClose, IconChevronUp, IconChevronDown } from '../lib/uiIcons';
 
 // Mediabevakning — granskningsinkorg för RSS-skördade nyhetsrubriker (se backend/src/routes/news.js
 // och services/newsFeeds.js). Ligger helt utanför kartan tills någon läst rubriken och geotaggat den
@@ -125,7 +126,7 @@ export function NewsPanel({ onClose, onTagged, newsPickMode, onArmNewsPick, news
     }}>
       <div style={{ padding: '10px 14px 8px', borderBottom: '1px solid #333', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <span style={{ fontWeight: 700, fontSize: 14 }}>📰 Nyheter</span>
-        <button className="btn-ghost btn-sm" onClick={onClose}>✕</button>
+        <button className="btn-ghost btn-sm" onClick={onClose}><IconClose /></button>
       </div>
 
       <div style={{ flex: 1, overflowY: 'auto', padding: 10 }}>
@@ -215,7 +216,7 @@ export function NewsPanel({ onClose, onTagged, newsPickMode, onArmNewsPick, news
             style={{ cursor: 'pointer', fontSize: 11, color: '#888', display: 'flex', justifyContent: 'space-between', padding: '2px 2px 6px' }}
           >
             <span>🗑 Läst (Slasken)</span>
-            <span>{discardedOpen ? '▲' : '▼'}</span>
+            <span>{discardedOpen ? <IconChevronUp /> : <IconChevronDown />}</span>
           </div>
           {discardedOpen && (
             <div>

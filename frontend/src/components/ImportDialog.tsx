@@ -2,6 +2,7 @@ import { useState, useRef } from 'react';
 import { api } from '../api';
 import { LAYERS } from '../types';
 import type { LayerId } from '../types';
+import { IconClose } from '../lib/uiIcons';
 
 interface Props { onClose: () => void; onImported: (layer: LayerId) => void }
 
@@ -26,7 +27,7 @@ export function ImportDialog({ onClose, onImported }: Props) {
       <div style={dialog}>
         <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 16 }}>
           <h3 style={{ fontSize: 16 }}>Importera CSV</h3>
-          <button className="btn-ghost btn-sm" onClick={onClose}>✕</button>
+          <button className="btn-ghost btn-sm" onClick={onClose}><IconClose /></button>
         </div>
 
         <div className="field-row">

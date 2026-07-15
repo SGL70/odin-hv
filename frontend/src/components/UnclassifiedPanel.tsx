@@ -1,6 +1,7 @@
 import { useMemo } from 'react';
 import type { Feature } from '../types';
 import { LayerIcon } from '../lib/layerIcons';
+import { IconClose } from '../lib/uiIcons';
 
 // Klickbar motsvarighet till "🚩 Oklassade (N)"-badgen i topbaren — badgen visade tidigare
 // bara ett antal utan något sätt att faktiskt hitta/välja objekten (CriticalityPanel.tsx:s
@@ -25,7 +26,7 @@ export function UnclassifiedPanel({ features, onClose, onSelect }: Props) {
     }}>
       <div style={{ padding: '10px 14px 8px', borderBottom: '1px solid #333', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <span style={{ fontWeight: 700, fontSize: 14 }}>🚩 Oklassade rapporter</span>
-        <button className="btn-ghost btn-sm" onClick={onClose}>✕</button>
+        <button className="btn-ghost btn-sm" onClick={onClose}><IconClose /></button>
       </div>
       <div style={{ flex: 1, overflowY: 'auto', padding: 10 }}>
         {objects.length === 0 ? (

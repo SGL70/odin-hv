@@ -3,6 +3,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { SWEDEN, type County } from '../lib/sweden';
 import { api } from '../api';
 import type { NewsSource } from '../types';
+import { IconClose, IconSettings, IconChevronUp, IconChevronDown, IconWarning } from '../lib/uiIcons';
 
 interface Props {
   onClose: () => void;
@@ -293,8 +294,8 @@ export function SettingsModal({ onClose }: Props) {
           och flikraden med den, varje gång flikbyte ändrar innehållshöjden. */}
       <div style={{ background: '#1e1e30', border: '1px solid #444', borderRadius: 10, padding: 24, width: 640, maxHeight: '80vh', overflowY: 'auto' }} onClick={e => e.stopPropagation()}>
         <div style={{ display: 'flex', alignItems: 'center', marginBottom: 16 }}>
-          <h3 style={{ fontSize: 14, fontWeight: 700, color: '#eee', flex: 1, margin: 0 }}>⚙ Inställningar</h3>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#666', fontSize: 16, cursor: 'pointer' }}>✕</button>
+          <h3 style={{ fontSize: 14, fontWeight: 700, color: '#eee', flex: 1, margin: 0, display: 'flex', alignItems: 'center', gap: 6 }}><IconSettings size={13} /> Inställningar</h3>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#666', fontSize: 16, cursor: 'pointer' }}><IconClose size={15} /></button>
         </div>
 
         <div style={{ display: 'flex', borderBottom: '1px solid #333', marginBottom: 16 }}>
@@ -357,7 +358,7 @@ export function SettingsModal({ onClose }: Props) {
                   <span
                     onClick={() => toggleExpand(county.name)}
                     style={{ fontSize: 10, color: '#444', cursor: 'pointer', padding: '0 2px' }}
-                  >{isExpanded ? '▲' : '▼'}</span>
+                  >{isExpanded ? <IconChevronUp size={10} /> : <IconChevronDown size={10} />}</span>
                 </div>
 
                 {/* Municipalities */}
@@ -414,8 +415,8 @@ export function SettingsModal({ onClose }: Props) {
         {activeTab === 'weighting' && <>
         {/* Kritikalitetsviktning */}
         <div style={{ marginBottom: 16 }}>
-          <div style={{ fontSize: 11, color: '#888', marginBottom: 10, textTransform: 'uppercase', letterSpacing: 0.5 }}>
-            ⚠ Kritikalitetsviktad störningsscore
+          <div style={{ fontSize: 11, color: '#888', marginBottom: 10, textTransform: 'uppercase', letterSpacing: 0.5, display: 'flex', alignItems: 'center', gap: 5 }}>
+            <IconWarning size={11} /> Kritikalitetsviktad störningsscore
           </div>
           <label style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
             <span style={{ fontSize: 12, color: '#aaa', flex: 1 }}>Avstånd till kritisk feature</span>
@@ -501,7 +502,7 @@ export function SettingsModal({ onClose }: Props) {
                   <span style={{ flex: 1, fontSize: 12, color: '#ddd' }}>{u.username}</span>
                   <span className={`badge badge-${u.role === 'admin' ? 'orange' : u.role === 'editor' ? 'blue' : 'green'}`}>{u.role}</span>
                   {u.id !== currentUser?.id && (
-                    <button onClick={() => deleteUser(u.id)} style={{ background: 'none', border: 'none', color: '#c55', fontSize: 13, cursor: 'pointer' }}>✕</button>
+                    <button onClick={() => deleteUser(u.id)} style={{ background: 'none', border: 'none', color: '#c55', fontSize: 13, cursor: 'pointer' }}><IconClose size={12} /></button>
                   )}
                 </div>
               ))}
@@ -634,7 +635,7 @@ export function SettingsModal({ onClose }: Props) {
                     <button className="btn-ghost btn-sm" onClick={() => toggleSourceEnabled(s)}>
                       {s.enabled ? 'Aktiv' : 'Avstängd'}
                     </button>
-                    <button className="btn-danger btn-sm" onClick={() => removeSource(s.id)}>✕</button>
+                    <button className="btn-danger btn-sm" onClick={() => removeSource(s.id)}><IconClose /></button>
                   </div>
                   {s.last_error && (
                     <div style={{ fontSize: 10, color: '#f2545b', marginTop: 4 }}>

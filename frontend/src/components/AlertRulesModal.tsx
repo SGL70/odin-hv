@@ -3,6 +3,7 @@ import { api } from '../api';
 import { LAYERS } from '../types';
 import type { AlertRule, AlertRuleType, AlertRuleConfig, Feature } from '../types';
 import { CriticalityObjectsList } from './CriticalityObjectsList';
+import { IconClose, IconWarning } from '../lib/uiIcons';
 
 interface Props {
   features: Feature[];
@@ -106,8 +107,8 @@ export function AlertRulesModal({ features, onClose }: Props) {
       {/* Ankrad mot toppen — formulärets höjd ändras med vald regeltyp, annars hoppar modalen */}
       <div style={{ background: '#1e1e30', border: '1px solid #444', borderRadius: 10, padding: 24, width: 420, maxHeight: '80vh', overflowY: 'auto' }} onClick={e => e.stopPropagation()}>
         <div style={{ display: 'flex', alignItems: 'center', marginBottom: 16 }}>
-          <h3 style={{ fontSize: 14, fontWeight: 700, color: '#eee', flex: 1, margin: 0 }}>⚠ Varningsregler</h3>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#666', fontSize: 16, cursor: 'pointer' }}>✕</button>
+          <h3 style={{ fontSize: 14, fontWeight: 700, color: '#eee', flex: 1, margin: 0, display: 'flex', alignItems: 'center', gap: 6 }}><IconWarning size={13} /> Varningsregler</h3>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#666', fontSize: 16, cursor: 'pointer' }}><IconClose size={15} /></button>
         </div>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 20 }}>
@@ -121,7 +122,7 @@ export function AlertRulesModal({ features, onClose }: Props) {
                 <div style={{ fontSize: 11, color: rule.enabled ? '#c7cae0' : '#667', marginTop: 2 }}>{ruleSentence(rule)}</div>
                 <div style={{ fontSize: 10.5, color: '#3d3f5c', marginTop: 2, fontFamily: 'monospace' }}>{rawConfigString(rule)}</div>
               </div>
-              <button onClick={() => deleteRule(rule.id)} style={{ background: 'none', border: 'none', color: '#c55', fontSize: 13, cursor: 'pointer' }}>✕</button>
+              <button onClick={() => deleteRule(rule.id)} style={{ background: 'none', border: 'none', color: '#c55', fontSize: 13, cursor: 'pointer' }}><IconClose size={12} /></button>
             </div>
           ))}
         </div>

@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { io, Socket } from 'socket.io-client';
+import { IconClose, IconRefresh, IconChevronUp, IconChevronDown, IconWarning } from '../lib/uiIcons';
 
 interface Source {
   id: string;
@@ -259,7 +260,7 @@ export function HarvestSidebar({ onImported, onActivityChange, refreshInterval, 
             Skörda alla
           </button>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <span style={{ fontSize: 10, color: '#555', flexShrink: 0 }}>↻ Auto:</span>
+            <span style={{ fontSize: 10, color: '#555', flexShrink: 0, display: 'flex', alignItems: 'center', gap: 3 }}><IconRefresh size={10} /> Auto:</span>
             <select
               value={refreshInterval}
               onChange={e => onRefreshIntervalChange(parseInt(e.target.value))}
@@ -296,7 +297,7 @@ export function HarvestSidebar({ onImported, onActivityChange, refreshInterval, 
                     <button
                       onClick={() => toggleExpand(cat.id)}
                       style={{ background: 'none', border: 'none', color: '#666', fontSize: 11, cursor: 'pointer', padding: '0 2px' }}
-                    >{isOpen ? '▲' : '▼'}</button>
+                    >{isOpen ? <IconChevronUp size={11} /> : <IconChevronDown size={11} />}</button>
                   )}
                 </div>
 
@@ -320,7 +321,7 @@ export function HarvestSidebar({ onImported, onActivityChange, refreshInterval, 
                     ) : (
                       <span style={{ fontSize: 10, color: '#444', flex: 1 }}>
                         {defJob?.result?.error
-                          ? <span style={{ color: '#e74c3c' }}>⚠ {defJob.result.error.slice(0, 50)}</span>
+                          ? <span style={{ color: '#e74c3c' }}><IconWarning size={10} /> {defJob.result.error.slice(0, 50)}</span>
                           : defJob?.result
                           ? <span style={{ color: '#4a7' }}>✓ {defJob.result.imported} händelser</span>
                           : null
@@ -331,9 +332,9 @@ export function HarvestSidebar({ onImported, onActivityChange, refreshInterval, 
                       onClick={() => { if (defSrc) scrape(defSrc); }}
                       title="Hämta nu"
                       style={{ background: 'none', border: '1px solid #333', borderRadius: 4, color: '#555', fontSize: 12, width: 22, height: 22, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-                    >↻</button>
+                    ><IconRefresh size={12} /></button>
                     {defJob?.result && (
-                      <button onClick={() => clearJob(defSrc.id)} style={{ background: 'none', border: 'none', color: '#333', fontSize: 10, cursor: 'pointer' }}>✕</button>
+                      <button onClick={() => clearJob(defSrc.id)} style={{ background: 'none', border: 'none', color: '#333', fontSize: 10, cursor: 'pointer' }}><IconClose size={9} /></button>
                     )}
                   </div>
                 )}
@@ -378,10 +379,10 @@ function JobRow({ job, onScrape, onCancel, onClear, label, primary }: {
     return (
       <div style={{ fontSize: 11 }}>
         {error
-          ? <span style={{ color: '#e74c3c' }}>⚠ {error.slice(0, 80)}</span>
+          ? <span style={{ color: '#e74c3c' }}><IconWarning size={10} /> {error.slice(0, 80)}</span>
           : <span style={{ color: '#27ae60' }}>✓ {imported} importerade{skipped > 0 ? `, ${skipped} hoppades` : ''}</span>
         }
-        <button onClick={onClear} style={{ marginLeft: 8, background: 'none', border: 'none', color: '#555', fontSize: 10, cursor: 'pointer' }}>✕</button>
+        <button onClick={onClear} style={{ marginLeft: 8, background: 'none', border: 'none', color: '#555', fontSize: 10, cursor: 'pointer' }}><IconClose size={9} /></button>
       </div>
     );
   }

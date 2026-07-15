@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { api } from '../api';
 import type { WeatherForecast } from '../types';
+import { IconClose } from '../lib/uiIcons';
 
 // Väder-vid-plats (SMHI punktprognos) — komplement till Vädervarningar-lagret. Varningar täcker
 // stora områden och grova hot; den här panelen svarar på "vad blir det för vind/temp/nederbörd
@@ -61,7 +62,7 @@ export function WeatherPanel({ onClose, weatherPickMode, onArmWeatherPick, weath
     }}>
       <div style={{ padding: '10px 14px 8px', borderBottom: '1px solid #333', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <span style={{ fontWeight: 700, fontSize: 14 }}>🌤 Väder vid plats</span>
-        <button className="btn-ghost btn-sm" onClick={onClose}>✕</button>
+        <button className="btn-ghost btn-sm" onClick={onClose}><IconClose /></button>
       </div>
 
       <div style={{ flex: 1, overflowY: 'auto', padding: 10 }}>

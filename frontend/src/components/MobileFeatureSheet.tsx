@@ -3,6 +3,7 @@ import { api } from '../api';
 import { useAuth } from '../contexts/AuthContext';
 import { getLayer } from '../types';
 import type { Feature } from '../types';
+import { IconClose } from '../lib/uiIcons';
 
 // Read-only bottom sheet för mobil kartvy (Mobilversion.odp, use case 2) — i motsats till
 // skrivbordets FeaturePanel går det inte att redigera fält här, bara att granska och (om
@@ -66,7 +67,7 @@ export function MobileFeatureSheet({ feature, onClose, onClassified }: Props) {
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
           <span style={{ fontSize: 16, fontWeight: 700, color: '#eee', flex: 1 }}>{feature.properties.name}</span>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#666', fontSize: 18, cursor: 'pointer' }}>✕</button>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#666', fontSize: 18, cursor: 'pointer' }}><IconClose size={17} /></button>
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>

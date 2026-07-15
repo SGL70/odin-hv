@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { api } from '../api';
 import { getLayer } from '../types';
 import { LayerIcon } from '../lib/layerIcons';
+import { IconClose, IconWarning } from '../lib/uiIcons';
 
 interface DashboardData {
   totals: { layer: string; count: string; fuel_liters?: string; food_kg?: string; water_m3?: string }[];
@@ -31,7 +32,7 @@ export function Dashboard({ onClose }: Props) {
     }}>
       <div style={{ padding: '12px 14px', borderBottom: '1px solid #333', display: 'flex', justifyContent: 'space-between' }}>
         <span style={{ fontWeight: 700 }}>Dashboard</span>
-        <button className="btn-ghost btn-sm" onClick={onClose}>✕</button>
+        <button className="btn-ghost btn-sm" onClick={onClose}><IconClose /></button>
       </div>
 
       {!data ? (
@@ -41,7 +42,7 @@ export function Dashboard({ onClose }: Props) {
 
           {data.alerts.length > 0 && (
             <div>
-              <div style={sectionTitle}>⚠ Varningar</div>
+              <div style={{ ...sectionTitle, display: 'flex', alignItems: 'center', gap: 4 }}><IconWarning size={12} /> Varningar</div>
               {data.alerts.map(a => (
                 <div key={a.uid} style={alertRow}>
                   <span>{a.name}</span>

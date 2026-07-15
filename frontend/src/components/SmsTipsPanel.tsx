@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { api } from '../api';
 import { SWEDEN } from '../lib/sweden';
 import type { SmsTip } from '../types';
+import { IconClose } from '../lib/uiIcons';
 
 // Tips via SMS — granskningsinkorg för okända avsändare (se backend/src/routes/sms.js).
 // Ligger helt utanför kartan tills någon läst meddelandet och geotaggat det manuellt
@@ -90,7 +91,7 @@ export function SmsTipsPanel({ onClose, onTagged, tipPickMode, onArmTipPick, tip
     }}>
       <div style={{ padding: '10px 14px 8px', borderBottom: '1px solid #333', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <span style={{ fontWeight: 700, fontSize: 14 }}>📨 Tips via SMS</span>
-        <button className="btn-ghost btn-sm" onClick={onClose}>✕</button>
+        <button className="btn-ghost btn-sm" onClick={onClose}><IconClose /></button>
       </div>
 
       <div style={{ flex: 1, overflowY: 'auto', padding: 10 }}>

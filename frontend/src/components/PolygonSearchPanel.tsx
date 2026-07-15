@@ -1,5 +1,6 @@
 import type { Feature } from '../types';
 import { LayerIcon } from '../lib/layerIcons';
+import { IconClose } from '../lib/uiIcons';
 
 // Polygon-sökning (roadmap #11) — tre träfftyper i stället för en enda lista, eftersom
 // kommun-/länsnivå-träffar bygger på grov platsangivelse (location_precision, roadmap #10)
@@ -49,7 +50,7 @@ export function PolygonSearchPanel({ results, onClose, onSelect }: Props) {
     }}>
       <div style={{ padding: '10px 14px 8px', borderBottom: '1px solid #333', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <span style={{ fontWeight: 700, fontSize: 14 }}>🔍 Sökresultat ({total})</span>
-        <button className="btn-ghost btn-sm" onClick={onClose}>✕</button>
+        <button className="btn-ghost btn-sm" onClick={onClose}><IconClose /></button>
       </div>
       <div style={{ flex: 1, overflowY: 'auto', padding: 10, display: 'flex', flexDirection: 'column', gap: 14 }}>
         <div>

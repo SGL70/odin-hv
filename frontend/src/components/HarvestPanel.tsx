@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { io, Socket } from 'socket.io-client';
+import { IconClose, IconWarning } from '../lib/uiIcons';
 
 interface Source {
   id: string;
@@ -127,7 +128,7 @@ export function HarvestPanel({ onClose, onImported }: Props) {
     }}>
       <div style={{ padding: '12px 14px', borderBottom: '1px solid #333', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <span style={{ fontWeight: 700, fontSize: 14 }}>🕷 Dataskördare</span>
-        <button className="btn-ghost btn-sm" onClick={onClose}>✕</button>
+        <button className="btn-ghost btn-sm" onClick={onClose}><IconClose /></button>
       </div>
 
       <div style={{ padding: 14 }}>
@@ -160,7 +161,7 @@ export function HarvestPanel({ onClose, onImported }: Props) {
         </div>
 
         {/* Error */}
-        {error && <p style={{ color: '#e74c3c', fontSize: 12, marginBottom: 10 }}>⚠ {error}</p>}
+        {error && <p style={{ color: '#e74c3c', fontSize: 12, marginBottom: 10 }}><IconWarning size={12} /> {error}</p>}
 
         {/* Done state */}
         {done && !progress && (

@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { api } from '../api';
+import { IconClose } from '../lib/uiIcons';
 
 interface PowerMuni {
   kommun: string;
@@ -66,7 +67,7 @@ export function AnalysisPanel({ onClose }: Props) {
     }}>
       <div style={{ padding: '10px 14px 8px', borderBottom: '1px solid #333', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <span style={{ fontWeight: 700, fontSize: 14 }}>📊 Lägesanalys</span>
-        <button className="btn-ghost btn-sm" onClick={onClose}>✕</button>
+        <button className="btn-ghost btn-sm" onClick={onClose}><IconClose /></button>
       </div>
 
       <div style={{ display: 'flex', borderBottom: '1px solid #333' }}>

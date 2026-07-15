@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import type { Feature } from '../types';
+import { IconClose } from '../lib/uiIcons';
 
 interface Props {
   features: Feature[];
@@ -47,7 +48,7 @@ export function ReportListPanel({ features, onClose, onSelect }: Props) {
     }}>
       <div style={{ padding: '10px 14px 8px', borderBottom: '1px solid #333', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <span style={{ fontWeight: 700, fontSize: 14 }}>🕵 Underrättelserapporter</span>
-        <button className="btn-ghost btn-sm" onClick={onClose}>✕</button>
+        <button className="btn-ghost btn-sm" onClick={onClose}><IconClose /></button>
       </div>
 
       <div style={{ padding: '10px 14px', borderBottom: '1px solid #333', display: 'flex', flexDirection: 'column', gap: 8 }}>

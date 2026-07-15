@@ -1,5 +1,6 @@
 import type { Feature } from '../types';
 import { CriticalityObjectsList } from './CriticalityObjectsList';
+import { IconClose } from '../lib/uiIcons';
 
 interface Props {
   features: Feature[];
@@ -17,7 +18,7 @@ export function CriticalityPanel({ features, onClose, onSelect }: Props) {
     }}>
       <div style={{ padding: '10px 14px 8px', borderBottom: '1px solid #333', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <span style={{ fontWeight: 700, fontSize: 14 }}>🎯 Kritiska objekt</span>
-        <button className="btn-ghost btn-sm" onClick={onClose}>✕</button>
+        <button className="btn-ghost btn-sm" onClick={onClose}><IconClose /></button>
       </div>
       <div style={{ flex: 1, overflowY: 'auto', padding: 10 }}>
         <CriticalityObjectsList features={features} onSelect={onSelect} />

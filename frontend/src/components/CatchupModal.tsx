@@ -1,5 +1,6 @@
 import type { CatchupData } from '../types';
 import { BG, TEXT, BORDER, STATUS, FONT_SIZE, FONT_WEIGHT, RADIUS, SPACING } from '../styles/tokens';
+import { IconClose } from '../lib/uiIcons';
 
 interface Props {
   data: CatchupData;
@@ -23,7 +24,7 @@ export function CatchupModal({ data, onClose, onAcknowledgeAlert }: Props) {
           <h3 style={{ fontSize: FONT_SIZE.md, fontWeight: FONT_WEIGHT.heading, color: TEXT.primary, flex: 1, margin: 0 }}>
             Sedan du var inne senast
           </h3>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', color: TEXT.tertiary, fontSize: FONT_SIZE.xl, cursor: 'pointer' }}>✕</button>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', color: TEXT.tertiary, fontSize: FONT_SIZE.xl, cursor: 'pointer' }}><IconClose size={16} /></button>
         </div>
 
         <div style={{ marginBottom: SPACING[7] }}>

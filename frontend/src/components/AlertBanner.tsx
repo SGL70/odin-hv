@@ -1,4 +1,5 @@
 import type { AlertEvent } from '../types';
+import { IconClose, IconWarning } from '../lib/uiIcons';
 
 interface Props {
   alerts: AlertEvent[];
@@ -20,9 +21,9 @@ export function AlertBanner({ alerts, onDismiss, onAcknowledge }: Props) {
           padding: '8px 10px', backdropFilter: 'blur(8px)', boxShadow: '0 2px 8px #0006',
         }}>
           <div style={{ display: 'flex', alignItems: 'flex-start', gap: 6 }}>
-            <span style={{ fontSize: 14 }}>⚠</span>
+            <span style={{ color: '#e74c3c' }}><IconWarning size={14} /></span>
             <div style={{ flex: 1, fontSize: 12, color: '#fdd', lineHeight: 1.4 }}>{a.message}</div>
-            <button onClick={() => onDismiss(a.id)} style={{ background: 'none', border: 'none', color: '#a88', fontSize: 13, cursor: 'pointer' }}>✕</button>
+            <button onClick={() => onDismiss(a.id)} style={{ background: 'none', border: 'none', color: '#a88', fontSize: 13, cursor: 'pointer' }}><IconClose size={13} /></button>
           </div>
           <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 6 }}>
             <button
