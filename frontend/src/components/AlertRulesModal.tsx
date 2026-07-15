@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { api } from '../api';
 import { LAYERS } from '../types';
-import type { AlertRule, AlertRuleType, AlertRuleConfig, Feature } from '../types';
+import type { AlertRule, AlertRuleType, AlertRuleConfig, AlertSeverity, Role, Feature } from '../types';
 import { CriticalityObjectsList } from './CriticalityObjectsList';
 import { IconClose, IconWarning } from '../lib/uiIcons';
 
@@ -11,6 +11,10 @@ interface Props {
 }
 
 const EMPTY_CONFIG: AlertRuleConfig = {};
+const ALL_ROLES: Role[] = ['reader', 'editor', 'admin'];
+const SEVERITY_LABELS: Record<AlertSeverity, string> = { info: 'Info', varning: 'Varning', kritisk: 'Kritisk' };
+const ROLE_LABELS: Record<Role, string> = { reader: 'Läsare', editor: 'Redaktör', admin: 'Admin' };
+const WEATHER_SEVERITIES = ['Gul', 'Orange', 'Röd'];
 
 export function AlertRulesModal({ features, onClose }: Props) {
   const [rules, setRules] = useState<AlertRule[]>([]);
@@ -18,9 +22,15 @@ export function AlertRulesModal({ features, onClose }: Props) {
   const [name, setName] = useState('');
   const [type, setType] = useState<AlertRuleType>('threshold');
   const [config, setConfig] = useState<AlertRuleConfig>(EMPTY_CONFIG);
+  const [severity, setSeverity] = useState<AlertSeverity>('varning');
+  const [targetRoles, setTargetRoles] = useState<Role[]>(ALL_ROLES);
   const [proximityMode, setProximityMode] = useState<'criticality' | 'target'>('criticality');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+
+  function toggleTargetRole(role: Role) {
+    setTargetRoles(prev => prev.includes(role) ? prev.filter(r => r !== role) : [...prev, role]);
+  }
 
   function load() {
     setLoading(true);
@@ -33,6 +43,8 @@ export function AlertRulesModal({ features, onClose }: Props) {
     setName('');
     setType('threshold');
     setConfig(EMPTY_CONFIG);
+    setSeverity('varning');
+    setTargetRoles(ALL_ROLES);
     setProximityMode('criticality');
   }
 
@@ -42,10 +54,18 @@ export function AlertRulesModal({ features, onClose }: Props) {
       setError('Välj ett objekt');
       return;
     }
+    if (type === 'weather_critical' && !config.min_severity?.length) {
+      setError('Välj minst en nivå');
+      return;
+    }
+    if (!targetRoles.length) {
+      setError('Välj minst en mottagarroll');
+      return;
+    }
     setSaving(true);
     setError('');
     try {
-      await api.alerts.createRule({ name, type, config, enabled: true });
+      await api.alerts.createRule({ name, type, config, enabled: true, severity, target: { roles: targetRoles } });
       resetForm();
       load();
     } catch (err) {
@@ -88,7 +108,13 @@ export function AlertRulesModal({ features, onClose }: Props) {
       const crit = CRITICALITY_LABELS[c.min_criticality ?? ''] ?? c.min_criticality ?? '?';
       return <>Larma när <b>{layerLabel(c.layer)}</b> inträffar inom <b>{c.distance_m ?? '?'} m</b> från ett objekt med kritikalitet <b>{crit}</b></>;
     }
-    return <>Larma vid <b>{c.min_count ?? '?'}+</b> händelser i <b>{layerLabel(c.layer)}</b> inom <b>{c.radius_m ?? '?'} m</b></>;
+    if (rule.type === 'cluster') {
+      return <>Larma vid <b>{c.min_count ?? '?'}+</b> händelser i <b>{layerLabel(c.layer)}</b> inom <b>{c.radius_m ?? '?'} m</b></>;
+    }
+    if (rule.type === 'weather_critical') {
+      return <>Larma vid vädervarning i OpOmr med nivå <b>{(c.min_severity ?? []).join('/') || '?'}</b></>;
+    }
+    return <>Larma när Haiku-klassificeringen flaggar en nyhet som brådskande</>;
   }
 
   // Rå fältsträng bevaras som liten monospace-rad för admin-felsökning — inte längre huvudinformationen.
@@ -96,7 +122,9 @@ export function AlertRulesModal({ features, onClose }: Props) {
     const c = rule.config;
     if (rule.type === 'threshold') return `${rule.type} · ${c.score_threshold ?? '?'}`;
     if (rule.type === 'proximity') return `${rule.type} · ${c.layer ?? '?'} · ${c.target_uid ? `mål:${c.target_uid}` : (c.min_criticality ?? '?')}`;
-    return `${rule.type} · ${c.layer ?? '?'} · ${c.min_count ?? '?'} · ${c.radius_m ?? '?'}`;
+    if (rule.type === 'cluster') return `${rule.type} · ${c.layer ?? '?'} · ${c.min_count ?? '?'} · ${c.radius_m ?? '?'}`;
+    if (rule.type === 'weather_critical') return `${rule.type} · ${(c.min_severity ?? []).join(',')}`;
+    return rule.type;
   }
 
   const inputStyle = { width: '100%', padding: '5px 8px', background: '#16162a', border: '1px solid #444', borderRadius: 4, color: '#ddd', fontSize: 12, boxSizing: 'border-box' as const };
@@ -118,9 +146,18 @@ export function AlertRulesModal({ features, onClose }: Props) {
             <div key={rule.id} style={{ border: '1px solid #2a2a40', borderRadius: 5, padding: '8px 10px', background: '#16162a', display: 'flex', alignItems: 'center', gap: 8 }}>
               <input type="checkbox" checked={rule.enabled} onChange={() => toggleEnabled(rule)} style={{ width: 13, height: 13, cursor: 'pointer' }} />
               <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 12, color: rule.enabled ? '#ddd' : '#667', fontWeight: 600 }}>{rule.name}</div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <span style={{ fontSize: 12, color: rule.enabled ? '#ddd' : '#667', fontWeight: 600 }}>{rule.name}</span>
+                  <span style={{
+                    fontSize: 9, padding: '1px 5px', borderRadius: 3,
+                    color: rule.severity === 'kritisk' ? '#f2545b' : rule.severity === 'info' ? '#666' : '#f0a83c',
+                    border: `1px solid ${rule.severity === 'kritisk' ? '#f2545b' : rule.severity === 'info' ? '#444' : '#f0a83c'}`,
+                  }}>{SEVERITY_LABELS[rule.severity] ?? rule.severity}</span>
+                </div>
                 <div style={{ fontSize: 11, color: rule.enabled ? '#c7cae0' : '#667', marginTop: 2 }}>{ruleSentence(rule)}</div>
-                <div style={{ fontSize: 10.5, color: '#3d3f5c', marginTop: 2, fontFamily: 'monospace' }}>{rawConfigString(rule)}</div>
+                <div style={{ fontSize: 10.5, color: '#3d3f5c', marginTop: 2, fontFamily: 'monospace' }}>
+                  {rawConfigString(rule)} · {(rule.target?.roles ?? ALL_ROLES).map(r => ROLE_LABELS[r]).join(', ')}
+                </div>
               </div>
               <button onClick={() => deleteRule(rule.id)} style={{ background: 'none', border: 'none', color: '#c55', fontSize: 13, cursor: 'pointer' }}><IconClose size={12} /></button>
             </div>
@@ -141,8 +178,52 @@ export function AlertRulesModal({ features, onClose }: Props) {
               <option value="threshold">Tröskel — störningspoäng per kommun</option>
               <option value="proximity">Proximity — nära kritiskt objekt</option>
               <option value="cluster">Kluster — flera händelser nära varandra</option>
+              <option value="weather_critical">Kritisk vädervarning i OpOmr</option>
+              <option value="news_urgent">Brådskande nyhet (AI-klassificerad)</option>
             </select>
           </div>
+
+          <div style={{ marginBottom: 10, display: 'flex', gap: 10 }}>
+            <div style={{ flex: 1 }}>
+              <span style={labelStyle}>Nivå</span>
+              <select style={inputStyle} value={severity} onChange={e => setSeverity(e.target.value as AlertSeverity)}>
+                {(Object.keys(SEVERITY_LABELS) as AlertSeverity[]).map(s => <option key={s} value={s}>{SEVERITY_LABELS[s]}</option>)}
+              </select>
+            </div>
+          </div>
+
+          <div style={{ marginBottom: 10 }}>
+            <span style={labelStyle}>Mottagare (roller)</span>
+            <div style={{ display: 'flex', gap: 12 }}>
+              {ALL_ROLES.map(role => (
+                <label key={role} style={{ fontSize: 12, color: '#ccc', display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer' }}>
+                  <input type="checkbox" checked={targetRoles.includes(role)} onChange={() => toggleTargetRole(role)} />
+                  {ROLE_LABELS[role]}
+                </label>
+              ))}
+            </div>
+          </div>
+
+          {type === 'weather_critical' && (
+            <div style={{ marginBottom: 10 }}>
+              <span style={labelStyle}>Larma vid nivå</span>
+              <div style={{ display: 'flex', gap: 12 }}>
+                {WEATHER_SEVERITIES.map(sev => (
+                  <label key={sev} style={{ fontSize: 12, color: '#ccc', display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer' }}>
+                    <input
+                      type="checkbox"
+                      checked={(config.min_severity ?? []).includes(sev)}
+                      onChange={() => {
+                        const current = config.min_severity ?? [];
+                        setConfig({ ...config, min_severity: current.includes(sev) ? current.filter(s => s !== sev) : [...current, sev] });
+                      }}
+                    />
+                    {sev}
+                  </label>
+                ))}
+              </div>
+            </div>
+          )}
 
           {type === 'threshold' && (
             <div style={{ marginBottom: 10 }}>

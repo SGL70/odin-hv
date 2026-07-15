@@ -245,9 +245,28 @@ async function ensureNewsClassifierColumns() {
   console.log('news_items klassificeringskolumner klara');
 }
 
+// Notifieringssystem v1 (docs/notifieringssystem-forslag.md) — severity+target på varningsregler
+// så leveransen kan riktas per roll (io.to('role:'+r)) istället för blind broadcast, plus två
+// nya regeltyper (weather_critical/news_urgent). urgent på news_items är Haiku-klassificerarens
+// nya fält (se newsClassifier.js), users.email krävs för dygnsrapportens SMTP-leverans.
+async function ensureNotificationColumns() {
+  await db.query(`ALTER TABLE alert_rules ADD COLUMN IF NOT EXISTS severity VARCHAR(10) NOT NULL DEFAULT 'varning' CHECK (severity IN ('info','varning','kritisk'))`);
+  await db.query(`ALTER TABLE alert_rules ADD COLUMN IF NOT EXISTS target JSONB NOT NULL DEFAULT '{"roles":["reader","editor","admin"]}'`);
+  await db.query(`ALTER TABLE alert_events ADD COLUMN IF NOT EXISTS severity VARCHAR(10)`);
+  await db.query(`ALTER TABLE news_items ADD COLUMN IF NOT EXISTS urgent BOOLEAN`);
+  await db.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS email VARCHAR(255)`);
+
+  await db.query(`ALTER TABLE alert_rules DROP CONSTRAINT IF EXISTS alert_rules_type_check`);
+  await db.query(`
+    ALTER TABLE alert_rules ADD CONSTRAINT alert_rules_type_check
+      CHECK (type IN ('threshold','proximity','cluster','weather_critical','news_urgent'))
+  `);
+  console.log('Notifieringskolumner (severity/target/urgent/email) klara');
+}
+
 module.exports = {
   ensureAlertSchema, ensureIntelligenceReportsLayer, ensureRailwaySituationsLayer, ensureFeatureHistorySchema,
   ensureUserPreferencesColumn, ensureSmsTablesSchema, ensureLastLoginColumn,
   ensureNewsReportsLayer, ensureNewsSchema, ensureLocationPrecisionBackfill,
-  ensureWeatherWarningsLayer, ensureNewsClassifierColumns,
+  ensureWeatherWarningsLayer, ensureNewsClassifierColumns, ensureNotificationColumns,
 };

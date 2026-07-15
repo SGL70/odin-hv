@@ -9,8 +9,10 @@ const MODEL = 'claude-haiku-4-5';
 
 const PROMPT_INTRO = `Du bedömer om en nyhetsrubrik är relevant för Hemvärnets lägesbild i Norrbotten
 (t.ex. olyckor, bränder, elavbrott, extremväder, trafikstörningar, större polisinsatser,
-samhällsstörningar). Svara ENDAST med kompakt JSON, inget annat: {"relevant": bool, "category": string, "reason": string}
+samhällsstörningar). Svara ENDAST med kompakt JSON, inget annat: {"relevant": bool, "urgent": bool, "category": string, "reason": string}
 category ska vara ett kort svenskt ord (t.ex. "Trafik", "Brand", "Väder", "Elavbrott", "Polis", "Övrigt").
+urgent: true bara om detta kräver omedelbar uppmärksamhet just nu (pågående fara/skarpt läge),
+inte bara relevant i efterhand för lägesbilden — false för det mesta, även när relevant är true.
 reason: max en mening på svenska som motiverar bedömningen.`;
 
 function extractJson(text) {
@@ -44,6 +46,7 @@ async function classifyNewsItem(title, summary) {
   const parsed = extractJson(text);
   return {
     relevant: !!parsed.relevant,
+    urgent: !!parsed.urgent,
     category: parsed.category || null,
     reason: parsed.reason || null,
   };

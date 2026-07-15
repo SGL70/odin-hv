@@ -59,7 +59,7 @@ export function NewsPanel({ onClose, onTagged, newsPickMode, onArmNewsPick, news
   // så listan behöver laddas om för att spegla det utan att användaren manuellt stänger/öppnar
   // panelen.
   useEffect(() => {
-    const socket = io({ path: '/socket.io' });
+    const socket = io({ path: '/socket.io', auth: { token: localStorage.getItem('token') } });
     socket.on('news_item:new', load);
     return () => { socket.disconnect(); };
   }, []);

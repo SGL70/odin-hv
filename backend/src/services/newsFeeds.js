@@ -1,6 +1,7 @@
 const db = require('../db');
 const { matchesKeywordRules } = require('../lib/newsKeywords');
 const { classifyNewsItem } = require('./newsClassifier');
+const { evaluateAlerts } = require('./alertEngine');
 
 const USER_AGENT = 'ResurslageNewsBot/1.0 (+https://resurslage.jv10.se)';
 
@@ -156,10 +157,10 @@ async function classifyNewItem(id, title, summary, keywordRules) {
     const result = await classifyNewsItem(title, summary);
     if (!result) return; // ANTHROPIC_API_KEY ej satt — relevant förblir NULL
     await db.query(
-      `UPDATE news_items SET relevant = $1, category = $2, classifier_note = $3,
+      `UPDATE news_items SET relevant = $1, category = $2, classifier_note = $3, urgent = $4,
          status = CASE WHEN $1 = false THEN 'discarded' ELSE status END
-       WHERE id = $4 AND status = 'pending'`,
-      [result.relevant, result.category, result.reason, id]
+       WHERE id = $5 AND status = 'pending'`,
+      [result.relevant, result.category, result.reason, result.urgent, id]
     );
   } catch (err) {
     console.error(`Klassificering misslyckades för nyhetspost ${id}:`, err.message);
@@ -201,6 +202,9 @@ async function pollAllSources(io) {
   for (const source of rows) {
     await pollSource(io, source);
   }
+  // Samma afterHarvest()-mönster som harvest.js — låter t.ex. news_urgent-regeln (alertEngine.js)
+  // upptäcka nyklassificerade brådskande nyheter direkt efter en pollningsomgång.
+  evaluateAlerts(io).catch(err => console.error('Alert evaluation error (news):', err.message));
 }
 
 // Efterklassificerar poster som fanns innan nyckelordsfilter/Haiku-klassificeringen infördes

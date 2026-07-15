@@ -196,9 +196,10 @@ export function MapView() {
     loadFeatures(opomrFilter);
   }, [opomrFilter]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Socket.io real-time
+  // Socket.io real-time — auth.token krävs för att servern ska kunna göra socket.join('role:'+
+  // role) (index.js), så larm kan riktas per roll istället för blind broadcast (alertEngine.js).
   useEffect(() => {
-    const socket = io({ path: '/socket.io' });
+    const socket = io({ path: '/socket.io', auth: { token: localStorage.getItem('token') } });
     socket.on('feature:created', (f: Feature) => setFeatures(prev => [f, ...prev.filter(p => p.properties.uid !== f.properties.uid)]));
     socket.on('feature:updated', (f: Feature) => setFeatures(prev => prev.map(p => p.properties.uid === f.properties.uid ? f : p)));
     socket.on('feature:deleted', ({ uid }: { uid: string }) => setFeatures(prev => prev.filter(p => p.properties.uid !== uid)));

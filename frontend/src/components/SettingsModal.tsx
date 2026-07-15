@@ -34,7 +34,9 @@ const OPOMR_HARVEST_ENDPOINTS = [
 
 export function SettingsModal({ onClose }: Props) {
   const { user: currentUser } = useAuth();
-  const [users, setUsers] = useState<{ id: number; username: string; role: string; created_at: string }[]>([]);
+  const [users, setUsers] = useState<{ id: number; username: string; role: string; email: string | null; created_at: string }[]>([]);
+  const [editingEmailId, setEditingEmailId] = useState<number | null>(null);
+  const [emailDraft, setEmailDraft] = useState('');
   const [usersLoading, setUsersLoading] = useState(false);
   const [newUsername, setNewUsername] = useState('');
   const [newPassword, setNewPassword] = useState('');
@@ -237,6 +239,14 @@ export function SettingsModal({ onClose }: Props) {
     }
   }
 
+  // E-post krävs för dygnsrapportens SMTP-leverans (services/dailyReport.js) — bara admin-
+  // rollens konton behöver egentligen en, men fältet visas för alla för enkelhets skull.
+  async function saveEmail(id: number) {
+    await api.users.setEmail(id, emailDraft.trim());
+    setEditingEmailId(null);
+    loadUsers();
+  }
+
   async function loadSenders() {
     setSendersLoading(true);
     const r = await fetch('/api/sms/senders', { headers: { Authorization: `Bearer ${token}` } });
@@ -336,7 +346,7 @@ export function SettingsModal({ onClose }: Props) {
   const [classifying, setClassifying] = useState(false);
 
   useEffect(() => {
-    const socket = io({ path: '/socket.io' });
+    const socket = io({ path: '/socket.io', auth: { token } });
     socket.on('news_classify:progress', (p: { done: number; total: number }) => setClassifyProgress(p));
     socket.on('news_classify:done', (p: { classified: number; total: number }) => {
       setClassifyProgress(p ? { done: p.classified, total: p.total } : null);
@@ -563,12 +573,31 @@ export function SettingsModal({ onClose }: Props) {
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 16 }}>
               {users.map(u => (
-                <div key={u.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 10px', background: '#16162a', border: '1px solid #2a2a40', borderRadius: 5 }}>
-                  <span style={{ flex: 1, fontSize: 12, color: '#ddd' }}>{u.username}</span>
-                  <span className={`badge badge-${u.role === 'admin' ? 'orange' : u.role === 'editor' ? 'blue' : 'green'}`}>{u.role}</span>
-                  {u.id !== currentUser?.id && (
-                    <button onClick={() => deleteUser(u.id)} style={{ background: 'none', border: 'none', color: '#c55', fontSize: 13, cursor: 'pointer' }}><IconClose size={12} /></button>
-                  )}
+                <div key={u.id} style={{ padding: '6px 10px', background: '#16162a', border: '1px solid #2a2a40', borderRadius: 5 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <span style={{ flex: 1, fontSize: 12, color: '#ddd' }}>{u.username}</span>
+                    <span className={`badge badge-${u.role === 'admin' ? 'orange' : u.role === 'editor' ? 'blue' : 'green'}`}>{u.role}</span>
+                    {u.id !== currentUser?.id && (
+                      <button onClick={() => deleteUser(u.id)} style={{ background: 'none', border: 'none', color: '#c55', fontSize: 13, cursor: 'pointer' }}><IconClose size={12} /></button>
+                    )}
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 4 }}>
+                    {editingEmailId === u.id ? (
+                      <>
+                        <input
+                          value={emailDraft} onChange={e => setEmailDraft(e.target.value)} placeholder="e-post (för dygnsrapport)"
+                          style={{ flex: 1, padding: '3px 6px', fontSize: 11, background: '#0d0d16', border: '1px solid #444', borderRadius: 3, color: '#ddd' }}
+                        />
+                        <button className="btn-ghost btn-sm" onClick={() => saveEmail(u.id)}>Spara</button>
+                        <button className="btn-ghost btn-sm" onClick={() => setEditingEmailId(null)}>Avbryt</button>
+                      </>
+                    ) : (
+                      <>
+                        <span style={{ flex: 1, fontSize: 11, color: u.email ? '#888' : '#555' }}>{u.email || 'Ingen e-post satt'}</span>
+                        <button className="btn-ghost btn-sm" onClick={() => { setEditingEmailId(u.id); setEmailDraft(u.email || ''); }}>Redigera</button>
+                      </>
+                    )}
+                  </div>
                 </div>
               ))}
             </div>

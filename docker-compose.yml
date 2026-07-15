@@ -27,6 +27,10 @@ services:
       TRAFIKVERKET_API_KEY: ${TRAFIKVERKET_API_KEY}
       TRAFIKVERKET_DATEX_KEY: ${TRAFIKVERKET_DATEX_KEY}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      SMTP_HOST: ${SMTP_HOST}
+      SMTP_PORT: ${SMTP_PORT}
+      SMTP_USER: ${SMTP_USER}
+      SMTP_PASS: ${SMTP_PASS}
       PORT: 3000
     volumes:
       - uploads_data:/app/uploads

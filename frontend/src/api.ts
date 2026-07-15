@@ -1,4 +1,4 @@
-import type { AlertRule, AlertRuleType, AlertRuleConfig, AlertEvent, AlertStatus, Feature, SmsTip, SmsSender, NewsSource, NewsItem, WeatherForecast } from './types';
+import type { AlertRule, AlertRuleType, AlertRuleConfig, AlertRuleTarget, AlertSeverity, AlertEvent, AlertStatus, Feature, SmsTip, SmsSender, NewsSource, NewsItem, WeatherForecast } from './types';
 
 const BASE = '/api';
 
@@ -63,9 +63,10 @@ export const api = {
   get: <T = unknown>(path: string) => req<T>('GET', path.replace(/^\/api/, '')),
 
   users: {
-    list: () => req<{ id: number; username: string; role: string; created_at: string }[]>('GET', '/auth/users'),
+    list: () => req<{ id: number; username: string; role: string; email: string | null; created_at: string }[]>('GET', '/auth/users'),
     create: (data: { username: string; password: string; role: string }) => req('POST', '/auth/users', data),
     delete: (id: number) => req('DELETE', `/auth/users/${id}`),
+    setEmail: (id: number, email: string) => req<{ id: number; username: string; role: string; email: string | null }>('PATCH', `/auth/users/${id}/email`, { email }),
   },
 
   preferences: {
@@ -113,9 +114,9 @@ export const api = {
 
   alerts: {
     listRules: () => req<AlertRule[]>('GET', '/alerts/rules'),
-    createRule: (data: { name: string; type: AlertRuleType; config: AlertRuleConfig; enabled?: boolean }) =>
+    createRule: (data: { name: string; type: AlertRuleType; config: AlertRuleConfig; enabled?: boolean; severity?: AlertSeverity; target?: AlertRuleTarget }) =>
       req<AlertRule>('POST', '/alerts/rules', data),
-    updateRule: (id: number, data: { name: string; type: AlertRuleType; config: AlertRuleConfig; enabled?: boolean }) =>
+    updateRule: (id: number, data: { name: string; type: AlertRuleType; config: AlertRuleConfig; enabled?: boolean; severity?: AlertSeverity; target?: AlertRuleTarget }) =>
       req<AlertRule>('PUT', `/alerts/rules/${id}`, data),
     deleteRule: (id: number) => req<{ ok: boolean }>('DELETE', `/alerts/rules/${id}`),
 

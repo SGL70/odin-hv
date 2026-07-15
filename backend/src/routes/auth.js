@@ -47,8 +47,20 @@ router.put('/preferences', requireAuth, async (req, res) => {
 });
 
 router.get('/users', requireAuth, requireRole('admin'), async (req, res) => {
-  const { rows } = await db.query('SELECT id, username, role, created_at FROM users ORDER BY id');
+  const { rows } = await db.query('SELECT id, username, role, email, created_at FROM users ORDER BY id');
   res.json(rows);
+});
+
+// E-post krävs för dygnsrapportens SMTP-leverans (services/dailyReport.js) — ingen
+// redigeringsväg för konton fanns alls tidigare, bara skapa/ta bort.
+router.patch('/users/:id/email', requireAuth, requireRole('admin'), async (req, res) => {
+  const { email } = req.body;
+  const { rows } = await db.query(
+    'UPDATE users SET email = $1 WHERE id = $2 RETURNING id, username, role, email',
+    [email?.trim() || null, req.params.id]
+  );
+  if (!rows.length) return res.status(404).json({ error: 'Hittades inte' });
+  res.json(rows[0]);
 });
 
 router.post('/users', requireAuth, requireRole('admin'), async (req, res) => {

@@ -5,9 +5,11 @@ const { Server } = require('socket.io');
 const cors = require('cors');
 const helmet = require('helmet');
 const bcrypt = require('bcryptjs');
+const jwt = require('jsonwebtoken');
 const db = require('./db');
-const { ensureAlertSchema, ensureIntelligenceReportsLayer, ensureRailwaySituationsLayer, ensureFeatureHistorySchema, ensureUserPreferencesColumn, ensureSmsTablesSchema, ensureLastLoginColumn, ensureNewsReportsLayer, ensureNewsSchema, ensureLocationPrecisionBackfill, ensureWeatherWarningsLayer, ensureNewsClassifierColumns } = require('./migrations');
+const { ensureAlertSchema, ensureIntelligenceReportsLayer, ensureRailwaySituationsLayer, ensureFeatureHistorySchema, ensureUserPreferencesColumn, ensureSmsTablesSchema, ensureLastLoginColumn, ensureNewsReportsLayer, ensureNewsSchema, ensureLocationPrecisionBackfill, ensureWeatherWarningsLayer, ensureNewsClassifierColumns, ensureNotificationColumns } = require('./migrations');
 const { pollAllSources } = require('./services/newsFeeds');
+const { sendDailyReport } = require('./services/dailyReport');
 
 const app = express();
 const server = http.createServer(app);
@@ -41,8 +43,18 @@ app.use('/api/analysis', analysisRouter);
 
 app.get('/api/health', (_req, res) => res.json({ ok: true }));
 
+// Notifieringssystem v1 — riktar larmleverans per roll (io.to('role:'+r) i alertEngine.js)
+// istället för blind broadcast. Ogiltig/saknad token ger bara inget rum (läsläge kvar för
+// framtida bruk), kopplar inte ner — de flesta befintliga klienter skickar redan token.
 io.on('connection', socket => {
   console.log('Client connected:', socket.id);
+  try {
+    const token = socket.handshake.auth?.token;
+    if (token) {
+      const { role } = jwt.verify(token, process.env.JWT_SECRET);
+      if (role) socket.join(`role:${role}`);
+    }
+  } catch { /* ingen/ogiltig token — sockeln får bara inget rum */ }
   socket.on('disconnect', () => console.log('Client disconnected:', socket.id));
 });
 
@@ -90,6 +102,19 @@ function scheduleNewsPolling() {
   setInterval(() => pollAllSources(io), 10 * 60 * 1000);
 }
 
+// Dygnsrapport (Spår 2) — skickas kl 06:00 varje morgon, samma "räkna ms till nästa
+// fasta tidpunkt"-mönster som scheduleDailySnapshot().
+function scheduleDailyReport() {
+  const now = new Date();
+  const nextRun = new Date(now.getFullYear(), now.getMonth(), now.getDate() + (now.getHours() >= 6 ? 1 : 0), 6, 0, 0);
+  const msUntilNext = nextRun.getTime() - now.getTime();
+  console.log(`Nästa dygnsrapport om ${Math.round(msUntilNext / 60000)} minuter (${nextRun.toISOString()})`);
+  setTimeout(() => {
+    sendDailyReport().catch(err => console.error('Dygnsrapport misslyckades:', err.message));
+    setInterval(() => sendDailyReport().catch(err => console.error('Dygnsrapport misslyckades:', err.message)), 24 * 60 * 60 * 1000);
+  }, msUntilNext);
+}
+
 const PORT = process.env.PORT || 3000;
 
 async function start() {
@@ -118,9 +143,11 @@ async function start() {
   await ensureLocationPrecisionBackfill();
   await ensureWeatherWarningsLayer();
   await ensureNewsClassifierColumns();
+  await ensureNotificationColumns();
   fs.mkdirSync(UPLOAD_DIR, { recursive: true });
   scheduleDailySnapshot();
   scheduleNewsPolling();
+  scheduleDailyReport();
   server.listen(PORT, () => console.log(`Resursläge backend på port ${PORT}`));
 }
 

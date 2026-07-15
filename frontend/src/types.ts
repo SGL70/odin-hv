@@ -7,10 +7,12 @@ export interface User {
   id: number;
   username: string;
   role: Role;
+  email?: string | null;
 }
 
-export type AlertRuleType = 'threshold' | 'proximity' | 'cluster';
+export type AlertRuleType = 'threshold' | 'proximity' | 'cluster' | 'weather_critical' | 'news_urgent';
 export type AlertStatus = 'open' | 'acknowledged';
+export type AlertSeverity = 'info' | 'varning' | 'kritisk';
 
 export interface AlertRuleConfig {
   score_threshold?: number;
@@ -20,6 +22,11 @@ export interface AlertRuleConfig {
   distance_m?: number;
   min_count?: number;
   radius_m?: number;
+  min_severity?: string[];
+}
+
+export interface AlertRuleTarget {
+  roles: Role[];
 }
 
 export interface AlertRule {
@@ -28,6 +35,8 @@ export interface AlertRule {
   type: AlertRuleType;
   enabled: boolean;
   config: AlertRuleConfig;
+  severity: AlertSeverity;
+  target: AlertRuleTarget;
   created_by: number | null;
   updated_by: number | null;
   created_at: string;
@@ -78,6 +87,7 @@ export interface NewsItem {
   fetched_at: string;
   status: 'pending' | 'tagged' | 'discarded';
   relevant: boolean | null;
+  urgent: boolean | null;
   category: string | null;
   classifier_note: string | null;
 }
@@ -96,6 +106,7 @@ export interface AlertEvent {
   acknowledged_by_name?: string;
   acknowledged_at: string | null;
   created_at: string;
+  severity: AlertSeverity | null;
 }
 
 export interface WeatherHourly {

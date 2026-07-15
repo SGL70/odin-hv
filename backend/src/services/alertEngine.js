@@ -4,14 +4,20 @@ const analysisRouter = require('../routes/analysis');
 
 const CRITICALITY_ORDER = { normal: 0, gul: 1, rod: 2 };
 
+// Riktar leveransen per roll (io.to('role:'+r)) istället för blind broadcast — rule.target.roles
+// defaultar till alla tre roller (se migrations.js ensureNotificationColumns), så obekonfigurerade
+// regler beter sig precis som innan denna ändring.
 async function insertEvent(io, rule, entityKey, message, details, featureUid = null) {
   const { rows } = await db.query(`
-    INSERT INTO alert_events (rule_id, rule_name, rule_type, entity_key, message, details, feature_uid)
-    VALUES ($1, $2, $3, $4, $5, $6, $7)
+    INSERT INTO alert_events (rule_id, rule_name, rule_type, entity_key, message, details, feature_uid, severity)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
     ON CONFLICT (rule_id, entity_key) WHERE status = 'open' DO NOTHING
     RETURNING *
-  `, [rule.id, rule.name, rule.type, entityKey, message, details, featureUid]);
-  if (rows.length) io.emit('alert:triggered', rows[0]);
+  `, [rule.id, rule.name, rule.type, entityKey, message, details, featureUid, rule.severity]);
+  if (rows.length) {
+    const roles = rule.target?.roles?.length ? rule.target.roles : ['reader', 'editor', 'admin'];
+    for (const role of roles) io.to(`role:${role}`).emit('alert:triggered', rows[0]);
+  }
 }
 
 async function evaluateThreshold(io, rule) {
@@ -134,6 +140,39 @@ async function evaluateCluster(io, rule) {
   }
 }
 
+// Spår 1, användningsfall 1: kritisk vädervarning i OpOmr. Vädervarningar är redan
+// OpOmr-filtrerade vid skördning (harvest.js) så ingen ytterligare geo-koll behövs här.
+async function evaluateWeatherCritical(io, rule) {
+  const minSeverity = rule.config?.min_severity;
+  if (!Array.isArray(minSeverity) || !minSeverity.length) return;
+  const { rows } = await db.query(
+    `SELECT uid, name, attributes FROM features WHERE layer = 'weather_warnings' AND attributes->>'severity' = ANY($1)`,
+    [minSeverity]
+  );
+  for (const r of rows) {
+    await insertEvent(
+      io, rule, r.uid,
+      `${r.name} (${r.attributes.severity})`,
+      { feature_uid: r.uid, severity_level: r.attributes.severity },
+      r.uid,
+    );
+  }
+}
+
+// Spår 1, användningsfall 4: AI-klassificerad brådskande nyhet (Haiku, se newsClassifier.js).
+async function evaluateNewsUrgent(io, rule) {
+  const { rows } = await db.query(
+    `SELECT id, title, category FROM news_items WHERE relevant = true AND urgent = true AND status != 'discarded'`
+  );
+  for (const r of rows) {
+    await insertEvent(
+      io, rule, `news:${r.id}`,
+      `${r.title}${r.category ? ' (' + r.category + ')' : ''}`,
+      { news_item_id: r.id, category: r.category },
+    );
+  }
+}
+
 async function evaluateAlerts(io) {
   const { rows: rules } = await db.query(`SELECT * FROM alert_rules WHERE enabled = true`);
   for (const rule of rules) {
@@ -141,6 +180,8 @@ async function evaluateAlerts(io) {
       if (rule.type === 'threshold') await evaluateThreshold(io, rule);
       else if (rule.type === 'proximity') await evaluateProximity(io, rule);
       else if (rule.type === 'cluster') await evaluateCluster(io, rule);
+      else if (rule.type === 'weather_critical') await evaluateWeatherCritical(io, rule);
+      else if (rule.type === 'news_urgent') await evaluateNewsUrgent(io, rule);
     } catch (err) {
       console.error(`Alert rule "${rule.name}" (${rule.type}) evaluation failed:`, err.message);
     }
