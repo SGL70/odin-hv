@@ -161,8 +161,8 @@ const ICONS: Record<LayerId, IconRender> = {
   ),
   intelligence_reports: c => (
     <>
-      <path d="M3 13V6l5-4 5 4v7" stroke={c} strokeWidth={1.3} fill="none" />
-      <path d="M6 13v-4h4v4" stroke={c} strokeWidth={1.3} fill="none" />
+      <path d="M1 8 Q8 2 15 8 Q8 14 1 8 Z" stroke={c} strokeWidth={1.3} fill="none" />
+      <circle cx={8} cy={8} r={2.2} fill={c} />
     </>
   ),
   news_reports: c => (

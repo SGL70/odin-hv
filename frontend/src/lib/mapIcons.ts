@@ -58,6 +58,13 @@ const POLICE_SHIELD: IconPath[] = [
   { d: 'M8 1.5 L13 3.5 V8 C13 11.3 10.7 13.5 8 14.5 C5.3 13.5 3 11.3 3 8 V3.5 Z', strokeWidth: 1.4 },
   { d: 'M5 6.5h6', strokeWidth: 1.1 },
 ];
+// Öga — ersätter den formellt korrekta men i sammanhanget märkliga APP-6/milsymbol-ikonen
+// (se historiska reportSymbols.ts) för underrättelserapporter. Tillhörighet (Egen/Fientlig/
+// Neutral/Okänd) visas nu via ögats färg istället för en fullständig NATO-symbol.
+const EYE: IconPath[] = [
+  { d: 'M1 8 Q8 2 15 8 Q8 14 1 8 Z', strokeWidth: 1.3 },
+  { d: 'M8 8 m -2.2,0 a 2.2,2.2 0 1,0 4.4,0 a 2.2,2.2 0 1,0 -4.4,0', fill: true },
+];
 
 // Färgvarianter per händelsetyp för Trafikhändelser — exakt samma färger som det tidigare
 // circle-color-uttrycket i MapView.tsx, så informationen (olycka vs vägarbete vs halka...)
@@ -74,6 +81,17 @@ const ROAD_EVENT_COLORS: Record<string, string> = {
 };
 const ROAD_DEFAULT_ICON = 'road-triangle-default';
 
+// Färger per tillhörighet för Underrättelserapporter — samma fyra värden som fältet
+// "Symbol – Tillhörighet" (types.ts) erbjuder, återanvänder appens STATUS-färgspråk
+// istället för NATO-doktrinens egna färgkoder.
+const AFFILIATION_COLORS: Record<string, string> = {
+  'Egen (Friendly)': '#4fa8e8',
+  'Fientlig (Hostile)': '#f2545b',
+  'Neutral': '#34c274',
+  'Okänd (Unknown)': '#f0a83c',
+};
+const EYE_DEFAULT_ICON = 'eye-default';
+
 export const POWER_ICON_ID = 'power-bolt';
 export const WEATHER_ICON_ID = 'weather-cloud';
 export const POLICE_ICON_ID = 'police-shield';
@@ -86,6 +104,10 @@ export function ensureMapIcons(map: MapLibreMap) {
   registerIcon(map, POWER_ICON_ID, POWER_BOLT, getLayer('power_outages')?.color ?? '#e67e22');
   registerIcon(map, WEATHER_ICON_ID, WEATHER_CLOUD, getLayer('weather_warnings')?.color ?? '#e8a33c');
   registerIcon(map, POLICE_ICON_ID, POLICE_SHIELD, getLayer('police_events')?.color ?? '#3498db');
+  for (const [affiliation, color] of Object.entries(AFFILIATION_COLORS)) {
+    registerIcon(map, `eye-${affiliation}`, EYE, color);
+  }
+  registerIcon(map, EYE_DEFAULT_ICON, EYE, AFFILIATION_COLORS['Okänd (Unknown)']);
 }
 
 // Bygger samma 'match'-uttryck som tidigare styrde circle-color, fast mot ikon-id istället.
@@ -95,4 +117,13 @@ export function buildRoadIconExpression(): unknown[] {
     pairs.push(eventType, `road-triangle-${eventType}`);
   }
   return ['match', ['get', 'event_type'], ...pairs, ROAD_DEFAULT_ICON];
+}
+
+// Bygger ikon-uttrycket för Underrättelserapporter — ögat färgas efter fältet "affiliation".
+export function buildIntelReportIconExpression(): unknown[] {
+  const pairs: unknown[] = [];
+  for (const affiliation of Object.keys(AFFILIATION_COLORS)) {
+    pairs.push(affiliation, `eye-${affiliation}`);
+  }
+  return ['match', ['get', 'affiliation'], ...pairs, EYE_DEFAULT_ICON];
 }

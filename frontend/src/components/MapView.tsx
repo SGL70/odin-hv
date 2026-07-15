@@ -21,8 +21,7 @@ import { SmsTipsPanel } from './SmsTipsPanel';
 import { NewsPanel } from './NewsPanel';
 import { WeatherPanel } from './WeatherPanel';
 import { IconClose, IconSettings, IconImport } from '../lib/uiIcons';
-import { registerReportIcons, buildReportIconExpression } from '../lib/reportSymbols';
-import { ensureMapIcons, buildRoadIconExpression, POWER_ICON_ID, WEATHER_ICON_ID, POLICE_ICON_ID } from '../lib/mapIcons';
+import { ensureMapIcons, buildRoadIconExpression, buildIntelReportIconExpression, POWER_ICON_ID, WEATHER_ICON_ID, POLICE_ICON_ID } from '../lib/mapIcons';
 import { useAuth } from '../contexts/AuthContext';
 import { STATUS } from '../styles/tokens';
 import { io } from 'socket.io-client';
@@ -419,15 +418,16 @@ export function MapView() {
         return;
       }
 
-      // Underrättelserapporter: APP-6-symbol via förregistrerade milsymbol-ikoner
+      // Underrättelserapporter: öga-ikon färgad efter tillhörighet — ersätter den formellt
+      // korrekta men i sammanhanget märkliga APP-6/milsymbol-ikonen.
       if (layer.id === 'intelligence_reports') {
-        registerReportIcons(map);
+        ensureMapIcons(map);
         map.addSource(sourceId, { type: 'geojson', data: geojson });
         map.addLayer({
           id: `lyr-${layer.id}`,
           type: 'symbol', source: sourceId,
           layout: {
-            'icon-image': buildReportIconExpression() as unknown as maplibregl.ExpressionSpecification,
+            'icon-image': buildIntelReportIconExpression() as unknown as maplibregl.ExpressionSpecification,
             'icon-size': 0.8,
             'icon-allow-overlap': true,
             visibility: 'visible',
