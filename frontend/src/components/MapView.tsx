@@ -617,20 +617,28 @@ export function MapView() {
   // Visibility toggle — beror även på features/mapLoaded (inte bara visible), annars vinner
   // lagrens hårdkodade visibility:'visible' vid skapandet: på en reload skapas lagren asynkront
   // (efter mapLoaded/features), dvs efter att denna effekt redan kört en gång som no-op (lagren
-  // fanns inte än) — utan omkörning här förblev alla lager synliga oavsett menyns av/på-state.
+  // fanns inte än). Dessutom: direkt efter att lager-skapandet gjort en hel bunt addLayer()-anrop
+  // kan map.isStyleLoaded() tillfälligt vara false medan stilen räknar om sig — då avbryter denna
+  // effekt tyst utan att något senare triggar om den. map.once('idle', ...) garanterar en andra
+  // körning så fort kartan lugnat ner sig, oavsett hur timingen råkade bli.
   useEffect(() => {
     const map = mapRef.current;
-    if (!map || !map.isStyleLoaded()) return;
-    LAYERS.forEach(layer => {
-      const vis = visible.has(layer.id) ? 'visible' : 'none';
-      if (map.getLayer(`hit-${layer.id}`))                map.setLayoutProperty(`hit-${layer.id}`,                'visibility', vis);
-      if (map.getLayer(`lyr-${layer.id}`))                map.setLayoutProperty(`lyr-${layer.id}`,                'visibility', vis);
-      if (map.getLayer(`lyr-${layer.id}-outline`))        map.setLayoutProperty(`lyr-${layer.id}-outline`,        'visibility', vis);
-      if (map.getLayer(`crit-${layer.id}`))               map.setLayoutProperty(`crit-${layer.id}`,               'visibility', vis);
-      if (map.getLayer(`lbl-${layer.id}`))                map.setLayoutProperty(`lbl-${layer.id}`,                'visibility', vis);
-      if (map.getLayer(`lyr-${layer.id}-cluster`))        map.setLayoutProperty(`lyr-${layer.id}-cluster`,        'visibility', vis);
-      if (map.getLayer(`lyr-${layer.id}-cluster-count`))  map.setLayoutProperty(`lyr-${layer.id}-cluster-count`,  'visibility', vis);
-    });
+    if (!map) return;
+    const applyVisibility = () => {
+      LAYERS.forEach(layer => {
+        const vis = visible.has(layer.id) ? 'visible' : 'none';
+        if (map.getLayer(`hit-${layer.id}`))                map.setLayoutProperty(`hit-${layer.id}`,                'visibility', vis);
+        if (map.getLayer(`lyr-${layer.id}`))                map.setLayoutProperty(`lyr-${layer.id}`,                'visibility', vis);
+        if (map.getLayer(`lyr-${layer.id}-outline`))        map.setLayoutProperty(`lyr-${layer.id}-outline`,        'visibility', vis);
+        if (map.getLayer(`crit-${layer.id}`))               map.setLayoutProperty(`crit-${layer.id}`,               'visibility', vis);
+        if (map.getLayer(`lbl-${layer.id}`))                map.setLayoutProperty(`lbl-${layer.id}`,                'visibility', vis);
+        if (map.getLayer(`lyr-${layer.id}-cluster`))        map.setLayoutProperty(`lyr-${layer.id}-cluster`,        'visibility', vis);
+        if (map.getLayer(`lyr-${layer.id}-cluster-count`))  map.setLayoutProperty(`lyr-${layer.id}-cluster-count`,  'visibility', vis);
+      });
+    };
+    if (map.isStyleLoaded()) applyVisibility();
+    map.once('idle', applyVisibility);
+    return () => { map.off('idle', applyVisibility); };
   }, [visible, features, mapLoaded]);
 
   // Base map switch: OSM ↔ Lantmäteriet topo
