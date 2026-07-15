@@ -17,16 +17,29 @@ interface IconPath {
   strokeWidth?: number;
 }
 
-function drawIcon(paths: IconPath[], color: string): ImageData {
+function drawIcon(paths: IconPath[], color: string, outline?: boolean): ImageData {
   const canvas = document.createElement('canvas');
   canvas.width = SIZE;
   canvas.height = SIZE;
   const ctx = canvas.getContext('2d')!;
   ctx.scale(SCALE, SCALE);
-  ctx.strokeStyle = color;
-  ctx.fillStyle = color;
   ctx.lineCap = 'round';
   ctx.lineJoin = 'round';
+
+  // Tunn svart halo bakom ikonen — ökar kontrasten mot ljusa kartfärger (t.ex. orange öga
+  // mot beige/grönt kartunderlag), utan att ändra själva formen eller huvudfärgen.
+  if (outline) {
+    ctx.strokeStyle = '#000';
+    ctx.fillStyle = '#000';
+    for (const p of paths) {
+      const path2d = new Path2D(p.d);
+      ctx.lineWidth = (p.strokeWidth ?? 1.3) + (p.fill ? 0.9 : 1);
+      ctx.stroke(path2d);
+    }
+  }
+
+  ctx.strokeStyle = color;
+  ctx.fillStyle = color;
   for (const p of paths) {
     const path2d = new Path2D(p.d);
     if (p.fill) {
@@ -39,9 +52,9 @@ function drawIcon(paths: IconPath[], color: string): ImageData {
   return ctx.getImageData(0, 0, SIZE, SIZE);
 }
 
-function registerIcon(map: MapLibreMap, id: string, paths: IconPath[], color: string) {
+function registerIcon(map: MapLibreMap, id: string, paths: IconPath[], color: string, outline?: boolean) {
   if (map.hasImage(id)) return;
-  map.addImage(id, drawIcon(paths, color));
+  map.addImage(id, drawIcon(paths, color, outline));
 }
 
 // ── Formdefinitioner (samma path-data som layerIcons.tsx där formen redan fanns där) ──────
@@ -105,9 +118,9 @@ export function ensureMapIcons(map: MapLibreMap) {
   registerIcon(map, WEATHER_ICON_ID, WEATHER_CLOUD, getLayer('weather_warnings')?.color ?? '#e8a33c');
   registerIcon(map, POLICE_ICON_ID, POLICE_SHIELD, getLayer('police_events')?.color ?? '#3498db');
   for (const [affiliation, color] of Object.entries(AFFILIATION_COLORS)) {
-    registerIcon(map, `eye-${affiliation}`, EYE, color);
+    registerIcon(map, `eye-${affiliation}`, EYE, color, true);
   }
-  registerIcon(map, EYE_DEFAULT_ICON, EYE, AFFILIATION_COLORS['Okänd (Unknown)']);
+  registerIcon(map, EYE_DEFAULT_ICON, EYE, AFFILIATION_COLORS['Okänd (Unknown)'], true);
 }
 
 // Bygger samma 'match'-uttryck som tidigare styrde circle-color, fast mot ikon-id istället.
