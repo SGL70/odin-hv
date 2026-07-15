@@ -614,7 +614,10 @@ export function MapView() {
     return () => cancelAnimationFrame(raf);
   }, [alertPulsePoints, mapLoaded]);
 
-  // Visibility toggle
+  // Visibility toggle — beror även på features/mapLoaded (inte bara visible), annars vinner
+  // lagrens hårdkodade visibility:'visible' vid skapandet: på en reload skapas lagren asynkront
+  // (efter mapLoaded/features), dvs efter att denna effekt redan kört en gång som no-op (lagren
+  // fanns inte än) — utan omkörning här förblev alla lager synliga oavsett menyns av/på-state.
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !map.isStyleLoaded()) return;
@@ -628,7 +631,7 @@ export function MapView() {
       if (map.getLayer(`lyr-${layer.id}-cluster`))        map.setLayoutProperty(`lyr-${layer.id}-cluster`,        'visibility', vis);
       if (map.getLayer(`lyr-${layer.id}-cluster-count`))  map.setLayoutProperty(`lyr-${layer.id}-cluster-count`,  'visibility', vis);
     });
-  }, [visible]);
+  }, [visible, features, mapLoaded]);
 
   // Base map switch: OSM ↔ Lantmäteriet topo
   useEffect(() => {
