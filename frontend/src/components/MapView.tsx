@@ -22,6 +22,7 @@ import { NewsPanel } from './NewsPanel';
 import { WeatherPanel } from './WeatherPanel';
 import { IconClose, IconSettings, IconImport } from '../lib/uiIcons';
 import { registerReportIcons, buildReportIconExpression } from '../lib/reportSymbols';
+import { ensureMapIcons, buildRoadIconExpression, POWER_ICON_ID, WEATHER_ICON_ID, POLICE_ICON_ID } from '../lib/mapIcons';
 import { useAuth } from '../contexts/AuthContext';
 import { STATUS } from '../styles/tokens';
 import { io } from 'socket.io-client';
@@ -315,8 +316,9 @@ export function MapView() {
 
       // Police events: clustered source so stacked county-centroid dots show a count
       if (layer.id === 'police_events') {
+        ensureMapIcons(map);
         map.addSource(sourceId, { type: 'geojson', data: geojson, cluster: true, clusterMaxZoom: 12, clusterRadius: 40 });
-        // Cluster circle
+        // Cluster circle — antalsbubbla, förblir en cirkel (skölden passar bara enskilda händelser)
         map.addLayer({ id: `lyr-${layer.id}-cluster`, type: 'circle', source: sourceId,
           filter: ['has', 'point_count'],
           paint: { 'circle-radius': ['step', ['get', 'point_count'], 14, 5, 18, 20, 22],
@@ -326,11 +328,10 @@ export function MapView() {
           filter: ['has', 'point_count'],
           layout: { 'text-field': ['get', 'point_count_abbreviated'], 'text-size': 12, 'text-font': ['Open Sans Bold', 'Arial Unicode MS Bold'] },
           paint: { 'text-color': '#fff' } });
-        // Individual unclustered point
-        map.addLayer({ id: `lyr-${layer.id}`, type: 'circle', source: sourceId,
+        // Individual unclustered point — sheriffbricka istället för prick
+        map.addLayer({ id: `lyr-${layer.id}`, type: 'symbol', source: sourceId,
           filter: ['!', ['has', 'point_count']],
-          paint: { 'circle-radius': 9, 'circle-color': layer.color,
-            'circle-stroke-color': '#fff', 'circle-stroke-width': 2, 'circle-opacity': 0.85 } });
+          layout: { 'icon-image': POLICE_ICON_ID, 'icon-size': 0.65, 'icon-allow-overlap': true } });
         map.on('mouseenter', `lyr-${layer.id}-cluster`, () => { map.getCanvas().style.cursor = 'pointer'; });
         map.on('mouseleave', `lyr-${layer.id}-cluster`, () => { map.getCanvas().style.cursor = ''; });
         map.on('mouseenter', `lyr-${layer.id}`, () => { map.getCanvas().style.cursor = 'pointer'; });
@@ -338,29 +339,19 @@ export function MapView() {
         return;
       }
 
-      // Road situations: colour-coded by event_type
+      // Road situations: colour-coded by event_type — triangel-ikon istället för prick,
+      // en variant per händelsetyp så färgkodningen (olycka vs vägarbete vs halka...) består.
       if (layer.id === 'road_situations') {
+        ensureMapIcons(map);
         map.addSource(sourceId, { type: 'geojson', data: geojson });
         map.addLayer({
           id: `lyr-${layer.id}`,
-          type: 'circle', source: sourceId,
-          layout: { visibility: 'visible' },
-          paint: {
-            'circle-radius': 10,
-            'circle-color': ['match', ['get', 'event_type'],
-              'Olycka',              '#e74c3c',
-              'Vägarbete',           '#f39c12',
-              'Hinder',              '#f1c40f',
-              'Halka',               '#3498db',
-              'Väglag',              '#3498db',
-              'Brobegränsning',      '#9b59b6',
-              'Körfältsrestriktion', '#9b59b6',
-              'Restriktion',         '#9b59b6',
-              '#888',
-            ] as maplibregl.ExpressionSpecification,
-            'circle-stroke-color': '#fff',
-            'circle-stroke-width': 2,
-            'circle-opacity': 0.9,
+          type: 'symbol', source: sourceId,
+          layout: {
+            'icon-image': buildRoadIconExpression() as unknown as maplibregl.ExpressionSpecification,
+            'icon-size': 0.7,
+            'icon-allow-overlap': true,
+            visibility: 'visible',
           },
         });
         map.addLayer({
@@ -383,6 +374,46 @@ export function MapView() {
           paint: { 'text-color': '#fff', 'text-halo-color': '#000', 'text-halo-width': 1 },
         });
         map.addLayer(unclassifiedRingLayer(layer.id, sourceId));
+        map.on('mouseenter', `lyr-${layer.id}`, () => { map.getCanvas().style.cursor = 'pointer'; });
+        map.on('mouseleave', `lyr-${layer.id}`, () => { map.getCanvas().style.cursor = ''; });
+        return;
+      }
+
+      // Elavbrott & Vädervarningar: ikon istället för prick — deras färger (types.ts LAYERS[].color)
+      // ligger nästan identiskt i orange/amber och gick inte att skilja åt som släta cirklar.
+      if (layer.id === 'power_outages' || layer.id === 'weather_warnings') {
+        ensureMapIcons(map);
+        map.addSource(sourceId, { type: 'geojson', data: geojson });
+        map.addLayer({
+          id: `lyr-${layer.id}`,
+          type: 'symbol', source: sourceId,
+          layout: {
+            'icon-image': layer.id === 'power_outages' ? POWER_ICON_ID : WEATHER_ICON_ID,
+            'icon-size': 0.65,
+            'icon-allow-overlap': true,
+            visibility: 'visible',
+          },
+        });
+        map.addLayer({
+          id: `crit-${layer.id}`,
+          type: 'circle', source: sourceId,
+          filter: ['in', ['get', 'criticality'], ['literal', ['rod', 'gul']]],
+          layout: { visibility: 'visible' },
+          paint: {
+            'circle-radius': 14, 'circle-color': 'rgba(0,0,0,0)',
+            'circle-stroke-width': 3, 'circle-stroke-opacity': 0.85,
+            'circle-stroke-color': ['match', ['get', 'criticality'],
+              'rod', '#e74c3c', 'gul', '#f39c12', '#888',
+            ] as maplibregl.ExpressionSpecification,
+          },
+        });
+        map.addLayer(unclassifiedRingLayer(layer.id, sourceId));
+        map.addLayer({
+          id: `lbl-${layer.id}`,
+          type: 'symbol', source: sourceId,
+          layout: { 'text-field': ['get', 'name'], 'text-size': 11, 'text-offset': [0, 1.5], 'text-anchor': 'top', visibility: 'visible' },
+          paint: { 'text-color': '#fff', 'text-halo-color': '#000', 'text-halo-width': 1 },
+        });
         map.on('mouseenter', `lyr-${layer.id}`, () => { map.getCanvas().style.cursor = 'pointer'; });
         map.on('mouseleave', `lyr-${layer.id}`, () => { map.getCanvas().style.cursor = ''; });
         return;
