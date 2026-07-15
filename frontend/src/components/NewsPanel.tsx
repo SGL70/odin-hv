@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { api } from '../api';
 import { SWEDEN } from '../lib/sweden';
 import type { NewsItem } from '../types';
@@ -50,6 +50,14 @@ export function NewsPanel({ onClose, onTagged, newsPickMode, onArmNewsPick, news
     setLoading(true);
     api.news.items.list('pending').then(setItems).finally(() => setLoading(false));
   }
+
+  // Klassificerade som relevanta överst, oklassificerade (null) i mitten, bedömt irrelevanta
+  // sist — bara triage-hjälp, posten döljs eller tas aldrig bort automatiskt.
+  const relevanceRank = (r: boolean | null) => (r === true ? 0 : r === null ? 1 : 2);
+  const sortedItems = useMemo(
+    () => [...items].sort((a, b) => relevanceRank(a.relevant) - relevanceRank(b.relevant)),
+    [items]
+  );
 
   useEffect(load, []);
 
@@ -133,8 +141,8 @@ export function NewsPanel({ onClose, onTagged, newsPickMode, onArmNewsPick, news
         {loading && <div style={{ color: '#666', fontSize: 12, padding: 8 }}>Laddar…</div>}
         {!loading && items.length === 0 && <div style={{ color: '#666', fontSize: 12, padding: 8 }}>Inga väntande nyheter.</div>}
 
-        {items.map(item => (
-          <div key={item.id} style={{ marginBottom: 6 }}>
+        {sortedItems.map(item => (
+          <div key={item.id} style={{ marginBottom: 6, opacity: item.relevant === false ? 0.6 : 1 }}>
             <div
               onClick={() => selectItem(item)}
               style={{
@@ -143,6 +151,14 @@ export function NewsPanel({ onClose, onTagged, newsPickMode, onArmNewsPick, news
               }}
             >
               <div style={{ fontSize: 12, color: '#ddd', marginBottom: 3, wordBreak: 'break-word' }}>{item.title}</div>
+              {item.relevant != null && (
+                <div
+                  title={item.classifier_note || undefined}
+                  style={{ fontSize: 9, marginBottom: 3, color: item.relevant ? '#34c274' : '#888' }}
+                >
+                  {item.relevant ? '● Relevant' : '○ Bedömd irrelevant'}{item.category ? ` · ${item.category}` : ''}
+                </div>
+              )}
               {item.summary && (
                 <div style={{ fontSize: 11, color: '#888', marginBottom: 3, wordBreak: 'break-word' }}>{item.summary}</div>
               )}

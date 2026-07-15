@@ -77,6 +77,9 @@ export interface NewsItem {
   published_at: string | null;
   fetched_at: string;
   status: 'pending' | 'tagged' | 'discarded';
+  relevant: boolean | null;
+  category: string | null;
+  classifier_note: string | null;
 }
 
 export interface AlertEvent {

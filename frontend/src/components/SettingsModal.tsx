@@ -69,6 +69,13 @@ export function SettingsModal({ onClose }: Props) {
   const originalMunicipalitiesRef = useRef<string[]>([]);
   const token = localStorage.getItem('token');
 
+  // Nyckelordsförfilter för mediabevakningen (se lib/newsKeywords.js) — any/all/none redigeras
+  // som kommaseparerad text i UI:t, konverteras till arrayer vid sparning.
+  interface KeywordRuleDraft { any: string; all: string; none: string }
+  const [keywordRules, setKeywordRules] = useState<KeywordRuleDraft[]>([]);
+  const [keywordRulesSaving, setKeywordRulesSaving] = useState(false);
+  const [keywordRulesSaved, setKeywordRulesSaved] = useState(false);
+
   useEffect(() => {
     fetch('/api/settings', { headers: { Authorization: `Bearer ${token}` } })
       .then(r => r.json())
@@ -80,8 +87,39 @@ export function SettingsModal({ onClose }: Props) {
         setGulMultiplier(s.criticality_weighting?.gul_multiplier ?? 1.5);
         setRodMultiplier(s.criticality_weighting?.rod_multiplier ?? 3);
         setLayerWeighting(s.layer_weighting ?? { power_outages: 3, road_situations: 1, police_events: 1, railway_situations: 1 });
+        const rules = (s.news_keyword_rules || []) as { any?: string[]; all?: string[]; none?: string[] }[];
+        setKeywordRules(rules.map(r => ({
+          any: (r.any || []).join(', '), all: (r.all || []).join(', '), none: (r.none || []).join(', '),
+        })));
       });
   }, [token]);
+
+  function addKeywordRule() {
+    setKeywordRules(prev => [...prev, { any: '', all: '', none: '' }]);
+  }
+  function removeKeywordRule(idx: number) {
+    setKeywordRules(prev => prev.filter((_, i) => i !== idx));
+  }
+  function updateKeywordRule(idx: number, field: keyof KeywordRuleDraft, value: string) {
+    setKeywordRules(prev => prev.map((r, i) => (i === idx ? { ...r, [field]: value } : r)));
+  }
+  function splitWords(s: string) {
+    return s.split(',').map(w => w.trim()).filter(Boolean);
+  }
+  async function saveKeywordRules() {
+    setKeywordRulesSaving(true);
+    const value = keywordRules
+      .map(r => ({ any: splitWords(r.any), all: splitWords(r.all), none: splitWords(r.none) }))
+      .filter(r => r.any.length || r.all.length || r.none.length);
+    await fetch('/api/settings/news_keyword_rules', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ value }),
+    });
+    setKeywordRulesSaving(false);
+    setKeywordRulesSaved(true);
+    setTimeout(() => setKeywordRulesSaved(false), 2000);
+  }
 
   function toggleMunicipality(name: string) {
     setMunicipalities(prev =>
@@ -678,6 +716,44 @@ export function SettingsModal({ onClose }: Props) {
               disabled={addingSource || !newSourceName.trim() || !newSourceUrl.trim()}
               style={{ width: '100%', padding: '7px 0', borderRadius: 4, fontSize: 12, background: '#5b8cff', color: '#fff', border: 'none', cursor: 'pointer' }}
             >{addingSource ? 'Söker feed…' : 'Lägg till källa'}</button>
+          </div>
+
+          <div style={{ borderTop: '1px solid #2a2a40', paddingTop: 12, marginTop: 16 }}>
+            <div style={{ fontSize: 11, color: '#888', marginBottom: 4, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+              Nyckelordsfilter
+            </div>
+            <div style={{ fontSize: 11, color: '#555', marginBottom: 8 }}>
+              Nya rubriker sållas mot dessa regler innan Haiku-klassificering (kräver <code>ANTHROPIC_API_KEY</code>).
+              En rad matchar om: minst ett "Något av"-ord finns, samtliga "Alla"-ord finns, och inget "Inget av"-ord finns.
+              Rubriken passerar om den matchar minst en rad. Inga rader = allt passerar.
+            </div>
+            {keywordRules.map((rule, idx) => (
+              <div key={idx} style={{ padding: 8, background: '#16162a', border: '1px solid #2a2a40', borderRadius: 5, marginBottom: 6 }}>
+                <div className="field-row">
+                  <label>Något av (OR)</label>
+                  <input value={rule.any} onChange={e => updateKeywordRule(idx, 'any', e.target.value)} placeholder="brand, eldsvåda" />
+                </div>
+                <div className="field-row">
+                  <label>Alla (AND)</label>
+                  <input value={rule.all} onChange={e => updateKeywordRule(idx, 'all', e.target.value)} placeholder="väg, avstängd" />
+                </div>
+                <div className="field-row">
+                  <label>Inget av (NOT)</label>
+                  <input value={rule.none} onChange={e => updateKeywordRule(idx, 'none', e.target.value)} placeholder="sport" />
+                </div>
+                <button className="btn-danger btn-sm" onClick={() => removeKeywordRule(idx)}>Ta bort rad</button>
+              </div>
+            ))}
+            {keywordRules.length === 0 && <div style={{ fontSize: 12, color: '#666', marginBottom: 8 }}>Inga regler — allt passerar förfiltret.</div>}
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 8 }}>
+              <button className="btn-ghost btn-sm" onClick={addKeywordRule}>+ Ny rad</button>
+              <button
+                onClick={saveKeywordRules}
+                disabled={keywordRulesSaving}
+                style={{ padding: '5px 12px', borderRadius: 4, fontSize: 12, background: '#5b8cff', color: '#fff', border: 'none', cursor: 'pointer' }}
+              >{keywordRulesSaving ? 'Sparar…' : 'Spara nyckelordsregler'}</button>
+              {keywordRulesSaved && <span style={{ fontSize: 11, color: '#34c274' }}>Sparat</span>}
+            </div>
           </div>
         </div>
         </>}

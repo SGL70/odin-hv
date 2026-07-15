@@ -235,9 +235,19 @@ async function ensureWeatherWarningsLayer() {
   await setFeatureLayerCheck('weather_warnings');
 }
 
+// Nyckelordsförfilter + Haiku-klassificering av nyhetsposter — relevant IS NULL betyder
+// "ännu inte klassificerad" (t.ex. ANTHROPIC_API_KEY saknas), skiljs medvetet från false
+// ("klassificerad som irrelevant"). Se services/newsClassifier.js och lib/newsKeywords.js.
+async function ensureNewsClassifierColumns() {
+  await db.query(`ALTER TABLE news_items ADD COLUMN IF NOT EXISTS relevant BOOLEAN`);
+  await db.query(`ALTER TABLE news_items ADD COLUMN IF NOT EXISTS category TEXT`);
+  await db.query(`ALTER TABLE news_items ADD COLUMN IF NOT EXISTS classifier_note TEXT`);
+  console.log('news_items klassificeringskolumner klara');
+}
+
 module.exports = {
   ensureAlertSchema, ensureIntelligenceReportsLayer, ensureRailwaySituationsLayer, ensureFeatureHistorySchema,
   ensureUserPreferencesColumn, ensureSmsTablesSchema, ensureLastLoginColumn,
   ensureNewsReportsLayer, ensureNewsSchema, ensureLocationPrecisionBackfill,
-  ensureWeatherWarningsLayer,
+  ensureWeatherWarningsLayer, ensureNewsClassifierColumns,
 };

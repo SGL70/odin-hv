@@ -1,4 +1,6 @@
 const db = require('../db');
+const { matchesKeywordRules } = require('../lib/newsKeywords');
+const { classifyNewsItem } = require('./newsClassifier');
 
 const USER_AGENT = 'ResurslageNewsBot/1.0 (+https://resurslage.jv10.se)';
 
@@ -135,9 +137,33 @@ async function fetchFeedItems(feedUrl) {
   return parseRssItems(xml);
 }
 
+// Nyckelordsförfilter + Haiku-klassificering av en nyinsatt post. Fångar egna fel så att en
+// enskild klassificeringsmiss aldrig stoppar hela pollningen (samma mönster som afterHarvest()).
+async function classifyNewItem(id, title, summary, keywordRules) {
+  try {
+    if (!matchesKeywordRules(`${title} ${summary || ''}`, keywordRules)) {
+      await db.query(
+        `UPDATE news_items SET relevant = false, classifier_note = 'Nyckelordsfilter' WHERE id = $1`,
+        [id]
+      );
+      return;
+    }
+    const result = await classifyNewsItem(title, summary);
+    if (!result) return; // ANTHROPIC_API_KEY ej satt — relevant förblir NULL
+    await db.query(
+      `UPDATE news_items SET relevant = $1, category = $2, classifier_note = $3 WHERE id = $4`,
+      [result.relevant, result.category, result.reason, id]
+    );
+  } catch (err) {
+    console.error(`Klassificering misslyckades för nyhetspost ${id}:`, err.message);
+  }
+}
+
 async function pollSource(io, source) {
   try {
     const items = await fetchFeedItems(source.feed_url);
+    const settingsRow = await db.query(`SELECT value FROM settings WHERE key = 'news_keyword_rules'`);
+    const keywordRules = settingsRow.rows[0]?.value || [];
     let inserted = 0;
     for (const item of items) {
       const { rows } = await db.query(
@@ -147,7 +173,10 @@ async function pollSource(io, source) {
          RETURNING id`,
         [source.id, item.guid, item.title, item.link, item.summary, item.published_at]
       );
-      if (rows.length) inserted++;
+      if (rows.length) {
+        inserted++;
+        await classifyNewItem(rows[0].id, item.title, item.summary, keywordRules);
+      }
     }
     await db.query(`UPDATE news_sources SET last_fetched_at = NOW(), last_error = NULL WHERE id = $1`, [source.id]);
     if (inserted > 0) {

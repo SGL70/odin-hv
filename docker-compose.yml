@@ -26,6 +26,7 @@ services:
       ADMIN_PASSWORD: ${ADMIN_PASSWORD}
       TRAFIKVERKET_API_KEY: ${TRAFIKVERKET_API_KEY}
       TRAFIKVERKET_DATEX_KEY: ${TRAFIKVERKET_DATEX_KEY}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
       PORT: 3000
     volumes:
       - uploads_data:/app/uploads
