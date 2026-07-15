@@ -1036,6 +1036,7 @@ router.get('/status', requireAuth, async (_req, res) => {
           WHEN layer = 'roads'   AND attributes->>'source' = 'Trafikverket/NVDB'    THEN 'trv-roads'
           WHEN layer = 'roads'   AND attributes->>'source' = 'Trafikverket/Traffic' THEN 'trv-traffic'
           WHEN layer = 'ports'   AND attributes->>'source' = 'Trafikverket/NVDB'    THEN 'trv-ferries'
+          WHEN layer = 'weather_warnings' THEN 'weather-warnings'
         END AS src,
         MAX(attributes->>'scraped_at') AS last_at
       FROM features
