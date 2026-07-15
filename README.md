@@ -145,6 +145,23 @@ Två nya kartverktyg för egen avläsning, inga databasobjekt skapas:
 - **📏 Mät** — klicka minst 2 punkter, läs av sträckan (m/km) live
 - Rensa/Stäng/Escape återställer ritningen; ömsesidigt uteslutet mot "+ 7S"-läget (kan inte vara aktiva samtidigt)
 
+### SMHI-väder, ikonspråk på kartan, PWA-fix (2026-07-13/14)
+- Vädervarningar (nytt lager) + väder-vid-plats-panel, båda mot SMHI:s öppna API:er
+- Trafikhändelser/Elavbrott/Vädervarningar/Polishändelser/Underrättelserapporter ritas nu som riktiga SVG-ikoner på kartan (`lib/mapIcons.ts`) istället för släta färgprickar — löste att flera lager hade näst intill identiska orange/amber-nyanser
+- Bräckliga Unicode-symboler (✕ ⚙ ⬆ ↻ ▲ ▼ ⚠, saknade glyf på vissa plattformar) ersatta med SVG i hela UI:t (`lib/uiIcons.tsx`)
+- Fixat: lager som tändes på kartan vid sidladdning trots avstängd meny (race mellan lagerskapande och synlighetssynk)
+- Fixat: Odin Fält-PWA:n erbjöd bara en genväg, inte "Installera app" — manifestets enda ikon var icke-kvadratisk (Chrome kräver kvadratiska 192/512px-ikoner)
+
+### Nyhetsfilter — nyckelord + Haiku-klassificering (2026-07-15)
+Mediabevakningen skördade tidigare allt utan filtrering. Nu: konfigurerbara nyckelordsregler (any/all/none-kombinationer, Inställningar → Nyhetskällor) sållar bort brus innan Claude Haiku 4.5 klassificerar relevans/kategori/brådska. Irrelevanta poster flyttas automatiskt till Slasken (återställningsbart, aldrig raderat). Se `backend/src/services/newsClassifier.js`.
+
+### Notifieringssystem v1 (2026-07-15)
+Se [docs/notifieringssystem-forslag.md](docs/notifieringssystem-forslag.md) för bakgrund. Byggt:
+- Larm riktas nu per roll via Socket.io-rum istället för blind broadcast till alla
+- Två nya larmregeltyper: kritisk vädervarning i OpOmr, AI-klassificerad brådskande nyhet
+- Nivå (info/varning/kritisk) och mottagarroller konfigurerbart per regel (Varningsregler-modalen)
+- Dygnsrapport kl 06:00 via e-post till admin-rollen (händelseräkning, störningsscore-trend, öppna larm, skördestatus)
+
 ---
 
 ## Roadmap
@@ -177,7 +194,16 @@ Prioriteringen nedan väger även mot ABI-pelarna (se Metodik ovan) — t.ex. st
 
 11. **Polygon-sökning: händelser inom ritad yta** — polygonverktyget finns nu (se Vad som är gjort ovan), men kräver även precisionsnivå-taggen (punkt 10) för att fungera korrekt. Tre träfftyper i samma modal: exakta träffar inuti polygonen (`ST_Within`), kommunnivå-träffar för objekt vars polygon skär en eller flera kommuner, länsnivå-träffar för det som bara har grov plats. Norrbottens kommunstorlekar gör kommunnivå-träffar potentiellt bullriga (en polygon i centrala Kiruna kan dra in händelser 15 mil bort) — bör visas nedtonat/separat från exakta träffar, inte blandat rakt av
 
-12. **Notifieringssystem — kanal, mål/mottagare, scope och nivå** — larm (alert_events) syns idag bara i appen och går som blind broadcast till alla inloggade, oavsett roll eller relevans. Utredning klar (se [docs/notifieringssystem-forslag.md](docs/notifieringssystem-forslag.md)): bryt ner i fyra oberoende axlar — **nivå** (info/varning/kritisk), **scope** (globalt/OpOmr/lager/radie), **mål/mottagare** (roll, senare ev. grupp/enhet) och **kanal** (in-app, Web Push, SMS via 46elks, e-post via Mailbox.org-SMTP). Föreslagen första etapp: rikta befintliga in-app-larm per roll/OpOmr via Socket.io-rum i stället för broadcast — inga nya tabeller, låg risk, direkt nytta
+12. **Notifieringssystem — återstående arbete** — v1 (riktade larm per roll + dygnsrapport) är byggt och deployat (se Vad som är gjort ovan, [docs/notifieringssystem-forslag.md](docs/notifieringssystem-forslag.md)). Kvarstår:
+    - **Manuellt driftsättningssteg (inte kod):** `SMTP_HOST`/`SMTP_PORT`/`SMTP_USER`/`SMTP_PASS` måste sättas i `/opt/ledning/.env` (Mailbox.org-uppgifterna) och minst en admin-användare behöver en e-postadress (Inställningar → Användare), annars hoppar dygnsrapporten tyst över utskicket
+    - **Kanalval för Spår 1 (brådskande larm):** Web Push och/eller SMS via 46elks — medvetet inte byggt än, se öppen fråga i utredningsdokumentet
+    - **Kvittensbehov:** ska Spår 1-larm kräva kvittens (som dagens `alert_events.acknowledged_by`) eller räcker visning/leverans?
+    - **Dygnsrapportens innehåll:** dagens fem punkter (räkneverk, störningsscore-trend, öppna larm, nya rapporter, skördestatus) är en första gissning, inte validerad mot vad som faktiskt är användbart i praktiken
+    - **Mottagarbegrepp:** admin-rollen används som proxy för "befattningshavare" — en egen mottagarlista oberoende av roll kan behövas senare om det inte räcker
+
+13. **Glyphs-fel i kartstilen** — dussintals `text-field requires a style "glyphs" property`-fel i konsolen för i stort sett alla lagers textetiketter (`mapConfig.ts`s `STYLE`-objekt saknar en `glyphs`-URL). Förbefintligt, upptäckt 2026-07-15 vid felsökning av ett annat problem. Gör bara att textetiketter aldrig ritas ut — inget kraschar — men bör fixas för att lagernamn ska synas på kartan igen.
+
+14. **Drivmedelsstationer täcker hela landet** — medvetet oförändrat (2026-07-15): källan är inte OpOmr-filtrerad som övriga skördekällor, avsiktligt kvar som demo för att visa att nationell data går att hämta. Ta upp igen om/när det blir aktuellt att skala ner till OpOmr som resten.
 
 ---
 
