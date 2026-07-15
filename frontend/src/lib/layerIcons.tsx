@@ -148,8 +148,8 @@ const ICONS: Record<LayerId, IconRender> = {
   ),
   police_events: c => (
     <>
-      <circle cx={8} cy={8} r={6} stroke={c} strokeWidth={1.3} fill="none" />
-      <path d="M8 5v3l2 1.5" stroke={c} strokeWidth={1.3} fill="none" />
+      <path d="M8 1.5 L13 3.5 V8 C13 11.3 10.7 13.5 8 14.5 C5.3 13.5 3 11.3 3 8 V3.5 Z" stroke={c} strokeWidth={1.3} fill="none" />
+      <path d="M5 6.5h6" stroke={c} strokeWidth={1} />
     </>
   ),
   power_outages: c => <path d="M9 1 3 9h4l-1 6 7-9H9l1-5z" fill={c} />,
