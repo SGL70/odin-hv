@@ -428,7 +428,7 @@ export function MapView() {
           type: 'symbol', source: sourceId,
           layout: {
             'icon-image': buildReportIconExpression() as unknown as maplibregl.ExpressionSpecification,
-            'icon-size': 1,
+            'icon-size': 0.8,
             'icon-allow-overlap': true,
             visibility: 'visible',
           },
