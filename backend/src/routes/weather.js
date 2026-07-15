@@ -30,7 +30,9 @@ router.get('/forecast', requireAuth, async (req, res) => {
   }
 
   try {
-    const url = `${SMHI_FORECAST_URL}/lon/${lng}/lat/${lat}/data.json`;
+    // SMHI:s API 404:ar på koordinater med för många decimaler (kartklick ger fullständig
+    // float64-precision) — 4 decimaler (~11 m) är gott och väl inom rutnätets upplösning.
+    const url = `${SMHI_FORECAST_URL}/lon/${lng.toFixed(4)}/lat/${lat.toFixed(4)}/data.json`;
     const smhiRes = await fetch(url, { signal: AbortSignal.timeout(10000) });
     if (!smhiRes.ok) throw new Error(`SMHI HTTP ${smhiRes.status}`);
     const raw = await smhiRes.json();
