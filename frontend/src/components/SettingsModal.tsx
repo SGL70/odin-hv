@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { io } from 'socket.io-client';
 import { useAuth } from '../contexts/AuthContext';
 import { SWEDEN, type County } from '../lib/sweden';
 import { api } from '../api';
@@ -324,6 +325,32 @@ export function SettingsModal({ onClose }: Props) {
   async function pollNewsNow() {
     setPolling(true);
     try { await api.news.sources.poll(); loadNewsSources(); } finally { setPolling(false); }
+  }
+
+  // Efterklassificering av poster från innan nyckelordsfilter/Haiku-klassificeringen fanns
+  // (relevant IS NULL) — kan ta ett tag för hundratals poster, körs i bakgrunden på servern
+  // (se routes/news.js POST /classify-pending). Egen socket-koppling bara för progress medan
+  // modalen är öppen, samma io({ path: '/socket.io' })-uppkoppling som MapView.tsx.
+  const [classifyPendingTotal, setClassifyPendingTotal] = useState<number | null>(null);
+  const [classifyProgress, setClassifyProgress] = useState<{ done: number; total: number } | null>(null);
+  const [classifying, setClassifying] = useState(false);
+
+  useEffect(() => {
+    const socket = io({ path: '/socket.io' });
+    socket.on('news_classify:progress', (p: { done: number; total: number }) => setClassifyProgress(p));
+    socket.on('news_classify:done', (p: { classified: number; total: number }) => {
+      setClassifyProgress(p ? { done: p.classified, total: p.total } : null);
+      setClassifying(false);
+    });
+    return () => { socket.disconnect(); };
+  }, []);
+
+  async function classifyPendingNow() {
+    setClassifying(true);
+    setClassifyProgress(null);
+    const { total } = await api.news.items.classifyPending();
+    setClassifyPendingTotal(total);
+    if (total === 0) setClassifying(false);
   }
 
   return (
@@ -654,8 +681,22 @@ export function SettingsModal({ onClose }: Props) {
           <button
             onClick={pollNewsNow}
             disabled={polling}
-            style={{ padding: '5px 12px', borderRadius: 4, fontSize: 11, background: '#2a2a44', color: '#aaa', border: '1px solid #444', cursor: 'pointer', marginBottom: 12 }}
+            style={{ padding: '5px 12px', borderRadius: 4, fontSize: 11, background: '#2a2a44', color: '#aaa', border: '1px solid #444', cursor: 'pointer', marginBottom: 8 }}
           >{polling ? 'Hämtar…' : '🔄 Uppdatera alla källor nu'}</button>
+
+          <div style={{ marginBottom: 12 }}>
+            <button
+              onClick={classifyPendingNow}
+              disabled={classifying}
+              style={{ padding: '5px 12px', borderRadius: 4, fontSize: 11, background: '#2a2a44', color: '#aaa', border: '1px solid #444', cursor: 'pointer', marginRight: 8 }}
+            >{classifying ? 'Klassificerar…' : 'Klassificera obehandlade poster'}</button>
+            {!classifying && classifyPendingTotal === 0 && (
+              <span style={{ fontSize: 11, color: '#666' }}>Inga obehandlade poster.</span>
+            )}
+            {classifyProgress && (
+              <span style={{ fontSize: 11, color: '#666' }}>{classifyProgress.done} / {classifyProgress.total} klassificerade</span>
+            )}
+          </div>
           {newsSourcesLoading ? (
             <div style={{ fontSize: 12, color: '#666', marginBottom: 12 }}>Laddar…</div>
           ) : (

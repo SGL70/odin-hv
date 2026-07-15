@@ -103,6 +103,7 @@ export const api = {
         req<{ ok: boolean; feature_uid: string }>('POST', `/news/items/${id}/tag`, data),
       discard: (id: number) => req<{ ok: boolean }>('POST', `/news/items/${id}/discard`),
       restore: (id: number) => req<{ ok: boolean }>('POST', `/news/items/${id}/restore`),
+      classifyPending: () => req<{ started: boolean; total: number }>('POST', '/news/classify-pending'),
     },
   },
 

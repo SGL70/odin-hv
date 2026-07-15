@@ -196,4 +196,23 @@ async function pollAllSources(io) {
   }
 }
 
-module.exports = { parseRssItems, discoverFeedUrl, fetchFeedItems, pollAllSources };
+// Efterklassificerar poster som fanns innan nyckelordsfilter/Haiku-klassificeringen infördes
+// (relevant IS NULL). Körs i bakgrunden — kan vara hundratals poster och ska inte blockera
+// HTTP-anropet som startade den (se routes/news.js POST /classify-pending).
+async function classifyPendingBacklog(io) {
+  const settingsRow = await db.query(`SELECT value FROM settings WHERE key = 'news_keyword_rules'`);
+  const keywordRules = settingsRow.rows[0]?.value || [];
+  const { rows } = await db.query(`SELECT id, title, summary FROM news_items WHERE relevant IS NULL`);
+  const total = rows.length;
+  let done = 0;
+  for (const item of rows) {
+    await classifyNewItem(item.id, item.title, item.summary, keywordRules);
+    done++;
+    if (done % 5 === 0 || done === total) io.emit('news_classify:progress', { done, total });
+  }
+  io.emit('news_classify:done', { classified: done, total });
+  console.log(`Efterklassificering klar: ${done} poster`);
+  return total;
+}
+
+module.exports = { parseRssItems, discoverFeedUrl, fetchFeedItems, pollAllSources, classifyPendingBacklog };

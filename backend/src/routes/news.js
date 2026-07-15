@@ -2,7 +2,7 @@ const express = require('express');
 const db = require('../db');
 const { requireAuth, requireRole } = require('../middleware/auth');
 const { resolveMunicipalityCentroid } = require('../services/geo');
-const { discoverFeedUrl, pollAllSources } = require('../services/newsFeeds');
+const { discoverFeedUrl, pollAllSources, classifyPendingBacklog } = require('../services/newsFeeds');
 
 const router = express.Router();
 
@@ -93,6 +93,18 @@ router.delete('/sources/:id', requireAuth, requireRole('admin'), async (req, res
 router.post('/poll', requireAuth, requireRole('admin'), async (req, res) => {
   await pollAllSources(req.io);
   res.json({ ok: true });
+});
+
+// Efterklassificerar poster från innan nyckelordsfilter/Haiku-klassificeringen infördes
+// (relevant IS NULL) — kan vara hundratals poster, körs i bakgrunden så HTTP-anropet inte
+// hänger (samma "started: true, jobbar i bakgrunden"-mönster som harvest.js-jobben).
+router.post('/classify-pending', requireAuth, requireRole('admin'), async (req, res) => {
+  const { rows } = await db.query(`SELECT COUNT(*)::int AS total FROM news_items WHERE relevant IS NULL`);
+  const total = rows[0].total;
+  res.json({ started: true, total });
+  if (total > 0) {
+    classifyPendingBacklog(req.io).catch(err => console.error('Efterklassificering misslyckades:', err.message));
+  }
 });
 
 // ── Nyhetsposter — granskningsinkorg innan de blir kartobjekt ───────────────
