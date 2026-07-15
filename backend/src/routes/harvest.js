@@ -539,9 +539,9 @@ makeTrvScrapeRoute('trv-traffic', fetchTrvTraffic, 'roads',   'Trafikverket/Traf
 
 // ── Broar (OSM Overpass) ──────────────────────────────────────────────────────
 
-async function fetchBridges() {
+async function fetchBridges(bbox) {
   const query = `[out:json][timeout:90];
-way["bridge"="yes"]["highway"](65.0,17.0,68.5,24.5);
+way["bridge"="yes"]["highway"](${bbox.minlat},${bbox.minlng},${bbox.maxlat},${bbox.maxlng});
 out center tags qt;`;
 
   let lastErr;
@@ -979,7 +979,8 @@ router.post('/weather-warnings/scrape', requireAuth, requireRole('editor', 'admi
 
 router.get('/bridges/preview', requireAuth, async (_req, res) => {
   try {
-    const features = await fetchBridges();
+    const bbox = await getOpOmrBbox();
+    const features = await fetchBridges(bbox);
     res.json({ source: 'bridges', total: features.length, sample: features.slice(0, 3) });
   } catch (err) { res.status(502).json({ error: err.message }); }
 });
@@ -991,7 +992,8 @@ router.post('/bridges/scrape', requireAuth, requireRole('editor', 'admin'), asyn
   io.emit('harvest:progress', { source: 'bridges', phase: 'Hämtar från OSM…', done: 0, total: 1 });
   try {
     if (ctrl.signal.aborted) throw cancelledError('bridges');
-    const features = await fetchBridges();
+    const bbox = await getOpOmrBbox();
+    const features = await fetchBridges(bbox);
     if (ctrl.signal.aborted) throw cancelledError('bridges');
     io.emit('harvest:progress', { source: 'bridges', phase: 'Sparar…', done: 1, total: 1 });
     const identityMap = await captureIdentity('bridges', null);
@@ -1265,22 +1267,12 @@ router.post('/police/scrape', requireAuth, requireRole('editor', 'admin'), async
 // ── EL-AVBROTT (avbrott.se) ────────────────────────────────────────────────────
 // Covers 27 Swedish grid operators incl. Vattenfall (inland BD) + PiteEnergi
 const AVBROTT_URL = 'https://avbrott.se/api/outages';
-// Norrbotten bounding box
-const BD_LAT = [65.0, 68.5];
-const BD_LNG = [17.0, 24.5];
-
-function inNorrbotten(o) {
-  const county = (o.county || '').toLowerCase();
-  if (county.includes('norrbotten')) return true;
-  // Providers that don't set county — fall back to coordinates
-  if (o.lat && o.lng) {
-    return o.lat >= BD_LAT[0] && o.lat <= BD_LAT[1] &&
-           o.lng >= BD_LNG[0] && o.lng <= BD_LNG[1];
-  }
-  return false;
-}
 
 async function fetchPowerOutages() {
+  const opomrRow = await db.query("SELECT value FROM settings WHERE key='op_municipalities'");
+  const munis = opomrRow.rows[0]?.value || [];
+  if (!munis.length) throw new Error('Inga OpOmr-kommuner konfigurerade');
+
   const res = await fetch(AVBROTT_URL, {
     headers: { 'User-Agent': UA },
     signal: AbortSignal.timeout(15000),
@@ -1289,8 +1281,8 @@ async function fetchPowerOutages() {
   const data = await res.json();
   const now = new Date().toISOString();
 
-  return (data.outages || [])
-    .filter(o => !o.is_ended && inNorrbotten(o))
+  const candidates = (data.outages || [])
+    .filter(o => !o.is_ended)
     .map(o => {
       let geom;
       if (o.has_polygon && Array.isArray(o.polygon) && o.polygon.length >= 3) {
@@ -1304,7 +1296,28 @@ async function fetchPowerOutages() {
       } else {
         return null;
       }
+      return { o, geom };
+    })
+    .filter(Boolean);
 
+  if (!candidates.length) return [];
+
+  // Samma ST_Intersects-mönster som features.js opomr-filtret — en avbrottspolygon som
+  // sträcker sig utanför en enskild kommun ska ändå räknas som relevant om den skär OpOmr.
+  const { rows } = await db.query(`
+    SELECT (t.idx - 1) AS idx
+    FROM jsonb_array_elements($1::jsonb) WITH ORDINALITY AS t(geom, idx)
+    WHERE EXISTS (
+      SELECT 1 FROM municipalities m
+      WHERE m.short_name = ANY($2)
+        AND ST_Intersects(m.geom, ST_SetSRID(ST_GeomFromGeoJSON(t.geom), 4326))
+    )
+  `, [JSON.stringify(candidates.map(c => c.geom)), munis]);
+  const keepIdx = new Set(rows.map(r => Number(r.idx)));
+
+  return candidates
+    .filter((_, i) => keepIdx.has(i))
+    .map(({ o, geom }) => {
       const label = o.is_planned ? 'Planerat avbrott' : 'Elavbrott';
       return {
         type: 'Feature', geometry: geom,
@@ -1325,8 +1338,7 @@ async function fetchPowerOutages() {
           external_id: o.id ? String(o.id) : undefined,
         },
       };
-    })
-    .filter(Boolean);
+    });
 }
 
 router.get('/power/preview', requireAuth, async (_req, res) => {

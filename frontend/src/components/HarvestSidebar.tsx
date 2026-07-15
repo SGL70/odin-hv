@@ -57,7 +57,7 @@ const CATEGORIES: Category[] = [
     icon: '⚡',
     defaultSource: 'power',
     auto: true,
-    note: 'Vattenfall · PiteEnergi · 27 leverantörer',
+    note: 'Vattenfall · PiteEnergi · 27 leverantörer · OpOmr-filtrerat',
     sources: [
       { id: 'power', label: 'avbrott.se (realtid)', previewEndpoint: '/api/harvest/power/preview', scrapeEndpoint: '/api/harvest/power/scrape' },
     ],
@@ -89,7 +89,7 @@ const CATEGORIES: Category[] = [
     label: 'Vägbärighet (BK-klass)',
     icon: '🛣',
     defaultSource: 'trv-roads',
-    note: 'NVDB · statisk',
+    note: 'NVDB · statisk · OpOmr-filtrerat',
     sources: [
       { id: 'trv-roads', label: 'NVDB via Trafikverket', previewEndpoint: '/api/harvest/trv-roads/preview', scrapeEndpoint: '/api/harvest/trv-roads/scrape' },
     ],
@@ -100,7 +100,7 @@ const CATEGORIES: Category[] = [
     icon: '🚗',
     defaultSource: 'trv-traffic',
     auto: true,
-    note: 'Realtid · hastighet',
+    note: 'Realtid · hastighet · OpOmr-filtrerat',
     sources: [
       { id: 'trv-traffic', label: 'TrafficFlow (TRV)', previewEndpoint: '/api/harvest/trv-traffic/preview', scrapeEndpoint: '/api/harvest/trv-traffic/scrape' },
     ],
@@ -110,7 +110,7 @@ const CATEGORIES: Category[] = [
     label: 'Färjeleder',
     icon: '⛴',
     defaultSource: 'trv-ferries',
-    note: 'NVDB · statisk',
+    note: 'NVDB · statisk · OpOmr-filtrerat',
     sources: [
       { id: 'trv-ferries', label: 'NVDB via Trafikverket', previewEndpoint: '/api/harvest/trv-ferries/preview', scrapeEndpoint: '/api/harvest/trv-ferries/scrape' },
     ],
@@ -130,7 +130,7 @@ const CATEGORIES: Category[] = [
     label: 'Broar',
     icon: '🌉',
     defaultSource: 'bridges',
-    note: 'Bärighet · maxvikt · OSM',
+    note: 'Bärighet · maxvikt · OSM · OpOmr-filtrerat',
     sources: [
       { id: 'bridges', label: 'OpenStreetMap', previewEndpoint: '/api/harvest/bridges/preview', scrapeEndpoint: '/api/harvest/bridges/scrape' },
     ],
