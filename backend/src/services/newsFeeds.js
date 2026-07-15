@@ -139,11 +139,16 @@ async function fetchFeedItems(feedUrl) {
 
 // Nyckelordsförfilter + Haiku-klassificering av en nyinsatt post. Fångar egna fel så att en
 // enskild klassificeringsmiss aldrig stoppar hela pollningen (samma mönster som afterHarvest()).
+// Poster bedömda irrelevanta flyttas till Slasken (status 'discarded') — samma "Ta bort raderar
+// aldrig"-princip som en manuell kastning, återställningsbar därifrån, men håller inkorgen ren.
+// AND status='pending' skyddar mot att skriva över redan taggade/kastade poster (kan finnas kvar
+// med relevant IS NULL sedan innan klassificeringen fanns).
 async function classifyNewItem(id, title, summary, keywordRules) {
   try {
     if (!matchesKeywordRules(`${title} ${summary || ''}`, keywordRules)) {
       await db.query(
-        `UPDATE news_items SET relevant = false, classifier_note = 'Nyckelordsfilter' WHERE id = $1`,
+        `UPDATE news_items SET relevant = false, classifier_note = 'Nyckelordsfilter', status = 'discarded'
+         WHERE id = $1 AND status = 'pending'`,
         [id]
       );
       return;
@@ -151,7 +156,9 @@ async function classifyNewItem(id, title, summary, keywordRules) {
     const result = await classifyNewsItem(title, summary);
     if (!result) return; // ANTHROPIC_API_KEY ej satt — relevant förblir NULL
     await db.query(
-      `UPDATE news_items SET relevant = $1, category = $2, classifier_note = $3 WHERE id = $4`,
+      `UPDATE news_items SET relevant = $1, category = $2, classifier_note = $3,
+         status = CASE WHEN $1 = false THEN 'discarded' ELSE status END
+       WHERE id = $4 AND status = 'pending'`,
       [result.relevant, result.category, result.reason, id]
     );
   } catch (err) {
@@ -202,7 +209,7 @@ async function pollAllSources(io) {
 async function classifyPendingBacklog(io) {
   const settingsRow = await db.query(`SELECT value FROM settings WHERE key = 'news_keyword_rules'`);
   const keywordRules = settingsRow.rows[0]?.value || [];
-  const { rows } = await db.query(`SELECT id, title, summary FROM news_items WHERE relevant IS NULL`);
+  const { rows } = await db.query(`SELECT id, title, summary FROM news_items WHERE relevant IS NULL AND status = 'pending'`);
   const total = rows.length;
   let done = 0;
   for (const item of rows) {
@@ -211,6 +218,7 @@ async function classifyPendingBacklog(io) {
     if (done % 5 === 0 || done === total) io.emit('news_classify:progress', { done, total });
   }
   io.emit('news_classify:done', { classified: done, total });
+  io.emit('news_item:new', { count: 0 }); // triggar refresh av en ev. öppen Nyheter-panel/badge
   console.log(`Efterklassificering klar: ${done} poster`);
   return total;
 }

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { io } from 'socket.io-client';
 import { api } from '../api';
 import { SWEDEN } from '../lib/sweden';
 import type { NewsItem } from '../types';
@@ -51,15 +52,25 @@ export function NewsPanel({ onClose, onTagged, newsPickMode, onArmNewsPick, news
     api.news.items.list('pending').then(setItems).finally(() => setLoading(false));
   }
 
-  // Klassificerade som relevanta överst, oklassificerade (null) i mitten, bedömt irrelevanta
-  // sist — bara triage-hjälp, posten döljs eller tas aldrig bort automatiskt.
+  useEffect(load, []);
+
+  // news_item:new emitteras både vid nya RSS-poster och efter en efterklassificeringskörning
+  // (se newsFeeds.js) — poster som klassificeras irrelevanta flyttas automatiskt till Slasken,
+  // så listan behöver laddas om för att spegla det utan att användaren manuellt stänger/öppnar
+  // panelen.
+  useEffect(() => {
+    const socket = io({ path: '/socket.io' });
+    socket.on('news_item:new', load);
+    return () => { socket.disconnect(); };
+  }, []);
+
+  // Relevanta överst, oklassificerade (null) i mitten — bedömt irrelevanta poster flyttas till
+  // Slasken (status 'discarded') och visas därför inte alls i den väntande listan längre.
   const relevanceRank = (r: boolean | null) => (r === true ? 0 : r === null ? 1 : 2);
   const sortedItems = useMemo(
     () => [...items].sort((a, b) => relevanceRank(a.relevant) - relevanceRank(b.relevant)),
     [items]
   );
-
-  useEffect(load, []);
 
   useEffect(() => {
     if (!newsPickResult || !selected) return;
