@@ -14,6 +14,32 @@ Notissystemet finns i grunden men är enkelriktat och oriktat:
 - **Mål/mottagare:** finns inte som koncept — allt går till alla. Roller (reader/editor/admin) och OpOmr-kommuner (`settings.op_municipalities`) finns redan i systemet men styr idag bara kartfilter/analys, inte vem som ser ett larm.
 - Återanvändbara byggstenar som redan finns: `users.preferences` (JSONB, oanvänd för detta ändamål), 46elks-SMS (idag bara inkommande, se `routes/sms.js`), Mailbox.org SMTP (i infrastrukturen, oanvänd av appen).
 
+## Use case (distillerade 2026-07-15)
+
+Två distinkta spår, olika brådska och olika leveranslogik — bör inte byggas som samma mekanism.
+
+### Spår 1 — Omedelbar notifiering (brådskande)
+
+Interruptiv, kräver kvittens, levereras så fort händelsen inträffar. Fyra bekräftade användningsfall:
+
+1. **Kritisk vädervarning i OpOmr** — röd/orange SMHI-varning täcker valt operativt område.
+2. **Kritiskt objekt hotat** — ny händelse dyker upp nära en röd-märkt resurs (proximity-regel finns redan i `alertEngine.js`, bara oriktad idag).
+3. **Klustrad händelseökning** — flera händelser inom kort radie/tid (cluster-regel finns redan).
+4. **AI-klassificerad brådskande nyhet** — Haiku-klassificeringen (se `newsClassifier.js`) flaggar en nyhet som både relevant och allvarlig nog för push, inte bara en badge i inkorgen.
+
+### Spår 2 — Dygnsrapport (torr sammanfattning)
+
+Icke-interruptiv, skickas en gång per dygn, läses när mottagaren hinner.
+
+- **Mottagare:** admin-rollen (räcker som start — inget nytt "befattningshavare"-koncept oberoende av roll behövs än).
+- **Tidpunkt/kanal:** fast kl. 06:00, via e-post (Mailbox.org-SMTP, redan i infrastrukturen, oanvänd av appen).
+- **Innehåll (provisoriskt, ej slutgiltigt bekräftat):**
+  1. Räkneverk per kategori — antal trafikhändelser/elavbrott/polishändelser senaste dygnet
+  2. Störningsscore-trend — hur OpOmr:s lägesbild förändrats sedan igår
+  3. Öppna/okvitterade larm — vad som fortfarande väntar på någon
+  4. Nya underrättelserapporter skapade senaste dygnet
+  5. Skördestatus — vilka källor som fallerat/inte uppdaterats
+
 ## Förslag — fyra oberoende axlar
 
 ### 1. Nivåer (severity)
@@ -67,6 +93,8 @@ Kan byggas stegvis ovanpå samma händelsedata:
 
 ## Öppna frågor (kräver beslut innan implementation)
 
-- Ska grupp/enhet (punkt 3, axel "mål/mottagare") byggas nu eller är roll+OpOmr tillräckligt granulärt för Hemvärnets behov i nuläget?
-- Vilken nivå (info/varning/kritisk) ska trigga SMS respektive e-post — och vem betalar/ansvarar för SMS-kostnaden vid skarpt läge (46elks är per-SMS)?
+- ~~Ska grupp/enhet byggas nu eller är roll+OpOmr tillräckligt granulärt?~~ **Beslutat 2026-07-15:** admin-rollen räcker som mottagarbegrepp för dygnsrapporten, inget nytt "befattningshavare"-koncept än.
+- Vilken/vilka kanaler för Spår 1 (omedelbar/brådskande) — Web Push, SMS, eller båda? Vilken nivå (info/varning/kritisk) ska trigga SMS respektive e-post — och vem betalar/ansvarar för SMS-kostnaden vid skarpt läge (46elks är per-SMS)?
 - Ska admin kunna sätta obligatoriska notiser (t.ex. kritisk nivå kan inte stängas av) eller är allt opt-in per användare?
+- Dygnsrapportens innehållslista (fem punkter ovan) är provisorisk — vilka ska faktiskt vara med, och i vilken form (ren räkneverk-tabell, eller en kort AI-genererad textsammanfattning à la nyhetsklassificeringen)?
+- Ska Spår 1 kräva kvittens (som dagens `alert_events.acknowledged_by`) eller räcker det att den bara visas/skickas?
