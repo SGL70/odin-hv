@@ -1,18 +1,21 @@
 const express = require('express');
 const db = require('../db');
 const { requireAuth, requireRole } = require('../middleware/auth');
+const { resolveOrgId } = require('../services/orgContext');
+const { applyRlsPolicies } = require('../migrations');
 
 const router = express.Router();
 
 router.get('/summary', requireAuth, async (req, res) => {
   try {
-    const settingsRow = await db.query("SELECT value FROM settings WHERE key='op_municipalities'");
+    const orgId = await resolveOrgId(req.user.id);
+    const settingsRow = await req.db.query("SELECT value FROM settings WHERE org_id=$1 AND key='op_municipalities'", [orgId]);
     const opOmr = settingsRow.rows.length ? settingsRow.rows[0].value : [];
 
     const cutoff48h = new Date(Date.now() - 48 * 3600 * 1000).toISOString();
 
     const [powerRows, roadsRows, policeRows, overallPowerRows] = await Promise.all([
-      db.query(`
+      req.db.query(`
         SELECT m.short_name as kommun,
                count(*) as avbrott,
                coalesce(sum((f.attributes->>'affected_customers')::int), 0) as berorda,
@@ -25,7 +28,7 @@ router.get('/summary', requireAuth, async (req, res) => {
         GROUP BY m.short_name
         ORDER BY berorda DESC
       `),
-      db.query(`
+      req.db.query(`
         SELECT m.short_name as kommun,
                f.attributes->>'event_type' as typ,
                f.attributes->>'severity' as severity,
@@ -36,7 +39,7 @@ router.get('/summary', requireAuth, async (req, res) => {
         GROUP BY m.short_name, typ, severity
         ORDER BY m.short_name, n DESC
       `),
-      db.query(`
+      req.db.query(`
         SELECT trim(split_part(name, ',', array_length(string_to_array(name, ','), 1))) as ort,
                f.attributes->>'event_type' as typ,
                count(*) as n,
@@ -47,7 +50,7 @@ router.get('/summary', requireAuth, async (req, res) => {
         GROUP BY ort, typ
         ORDER BY n DESC
       `, [cutoff48h]),
-      db.query(`
+      req.db.query(`
         SELECT count(*) as total_avbrott,
                coalesce(sum((attributes->>'affected_customers')::int), 0) as total_berorda,
                count(*) FILTER (WHERE (attributes->>'is_planned')::boolean) as planerade,
@@ -117,7 +120,7 @@ router.get('/events', requireAuth, async (req, res) => {
   try {
     const { layer, municipality } = req.query;
     if (!layer || !municipality) return res.status(400).json({ error: 'layer och municipality krävs' });
-    const { rows } = await db.query(`
+    const { rows } = await req.db.query(`
       SELECT f.uid, f.name, f.attributes
       FROM features f
       JOIN municipalities m ON ST_Within(f.geom, m.geom)
@@ -165,13 +168,16 @@ const DEFAULT_LAYER_WEIGHTING = { power_outages: 3, road_situations: 1, police_e
 // inställning) innan de summeras in i rawScore. Polishändelser viktas INTE spatialt — deras GPS
 // är endast länsnivå-centroid (se "Driftinfo kommuner BD.md"), så ett avståndstest mot dem är
 // fysiskt meningslöst, men deras bidrag till rawScore är fortfarande konfigurerbart via layer_weighting.
-async function computeDisruptionScores() {
+// db/orgId krävs eftersom settings nu är org-scopad (composite PK org_id+key) — anropas dels från
+// /choropleth (req.db + req.user:s org) dels från alertEngine.js:s evaluateThreshold() (en
+// withTenant()-scopad klient + rule.org_id, se services/alertEngine.js).
+async function computeDisruptionScores(db, orgId) {
   const cutoff48h = new Date(Date.now() - 48 * 3600 * 1000).toISOString();
-  const weightRow = await db.query("SELECT value FROM settings WHERE key='criticality_weighting'");
+  const weightRow = await db.query("SELECT value FROM settings WHERE org_id=$1 AND key='criticality_weighting'", [orgId]);
   const weighting = weightRow.rows.length ? weightRow.rows[0].value : DEFAULT_CRITICALITY_WEIGHTING;
   const { distance_m, gul_multiplier, rod_multiplier } = { ...DEFAULT_CRITICALITY_WEIGHTING, ...weighting };
 
-  const layerWeightRow = await db.query("SELECT value FROM settings WHERE key='layer_weighting'");
+  const layerWeightRow = await db.query("SELECT value FROM settings WHERE org_id=$1 AND key='layer_weighting'", [orgId]);
   const layerWeights = { ...DEFAULT_LAYER_WEIGHTING, ...(layerWeightRow.rows[0]?.value || {}) };
   const { power_outages: powerWeight, road_situations: roadWeight, police_events: policeWeight, ...extraLayerWeights } = layerWeights;
   const extraLayers = Object.keys(extraLayerWeights).filter(l => Number(extraLayerWeights[l]) > 0);
@@ -256,8 +262,8 @@ router.computeDisruptionScores = computeDisruptionScores;
 router.get('/choropleth', requireAuth, async (req, res) => {
   try {
     const [scores, muniGeoRows] = await Promise.all([
-      computeDisruptionScores(),
-      db.query(`SELECT short_name as name, ST_AsGeoJSON(geom)::json as geom FROM municipalities ORDER BY short_name`),
+      computeDisruptionScores(req.db, await resolveOrgId(req.user.id)),
+      req.db.query(`SELECT short_name as name, ST_AsGeoJSON(geom)::json as geom FROM municipalities ORDER BY short_name`),
     ]);
     const geomByName = Object.fromEntries(muniGeoRows.rows.map(m => [m.name, m.geom]));
 
@@ -278,7 +284,7 @@ router.get('/choropleth', requireAuth, async (req, res) => {
 // OBS: har en egen, oviktad kopia av score-formeln (avbrott×3 + roadTotal + police48h) och
 // använder INTE computeDisruptionScores() eller criticality_weighting. Medvetet val — historiska
 // trendrader i analysis_snapshots förblir på den gamla skalan, i väntan på en framtida refaktor.
-async function saveSnapshot() {
+async function saveSnapshot(db) {
   try {
     await db.query(`
       CREATE TABLE IF NOT EXISTS analysis_snapshots (
@@ -289,10 +295,41 @@ async function saveSnapshot() {
         berorda INTEGER DEFAULT 0,
         road_total INTEGER DEFAULT 0,
         police_48h INTEGER DEFAULT 0,
-        score NUMERIC(6,1) DEFAULT 0,
-        UNIQUE(snapshot_date, municipality)
+        score NUMERIC(6,1) DEFAULT 0
       )
     `);
+    // Multi-tenancy steg 3 — analysis_snapshots skapas lazy här (inte i migrations.js), så
+    // org_id-kolumnen läggs till i samma steg som tabellen i stället för att anta att den redan
+    // finns. Snapshotten räknar över ALLA kommuner i den globala municipalities-referensen, inte
+    // en specifik orgs OpOmr-filter — resolveOrgId(null) (Standardbataljon) är alltså korrekt
+    // även när en admin triggar den manuellt, inte bara vid schemalagd körning.
+    await db.query(`ALTER TABLE analysis_snapshots ADD COLUMN IF NOT EXISTS org_id INTEGER REFERENCES organizations(id)`);
+    await db.query(`
+      UPDATE analysis_snapshots SET org_id = (SELECT id FROM organizations WHERE slug = 'default') WHERE org_id IS NULL
+    `);
+    await db.query(`ALTER TABLE analysis_snapshots ALTER COLUMN org_id SET NOT NULL`);
+    await db.query(`CREATE INDEX IF NOT EXISTS analysis_snapshots_org_id_idx ON analysis_snapshots(org_id)`);
+    // Multi-tenancy-fynd (2026-07-17, se docs/multitenancy-forslag.md "Öppna frågor") — den
+    // ursprungliga UNIQUE(snapshot_date, municipality) saknade org_id, så två bataljoner skulle
+    // krocka på samma kommun/datum. CREATE TABLE IF NOT EXISTS ovan täcker bara fräscha
+    // installationer (redan skriven med org_id i sig) — en databas som redan har tabellen
+    // (produktion) behöver denna explicita migrering av den befintliga constrainten. Postgres
+    // saknar "ADD CONSTRAINT IF NOT EXISTS" — saveSnapshot() körs en gång om dagen, så måste
+    // droppa BÅDA det gamla auto-namnet och sitt eget namn (från en tidigare körning) innan
+    // det läggs till på nytt, annars kraschar andra körningen på "already exists".
+    await db.query(`ALTER TABLE analysis_snapshots DROP CONSTRAINT IF EXISTS analysis_snapshots_snapshot_date_municipality_key`);
+    await db.query(`ALTER TABLE analysis_snapshots DROP CONSTRAINT IF EXISTS analysis_snapshots_snapshot_date_municipality_org_id_key`);
+    await db.query(`
+      ALTER TABLE analysis_snapshots ADD CONSTRAINT analysis_snapshots_snapshot_date_municipality_org_id_key
+        UNIQUE (snapshot_date, municipality, org_id)
+    `);
+    // Multi-tenancy steg 7 — analysis_snapshots får sina RLS-policyer HÄR (inte bara i
+    // migrations.js:s ensureRowLevelSecurity()), eftersom tabellen skapas lazy vid FÖRSTA
+    // analysögonblicket, ofta efter att runMigrations() redan kört klart en gång för alla.
+    // applyRlsPolicies() kör alltid mot den delade, priviligierade db-modulen internt (aldrig
+    // detta anrops org-scopade `db`-parameter) — samma DDL-separation som resten av migrations.js.
+    await applyRlsPolicies('analysis_snapshots');
+    const orgId = await resolveOrgId(null);
 
     const cutoff48h = new Date(Date.now() - 48 * 3600 * 1000).toISOString();
     const [muniRows, powerRows, roadRows, policeRows] = await Promise.all([
@@ -327,15 +364,15 @@ async function saveSnapshot() {
       const score     = avbrott * 3 + roadTotal + police48h;
 
       await db.query(`
-        INSERT INTO analysis_snapshots (snapshot_date, municipality, elavbrott, berorda, road_total, police_48h, score)
-        VALUES (CURRENT_DATE, $1, $2, $3, $4, $5, $6)
-        ON CONFLICT (snapshot_date, municipality) DO UPDATE SET
+        INSERT INTO analysis_snapshots (snapshot_date, municipality, elavbrott, berorda, road_total, police_48h, score, org_id)
+        VALUES (CURRENT_DATE, $1, $2, $3, $4, $5, $6, $7)
+        ON CONFLICT (snapshot_date, municipality, org_id) DO UPDATE SET
           elavbrott = $2, berorda = $3, road_total = $4, police_48h = $5, score = $6
-      `, [m.name, avbrott, berorda, roadTotal, police48h, score]);
+      `, [m.name, avbrott, berorda, roadTotal, police48h, score, orgId]);
     }
 
     // Rensa ögonblick äldre än retentionstiden
-    const retRow = await db.query("SELECT value FROM settings WHERE key='snapshot_retention_days'");
+    const retRow = await db.query("SELECT value FROM settings WHERE org_id=$1 AND key='snapshot_retention_days'", [orgId]);
     const days = retRow.rows.length ? parseInt(retRow.rows[0].value) : 30;
     const { rowCount } = await db.query('DELETE FROM analysis_snapshots WHERE snapshot_date < CURRENT_DATE - $1::int', [days]);
     if (rowCount > 0) console.log(`Rensade ${rowCount} gamla snapshot-rader (retention: ${days} dagar)`);
@@ -347,8 +384,8 @@ async function saveSnapshot() {
 }
 
 // Manuell trigger (admin)
-router.post('/snapshot', requireAuth, requireRole('admin'), async (_req, res) => {
-  await saveSnapshot();
+router.post('/snapshot', requireAuth, requireRole('admin'), async (req, res) => {
+  await saveSnapshot(req.db);
   res.json({ ok: true });
 });
 
@@ -357,8 +394,8 @@ router.get('/history', requireAuth, async (req, res) => {
   try {
     const { municipality } = req.query;
     const q = municipality
-      ? db.query(`SELECT * FROM analysis_snapshots WHERE municipality = $1 ORDER BY snapshot_date DESC LIMIT 90`, [municipality])
-      : db.query(`SELECT * FROM analysis_snapshots ORDER BY snapshot_date DESC, municipality LIMIT 500`);
+      ? req.db.query(`SELECT * FROM analysis_snapshots WHERE municipality = $1 ORDER BY snapshot_date DESC LIMIT 90`, [municipality])
+      : req.db.query(`SELECT * FROM analysis_snapshots ORDER BY snapshot_date DESC, municipality LIMIT 500`);
     const { rows } = await q;
     res.json(rows);
   } catch (err) {
@@ -367,9 +404,9 @@ router.get('/history', requireAuth, async (req, res) => {
 });
 
 // Kommuner med metadata
-router.get('/municipalities', requireAuth, async (_req, res) => {
+router.get('/municipalities', requireAuth, async (req, res) => {
   try {
-    const r = await db.query(`
+    const r = await req.db.query(`
       SELECT code, short_name, name, county_name,
              round(ST_Area(geom::geography)/1000000) as yta_km2
       FROM municipalities ORDER BY short_name

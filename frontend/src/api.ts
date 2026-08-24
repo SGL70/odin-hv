@@ -21,6 +21,8 @@ async function req<T>(method: string, path: string, body?: unknown): Promise<T> 
 }
 
 export const api = {
+  config: () => req<{ criticalAlertsEnabled: boolean }>('GET', '/config'),
+
   login: (username: string, password: string) =>
     req<{ token: string; user: { id: number; username: string; role: string }; previousLoginAt: string | null }>('POST', '/auth/login', { username, password }),
 
@@ -63,10 +65,11 @@ export const api = {
   get: <T = unknown>(path: string) => req<T>('GET', path.replace(/^\/api/, '')),
 
   users: {
-    list: () => req<{ id: number; username: string; role: string; email: string | null; created_at: string }[]>('GET', '/auth/users'),
+    list: () => req<{ id: number; username: string; role: string; email: string | null; phone: string | null; created_at: string }[]>('GET', '/auth/users'),
     create: (data: { username: string; password: string; role: string }) => req('POST', '/auth/users', data),
     delete: (id: number) => req('DELETE', `/auth/users/${id}`),
-    setEmail: (id: number, email: string) => req<{ id: number; username: string; role: string; email: string | null }>('PATCH', `/auth/users/${id}/email`, { email }),
+    setContact: (id: number, data: { email: string; phone: string }) =>
+      req<{ id: number; username: string; role: string; email: string | null; phone: string | null }>('PATCH', `/auth/users/${id}/contact`, data),
   },
 
   preferences: {

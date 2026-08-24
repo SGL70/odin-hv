@@ -16,6 +16,7 @@ interface AuthCtx {
   catchupOpen: boolean;
   openCatchup: () => void;
   closeCatchup: () => void;
+  criticalAlertsEnabled: boolean;
 }
 
 const AuthContext = createContext<AuthCtx>(null!);
@@ -26,6 +27,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
   const [catchupData, setCatchupData] = useState<CatchupData | null>(null);
   const [catchupOpen, setCatchupOpen] = useState(false);
+  // FEATURE_CRITICAL_ALERTS (docker-compose.yml) — döljer Kritiska objekt + hela larmsystemet
+  // tills flaggan slås på. Läses en gång vid appstart, oberoende av inloggning.
+  const [criticalAlertsEnabled, setCriticalAlertsEnabled] = useState(false);
+
+  useEffect(() => {
+    api.config().then(c => setCriticalAlertsEnabled(c.criticalAlertsEnabled)).catch(() => {});
+  }, []);
 
   useEffect(() => {
     const token = localStorage.getItem('token');
@@ -43,7 +51,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     if (previousLoginAt && Date.now() - new Date(previousLoginAt).getTime() > CATCHUP_THRESHOLD_MS) {
       try {
-        const alerts = await api.alerts.listEvents('open', previousLoginAt);
+        const alerts = criticalAlertsEnabled ? await api.alerts.listEvents('open', previousLoginAt) : [];
         const changelogEntries = CHANGELOG.filter(e => e.date > previousLoginAt);
         if (alerts.length > 0 || changelogEntries.length > 0) {
           setCatchupData({ alerts, changelogEntries });
@@ -66,7 +74,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const closeCatchup = () => setCatchupOpen(false);
 
   return (
-    <AuthContext.Provider value={{ user, loading, login, logout, catchupData, catchupOpen, openCatchup, closeCatchup }}>
+    <AuthContext.Provider value={{ user, loading, login, logout, catchupData, catchupOpen, openCatchup, closeCatchup, criticalAlertsEnabled }}>
       {children}
     </AuthContext.Provider>
   );

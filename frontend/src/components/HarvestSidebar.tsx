@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { io, Socket } from 'socket.io-client';
-import { IconClose, IconRefresh, IconChevronUp, IconChevronDown, IconWarning } from '../lib/uiIcons';
+import { IconClose, IconChevronUp, IconChevronDown, IconWarning } from '../lib/uiIcons';
 
 interface Source {
   id: string;
@@ -16,27 +16,20 @@ interface Category {
   defaultSource: string;
   sources: Source[];
   placeholder?: boolean;
-  auto?: boolean;        // API-driven, kan schemaläggas
   note?: string;         // visningsnotering
 }
 
-// Intervals in minutes (0 = manual only)
-const REFRESH_OPTIONS = [
-  { value: 0,  label: 'Manuell' },
-  { value: 5,  label: '5 min' },
-  { value: 15, label: '15 min' },
-  { value: 30, label: '30 min' },
-  { value: 60, label: '60 min' },
-];
-
+// Polishändelser/Trafikhändelser/Elavbrott/Vädervarningar/Trafikflöde är sedan 2026-07-16
+// server-schemalagda (var 15:e min, se backend/src/index.js scheduleAutoHarvest) i stället för
+// klientstyrda via en "Auto"-dropdown här — den pausade skördningen så fort ingen hade appen
+// öppen i en flik. Samma "server-pollas, kan även köras manuellt"-mönster som Nyhetsflöden nedan.
 const CATEGORIES: Category[] = [
   {
     id: 'police',
     label: 'Polishändelser',
     icon: '🚔',
     defaultSource: 'police',
-    auto: true,
-    note: 'Senaste 48h · OpOmr-filtrerat',
+    note: 'Senaste 48h · OpOmr-filtrerat · server-schemalagt var 15:e min',
     sources: [
       { id: 'police', label: 'Polisen öppna API', previewEndpoint: '/api/harvest/police/preview', scrapeEndpoint: '/api/harvest/police/scrape' },
     ],
@@ -46,8 +39,7 @@ const CATEGORIES: Category[] = [
     label: 'Trafikhändelser',
     icon: '🚧',
     defaultSource: 'situations',
-    auto: true,
-    note: 'Olyckor · Vägarbeten · Hinder',
+    note: 'Olyckor · Vägarbeten · Hinder · server-schemalagt var 15:e min',
     sources: [
       { id: 'situations', label: 'Trafikverket Situation', previewEndpoint: '/api/harvest/situations/preview', scrapeEndpoint: '/api/harvest/situations/scrape' },
     ],
@@ -57,8 +49,7 @@ const CATEGORIES: Category[] = [
     label: 'Elavbrott',
     icon: '⚡',
     defaultSource: 'power',
-    auto: true,
-    note: 'Vattenfall · PiteEnergi · 27 leverantörer · OpOmr-filtrerat',
+    note: 'Vattenfall · PiteEnergi · 27 leverantörer · OpOmr-filtrerat · server-schemalagt var 15:e min',
     sources: [
       { id: 'power', label: 'avbrott.se (realtid)', previewEndpoint: '/api/harvest/power/preview', scrapeEndpoint: '/api/harvest/power/scrape' },
     ],
@@ -68,8 +59,7 @@ const CATEGORIES: Category[] = [
     label: 'Vädervarningar',
     icon: '⛈',
     defaultSource: 'weather-warnings',
-    auto: true,
-    note: 'SMHI IBW · OpOmr-filtrerat',
+    note: 'SMHI IBW · OpOmr-filtrerat · server-schemalagt var 15:e min',
     sources: [
       { id: 'weather-warnings', label: 'SMHI IBW', previewEndpoint: '/api/harvest/weather-warnings/preview', scrapeEndpoint: '/api/harvest/weather-warnings/scrape' },
     ],
@@ -100,8 +90,7 @@ const CATEGORIES: Category[] = [
     label: 'Trafikflöde',
     icon: '🚗',
     defaultSource: 'trv-traffic',
-    auto: true,
-    note: 'Realtid · hastighet · OpOmr-filtrerat',
+    note: 'Realtid · hastighet · OpOmr-filtrerat · server-schemalagt var 15:e min',
     sources: [
       { id: 'trv-traffic', label: 'TrafficFlow (TRV)', previewEndpoint: '/api/harvest/trv-traffic/preview', scrapeEndpoint: '/api/harvest/trv-traffic/scrape' },
     ],
@@ -136,6 +125,16 @@ const CATEGORIES: Category[] = [
       { id: 'bridges', label: 'OpenStreetMap', previewEndpoint: '/api/harvest/bridges/preview', scrapeEndpoint: '/api/harvest/bridges/scrape' },
     ],
   },
+  {
+    id: 'news',
+    label: 'Nyhetsflöden',
+    icon: '📰',
+    defaultSource: 'news',
+    note: 'RSS/Atom · server-pollas var 10:e min, kan även köras manuellt',
+    sources: [
+      { id: 'news', label: 'Alla nyhetskällor', previewEndpoint: '/api/news/sources', scrapeEndpoint: '/api/news/poll' },
+    ],
+  },
   { id: 'telecom', label: 'Telekom driftstatus', icon: '📡', defaultSource: '', sources: [], placeholder: true },
   {
     id: 'fuel',
@@ -162,8 +161,6 @@ interface JobState {
 interface Props {
   onImported: () => void;
   onActivityChange?: (active: boolean) => void;
-  refreshInterval: number;
-  onRefreshIntervalChange: (v: number) => void;
 }
 
 function fmtDate(iso?: string) {
@@ -172,26 +169,12 @@ function fmtDate(iso?: string) {
   return d.toLocaleString('sv-SE', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
 }
 
-export function HarvestSidebar({ onImported, onActivityChange, refreshInterval, onRefreshIntervalChange }: Props) {
+export function HarvestSidebar({ onImported, onActivityChange }: Props) {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [jobs, setJobs] = useState<Record<string, JobState>>({});
   const [status, setStatus] = useState<Record<string, string>>({});
   const socketRef = useRef<Socket | null>(null);
   const token = localStorage.getItem('token');
-
-  // Auto-refresh timer for event sources
-  useEffect(() => {
-    if (refreshInterval === 0) return;
-    const autoSources = CATEGORIES.filter(c => c.auto && !c.placeholder);
-    const ms = refreshInterval * 60 * 1000;
-    const t = setInterval(() => {
-      autoSources.forEach(cat => {
-        const src = cat.sources.find(s => s.id === cat.defaultSource);
-        if (src) scrape(src);
-      });
-    }, ms);
-    return () => clearInterval(t);
-  }, [refreshInterval]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function fetchStatus() {
     const r = await fetch('/api/harvest/status', { headers: { Authorization: `Bearer ${token}` } });
@@ -255,25 +238,10 @@ export function HarvestSidebar({ onImported, onActivityChange, refreshInterval, 
           </div>
           <button
             onClick={scrapeAll}
-            style={{ width: '100%', padding: '6px 0', borderRadius: 4, fontSize: 12, background: '#5b8cff', color: '#fff', border: 'none', cursor: 'pointer', marginBottom: 8 }}
+            style={{ width: '100%', padding: '6px 0', borderRadius: 4, fontSize: 12, background: '#5b8cff', color: '#fff', border: 'none', cursor: 'pointer' }}
           >
             Skörda alla
           </button>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <span style={{ fontSize: 10, color: '#555', flexShrink: 0, display: 'flex', alignItems: 'center', gap: 3 }}><IconRefresh size={10} /> Auto:</span>
-            <select
-              value={refreshInterval}
-              onChange={e => onRefreshIntervalChange(parseInt(e.target.value))}
-              style={{
-                flex: 1, background: '#2a2a40', border: '1px solid #444', borderRadius: 4,
-                color: refreshInterval > 0 ? '#7aaeff' : '#666', fontSize: 10, padding: '2px 4px',
-              }}
-            >
-              {REFRESH_OPTIONS.map(o => (
-                <option key={o.value} value={o.value}>{o.label}</option>
-              ))}
-            </select>
-          </div>
         </div>
 
         {/* Categories */}
@@ -290,9 +258,6 @@ export function HarvestSidebar({ onImported, onActivityChange, refreshInterval, 
                 <div style={{ display: 'flex', alignItems: 'center', padding: '8px 12px 4px', gap: 8 }}>
                   <span style={{ fontSize: 14, opacity: cat.placeholder ? 0.35 : 1 }}>{cat.icon}</span>
                   <span style={{ flex: 1, fontSize: 12, color: cat.placeholder ? '#555' : '#ccc' }}>{cat.label}</span>
-                  {cat.auto && (
-                    <span style={{ fontSize: 9, fontWeight: 700, background: '#1a3a1a', color: '#4a9', border: '1px solid #2a5a2a', borderRadius: 4, padding: '1px 5px', letterSpacing: 0.5 }}>AUTO</span>
-                  )}
                   {!cat.placeholder && (
                     <button
                       onClick={() => toggleExpand(cat.id)}
@@ -308,34 +273,9 @@ export function HarvestSidebar({ onImported, onActivityChange, refreshInterval, 
                   </div>
                 )}
 
-                {defSrc && !cat.auto && (
+                {defSrc && (
                   <div style={{ padding: '4px 12px 8px' }}>
                     <JobRow job={defJob} onScrape={() => scrape(defSrc)} onCancel={() => cancel(defSrc.id)} onClear={() => clearJob(defSrc.id)} label="Skörda" primary />
-                  </div>
-                )}
-
-                {defSrc && cat.auto && (
-                  <div style={{ padding: '0 12px 8px', display: 'flex', alignItems: 'center', gap: 6 }}>
-                    {defJob && !defJob.result ? (
-                      <span style={{ fontSize: 10, color: '#888', flex: 1 }}>{defJob.phase || 'Arbetar…'}</span>
-                    ) : (
-                      <span style={{ fontSize: 10, color: '#444', flex: 1 }}>
-                        {defJob?.result?.error
-                          ? <span style={{ color: '#e74c3c' }}><IconWarning size={10} /> {defJob.result.error.slice(0, 50)}</span>
-                          : defJob?.result
-                          ? <span style={{ color: '#4a7' }}>✓ {defJob.result.imported} händelser</span>
-                          : null
-                        }
-                      </span>
-                    )}
-                    <button
-                      onClick={() => { if (defSrc) scrape(defSrc); }}
-                      title="Hämta nu"
-                      style={{ background: 'none', border: '1px solid #333', borderRadius: 4, color: '#555', fontSize: 12, width: 22, height: 22, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-                    ><IconRefresh size={12} /></button>
-                    {defJob?.result && (
-                      <button onClick={() => clearJob(defSrc.id)} style={{ background: 'none', border: 'none', color: '#333', fontSize: 10, cursor: 'pointer' }}><IconClose size={9} /></button>
-                    )}
                   </div>
                 )}
 

@@ -2,7 +2,8 @@ import { useState, useEffect } from 'react';
 import { api } from '../api';
 import { getLayer } from '../types';
 import { LayerIcon } from '../lib/layerIcons';
-import { IconClose, IconWarning } from '../lib/uiIcons';
+import { IconWarning } from '../lib/uiIcons';
+import { SidePanelFrame } from './SidePanelFrame';
 
 interface DashboardData {
   totals: { layer: string; count: string; fuel_liters?: string; food_kg?: string; water_m3?: string }[];
@@ -12,9 +13,9 @@ interface DashboardData {
 
 const ACTION_LABELS: Record<string, string> = { create: 'Skapade', update: 'Ändrade', delete: 'Raderade' };
 
-interface Props { onClose: () => void }
+interface Props { onClose: () => void; sidebarOpen: boolean }
 
-export function Dashboard({ onClose }: Props) {
+export function Dashboard({ onClose, sidebarOpen }: Props) {
   const [data, setData] = useState<DashboardData | null>(null);
 
   useEffect(() => {
@@ -24,17 +25,8 @@ export function Dashboard({ onClose }: Props) {
   }, []);
 
   return (
-    <div style={{
-      position: 'absolute', left: 190, top: 10, bottom: 10, zIndex: 10,
-      width: 340, background: '#1e1e30', border: '1px solid #333',
-      borderRadius: 8, display: 'flex', flexDirection: 'column',
-      boxShadow: '0 4px 20px #0006', overflowY: 'auto',
-    }}>
-      <div style={{ padding: '12px 14px', borderBottom: '1px solid #333', display: 'flex', justifyContent: 'space-between' }}>
-        <span style={{ fontWeight: 700 }}>Dashboard</span>
-        <button className="btn-ghost btn-sm" onClick={onClose}><IconClose /></button>
-      </div>
-
+    <SidePanelFrame title="Dashboard" onClose={onClose} sidebarOpen={sidebarOpen} width={340}>
+      <div style={{ flex: 1, overflowY: 'auto' }}>
       {!data ? (
         <div style={{ padding: 20, color: '#888', fontSize: 13 }}>Laddar...</div>
       ) : (
@@ -88,7 +80,8 @@ export function Dashboard({ onClose }: Props) {
 
         </div>
       )}
-    </div>
+      </div>
+    </SidePanelFrame>
   );
 }
 

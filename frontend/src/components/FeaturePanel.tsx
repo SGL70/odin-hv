@@ -48,7 +48,7 @@ export function FeaturePanel({
   feature, group = [], onSelectFromGroup, onClose, onSaved, onDeleted, addMode, addLayer, onAddLayerChange,
   pendingPlacement, placementInfo, newName, onNewNameChange, newFields, onNewFieldChange, onSubmitNew, onCancelPlacement,
 }: Props) {
-  const { user } = useAuth();
+  const { user, criticalAlertsEnabled } = useAuth();
   const canEdit = user?.role === 'editor' || user?.role === 'admin';
 
   const [name, setName] = useState('');
@@ -271,22 +271,24 @@ export function FeaturePanel({
           </div>
         )}
 
-        {/* Kritikalitet — universellt fält på alla features */}
-        <div className="field-row">
-          <label>Kritikalitet</label>
-          {canEdit ? (
-            <select
-              value={fields.criticality || 'normal'}
-              onChange={e => setFields(p => ({ ...p, criticality: e.target.value }))}
-            >
-              <option value="normal">🟢 Normal</option>
-              <option value="gul">🟡 Viktig</option>
-              <option value="rod">🔴 Kritisk</option>
-            </select>
-          ) : (
-            <CriticalityBadge value={fields.criticality || 'normal'} />
-          )}
-        </div>
+        {/* Kritikalitet — universellt fält på alla features, döljs bakom FEATURE_CRITICAL_ALERTS */}
+        {criticalAlertsEnabled && (
+          <div className="field-row">
+            <label>Kritikalitet</label>
+            {canEdit ? (
+              <select
+                value={fields.criticality || 'normal'}
+                onChange={e => setFields(p => ({ ...p, criticality: e.target.value }))}
+              >
+                <option value="normal">🟢 Normal</option>
+                <option value="gul">🟡 Viktig</option>
+                <option value="rod">🔴 Kritisk</option>
+              </select>
+            ) : (
+              <CriticalityBadge value={fields.criticality || 'normal'} />
+            )}
+          </div>
+        )}
         {layerCfg?.fields.map(f => {
           // Aldrig undefined: flera lager delar fältnycklar (t.ex. "description"), och ett
           // kontrollerat React-element (textarea/input/select) som får value={undefined} slutar

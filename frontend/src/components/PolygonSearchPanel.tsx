@@ -1,6 +1,6 @@
 import type { Feature } from '../types';
 import { LayerIcon } from '../lib/layerIcons';
-import { IconClose } from '../lib/uiIcons';
+import { SidePanelFrame } from './SidePanelFrame';
 
 // Polygon-sökning (roadmap #11) — tre träfftyper i stället för en enda lista, eftersom
 // kommun-/länsnivå-träffar bygger på grov platsangivelse (location_precision, roadmap #10)
@@ -9,6 +9,7 @@ interface Props {
   results: { exact: Feature[]; kommun: Feature[]; lan: Feature[] };
   onClose: () => void;
   onSelect: (f: Feature) => void;
+  sidebarOpen: boolean;
 }
 
 function Row({ f, onSelect, approx }: { f: Feature; onSelect: (f: Feature) => void; approx?: 'kommun' | 'lan' }) {
@@ -37,21 +38,12 @@ function Row({ f, onSelect, approx }: { f: Feature; onSelect: (f: Feature) => vo
   );
 }
 
-export function PolygonSearchPanel({ results, onClose, onSelect }: Props) {
+export function PolygonSearchPanel({ results, onClose, onSelect, sidebarOpen }: Props) {
   const { exact, kommun, lan } = results;
   const total = exact.length + kommun.length + lan.length;
 
   return (
-    <div style={{
-      position: 'absolute', left: 190, top: 10, bottom: 10, zIndex: 10,
-      width: 360, background: '#1e1e30', border: '1px solid #333',
-      borderRadius: 8, display: 'flex', flexDirection: 'column',
-      boxShadow: '0 4px 20px #0006',
-    }}>
-      <div style={{ padding: '10px 14px 8px', borderBottom: '1px solid #333', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <span style={{ fontWeight: 700, fontSize: 14 }}>🔍 Sökresultat ({total})</span>
-        <button className="btn-ghost btn-sm" onClick={onClose}><IconClose /></button>
-      </div>
+    <SidePanelFrame icon="🔍" title={`Sökresultat (${total})`} onClose={onClose} sidebarOpen={sidebarOpen}>
       <div style={{ flex: 1, overflowY: 'auto', padding: 10, display: 'flex', flexDirection: 'column', gap: 14 }}>
         <div>
           <div style={{ fontSize: 11, fontWeight: 700, color: '#9ea3c0', marginBottom: 6 }}>
@@ -92,6 +84,6 @@ export function PolygonSearchPanel({ results, onClose, onSelect }: Props) {
           )}
         </div>
       </div>
-    </div>
+    </SidePanelFrame>
   );
 }

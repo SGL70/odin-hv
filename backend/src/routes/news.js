@@ -1,15 +1,16 @@
 const express = require('express');
-const db = require('../db');
 const { requireAuth, requireRole } = require('../middleware/auth');
 const { resolveMunicipalityCentroid } = require('../services/geo');
 const { discoverFeedUrl, pollAllSources, classifyPendingBacklog } = require('../services/newsFeeds');
+const { resolveOrgId } = require('../services/orgContext');
+const db = require('../db');
 
 const router = express.Router();
 
 // ── Nyhetskällor — administration (Inställningar) ───────────────────────────
 
-router.get('/sources', requireAuth, requireRole('editor', 'admin'), async (_req, res) => {
-  const { rows } = await db.query('SELECT * FROM news_sources ORDER BY name');
+router.get('/sources', requireAuth, requireRole('editor', 'admin'), async (req, res) => {
+  const { rows } = await req.db.query('SELECT * FROM news_sources ORDER BY name');
   res.json(rows);
 });
 
@@ -26,10 +27,11 @@ router.post('/sources', requireAuth, requireRole('admin'), async (req, res) => {
   }
 
   try {
-    const { rows } = await db.query(
-      `INSERT INTO news_sources (name, site_url, feed_url, last_error, created_by)
-       VALUES ($1,$2,$3,$4,$5) RETURNING *`,
-      [name.trim(), url.trim(), feedUrl, lastError, req.user.id]
+    const orgId = await resolveOrgId(req.user.id);
+    const { rows } = await req.db.query(
+      `INSERT INTO news_sources (name, site_url, feed_url, last_error, created_by, org_id)
+       VALUES ($1,$2,$3,$4,$5,$6) RETURNING *`,
+      [name.trim(), url.trim(), feedUrl, lastError, req.user.id, orgId]
     );
     res.json(rows[0]);
   } catch (err) {
@@ -40,7 +42,7 @@ router.post('/sources', requireAuth, requireRole('admin'), async (req, res) => {
 router.put('/sources/:id', requireAuth, requireRole('admin'), async (req, res) => {
   const { id } = req.params;
   const { name, url, enabled } = req.body;
-  const existing = (await db.query('SELECT * FROM news_sources WHERE id = $1', [id])).rows[0];
+  const existing = (await req.db.query('SELECT * FROM news_sources WHERE id = $1', [id])).rows[0];
   if (!existing) return res.status(404).json({ error: 'Källan hittades inte' });
 
   let feedUrl = existing.feed_url;
@@ -58,7 +60,7 @@ router.put('/sources/:id', requireAuth, requireRole('admin'), async (req, res) =
   }
 
   try {
-    const { rows } = await db.query(
+    const { rows } = await req.db.query(
       `UPDATE news_sources SET name = $1, site_url = $2, feed_url = $3, last_error = $4, enabled = $5 WHERE id = $6 RETURNING *`,
       [name?.trim() || existing.name, siteUrl, feedUrl, lastError, enabled ?? existing.enabled, id]
     );
@@ -69,41 +71,58 @@ router.put('/sources/:id', requireAuth, requireRole('admin'), async (req, res) =
 });
 
 router.post('/sources/:id/discover', requireAuth, requireRole('admin'), async (req, res) => {
-  const existing = (await db.query('SELECT * FROM news_sources WHERE id = $1', [req.params.id])).rows[0];
+  const existing = (await req.db.query('SELECT * FROM news_sources WHERE id = $1', [req.params.id])).rows[0];
   if (!existing) return res.status(404).json({ error: 'Källan hittades inte' });
   try {
     const feedUrl = await discoverFeedUrl(existing.site_url);
     const lastError = feedUrl ? null : 'Ingen RSS/Atom-feed hittades — kräver riktad skrapning (ej stött ännu)';
-    const { rows } = await db.query(
+    const { rows } = await req.db.query(
       `UPDATE news_sources SET feed_url = $1, last_error = $2 WHERE id = $3 RETURNING *`,
       [feedUrl, lastError, req.params.id]
     );
     res.json(rows[0]);
   } catch (err) {
-    await db.query(`UPDATE news_sources SET last_error = $1 WHERE id = $2`, [err.message, req.params.id]);
+    await req.db.query(`UPDATE news_sources SET last_error = $1 WHERE id = $2`, [err.message, req.params.id]);
     res.status(502).json({ error: err.message });
   }
 });
 
 router.delete('/sources/:id', requireAuth, requireRole('admin'), async (req, res) => {
-  await db.query('DELETE FROM news_sources WHERE id = $1', [req.params.id]);
+  await req.db.query('DELETE FROM news_sources WHERE id = $1', [req.params.id]);
   res.json({ ok: true });
 });
 
+// Följer samma job-protokoll som harvest.js scrape-rutter (harvest:progress/harvest:done på
+// io, keyad med source: 'news') så att HarvestSidebar.tsx:s "Skördare"-panel kan trigga och
+// visa denna körning på samma sätt som övriga källor, i stället för att bara nås via Inställningar.
 router.post('/poll', requireAuth, requireRole('admin'), async (req, res) => {
-  await pollAllSources(req.io);
-  res.json({ ok: true });
+  res.json({ started: true });
+  // io.to(...) (steg 8) returnerar en rumsscopad emitter med samma .emit()-gränssnitt — newsFeeds.js:s
+  // interna io.emit()-anrop (pollSource/pollAllSources) blir alltså org-scopade utan att den filen
+  // själv behöver ändras.
+  const io = req.io.to(`org:${req.tenant.orgId}`);
+  io.emit('harvest:progress', { source: 'news', phase: 'Läser RSS/Atom-flöden…', done: 0, total: 1 });
+  db.withTenant(req.tenant, async (bgDb) => {
+    try {
+      const imported = await pollAllSources(io, bgDb);
+      io.emit('harvest:done', { source: 'news', imported, skipped: 0 });
+    } catch (err) {
+      io.emit('harvest:done', { source: 'news', imported: 0, skipped: 0, error: err.message });
+    }
+  }).catch(err => console.error('news poll withTenant error:', err.message));
 });
 
 // Efterklassificerar poster från innan nyckelordsfilter/Haiku-klassificeringen infördes
 // (relevant IS NULL) — kan vara hundratals poster, körs i bakgrunden så HTTP-anropet inte
 // hänger (samma "started: true, jobbar i bakgrunden"-mönster som harvest.js-jobben).
 router.post('/classify-pending', requireAuth, requireRole('admin'), async (req, res) => {
-  const { rows } = await db.query(`SELECT COUNT(*)::int AS total FROM news_items WHERE relevant IS NULL`);
+  const { rows } = await req.db.query(`SELECT COUNT(*)::int AS total FROM news_items WHERE relevant IS NULL`);
   const total = rows[0].total;
   res.json({ started: true, total });
   if (total > 0) {
-    classifyPendingBacklog(req.io).catch(err => console.error('Efterklassificering misslyckades:', err.message));
+    const io = req.io.to(`org:${req.tenant.orgId}`);
+    db.withTenant(req.tenant, (bgDb) => classifyPendingBacklog(io, bgDb))
+      .catch(err => console.error('Efterklassificering misslyckades:', err.message));
   }
 });
 
@@ -111,7 +130,7 @@ router.post('/classify-pending', requireAuth, requireRole('admin'), async (req, 
 
 router.get('/items', requireAuth, requireRole('editor', 'admin'), async (req, res) => {
   const status = req.query.status || 'pending';
-  const { rows } = await db.query(
+  const { rows } = await req.db.query(
     `SELECT ni.*, ns.name as source_name FROM news_items ni
      JOIN news_sources ns ON ns.id = ni.source_id
      WHERE ni.status = $1 ORDER BY COALESCE(ni.published_at, ni.fetched_at) DESC LIMIT 200`,
@@ -124,7 +143,7 @@ router.post('/items/:id/tag', requireAuth, requireRole('editor', 'admin'), async
   const { id } = req.params;
   const { municipality, area, lat, lng } = req.body;
   try {
-    const itemRes = await db.query(
+    const itemRes = await req.db.query(
       `SELECT ni.*, ns.name as source_name FROM news_items ni JOIN news_sources ns ON ns.id = ni.source_id
        WHERE ni.id = $1 AND ni.status = 'pending'`,
       [id]
@@ -141,9 +160,10 @@ router.post('/items/:id/tag', requireAuth, requireRole('editor', 'admin'), async
       finalLng = centroid.lng;
     }
 
-    const featureRes = await db.query(
-      `INSERT INTO features (layer, name, geom, cot_type, attributes, created_by, updated_by)
-       VALUES ('news_reports', $1, ST_SetSRID(ST_MakePoint($2, $3), 4326), 'b-m-p-s-p', $4, $5, $5)
+    const orgId = await resolveOrgId(req.user.id);
+    const featureRes = await req.db.query(
+      `INSERT INTO features (layer, name, geom, cot_type, attributes, created_by, updated_by, org_id)
+       VALUES ('news_reports', $1, ST_SetSRID(ST_MakePoint($2, $3), 4326), 'b-m-p-s-p', $4, $5, $5, $6)
        RETURNING uid`,
       [
         item.title.slice(0, 120), finalLng, finalLat,
@@ -153,10 +173,11 @@ router.post('/items/:id/tag', requireAuth, requireRole('editor', 'admin'), async
           location_precision: (lat != null && lng != null) ? 'exact' : 'kommun',
         },
         req.user.id,
+        orgId,
       ]
     );
 
-    await db.query(`UPDATE news_items SET status = 'tagged', tagged_feature_uid = $1 WHERE id = $2`, [featureRes.rows[0].uid, id]);
+    await req.db.query(`UPDATE news_items SET status = 'tagged', tagged_feature_uid = $1 WHERE id = $2`, [featureRes.rows[0].uid, id]);
 
     req.io?.emit('features:reloaded', {});
     res.json({ ok: true, feature_uid: featureRes.rows[0].uid });
@@ -166,14 +187,14 @@ router.post('/items/:id/tag', requireAuth, requireRole('editor', 'admin'), async
 });
 
 router.post('/items/:id/discard', requireAuth, requireRole('editor', 'admin'), async (req, res) => {
-  await db.query(`UPDATE news_items SET status = 'discarded' WHERE id = $1`, [req.params.id]);
+  await req.db.query(`UPDATE news_items SET status = 'discarded' WHERE id = $1`, [req.params.id]);
   res.json({ ok: true });
 });
 
 // "Slasken" — kastade poster raderas aldrig, bara flyttas ur inkorgen. Går att återställa
 // härifrån om en tidigare bortvald rubrik visar sig vara relevant efter allt.
 router.post('/items/:id/restore', requireAuth, requireRole('editor', 'admin'), async (req, res) => {
-  const { rows } = await db.query(
+  const { rows } = await req.db.query(
     `UPDATE news_items SET status = 'pending' WHERE id = $1 AND status = 'discarded' RETURNING id`,
     [req.params.id]
   );

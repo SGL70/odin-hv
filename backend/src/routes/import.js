@@ -1,8 +1,8 @@
 const express = require('express');
 const multer = require('multer');
 const Papa = require('papaparse');
-const db = require('../db');
 const { requireAuth, requireRole } = require('../middleware/auth');
+const { resolveOrgId } = require('../services/orgContext');
 
 const router = express.Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
@@ -29,6 +29,7 @@ router.post('/csv', requireAuth, requireRole('editor', 'admin'), upload.single('
 
   const imported = [];
   const failed = [];
+  const orgId = await resolveOrgId(req.user.id);
 
   for (const row of data) {
     const lat = parseFloat(row.lat || row.latitude || row.bredd);
@@ -38,10 +39,10 @@ router.post('/csv', requireAuth, requireRole('editor', 'admin'), upload.single('
 
     const { lat: _lat, lon: _lon, lng: _lng, latitude: _la, longitude: _lo, name: _n, namn: _na, bredd: _b, langd: _lg, beteckning: _be, ...attrs } = row;
     try {
-      const { rows } = await db.query(
-        `INSERT INTO features (layer, name, geom, cot_type, attributes, created_by, updated_by)
-         VALUES ($1,$2,ST_SetSRID(ST_MakePoint($3,$4),4326),$5,$6,$7,$7) RETURNING uid`,
-        [layer, name, lon, lat, LAYER_COT[layer] || 'b-m-p-s-p', attrs, req.user.id]
+      const { rows } = await req.db.query(
+        `INSERT INTO features (layer, name, geom, cot_type, attributes, created_by, updated_by, org_id)
+         VALUES ($1,$2,ST_SetSRID(ST_MakePoint($3,$4),4326),$5,$6,$7,$7,$8) RETURNING uid`,
+        [layer, name, lon, lat, LAYER_COT[layer] || 'b-m-p-s-p', attrs, req.user.id, orgId]
       );
       imported.push(rows[0].uid);
     } catch (err) {
@@ -49,7 +50,7 @@ router.post('/csv', requireAuth, requireRole('editor', 'admin'), upload.single('
     }
   }
 
-  if (imported.length) req.io.emit('features:reloaded', { layer });
+  if (imported.length) req.io.to(`org:${req.tenant.orgId}`).emit('features:reloaded', { layer });
   res.json({ imported: imported.length, failed: failed.length, failures: failed.slice(0, 10) });
 });
 
@@ -59,18 +60,19 @@ router.post('/geojson', requireAuth, requireRole('editor', 'admin'), express.jso
 
   const features = geojson.features || (geojson.type === 'Feature' ? [geojson] : []);
   const imported = [];
+  const orgId = await resolveOrgId(req.user.id);
   for (const f of features) {
     const { name, namn, ...attrs } = f.properties || {};
     try {
-      const { rows } = await db.query(
-        `INSERT INTO features (layer, name, geom, cot_type, attributes, created_by, updated_by)
-         VALUES ($1,$2,ST_GeomFromGeoJSON($3),$4,$5,$6,$6) RETURNING uid`,
-        [layer, name || namn || 'Import', JSON.stringify(f.geometry), LAYER_COT[layer] || 'b-m-p-s-p', attrs, req.user.id]
+      const { rows } = await req.db.query(
+        `INSERT INTO features (layer, name, geom, cot_type, attributes, created_by, updated_by, org_id)
+         VALUES ($1,$2,ST_GeomFromGeoJSON($3),$4,$5,$6,$6,$7) RETURNING uid`,
+        [layer, name || namn || 'Import', JSON.stringify(f.geometry), LAYER_COT[layer] || 'b-m-p-s-p', attrs, req.user.id, orgId]
       );
       imported.push(rows[0].uid);
     } catch {}
   }
-  if (imported.length) req.io.emit('features:reloaded', { layer });
+  if (imported.length) req.io.to(`org:${req.tenant.orgId}`).emit('features:reloaded', { layer });
   res.json({ imported: imported.length });
 });
 

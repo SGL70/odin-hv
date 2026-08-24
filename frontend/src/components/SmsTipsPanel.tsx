@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { api } from '../api';
 import { SWEDEN } from '../lib/sweden';
 import type { SmsTip } from '../types';
-import { IconClose } from '../lib/uiIcons';
+import { SidePanelFrame } from './SidePanelFrame';
 
 // Tips via SMS — granskningsinkorg för okända avsändare (se backend/src/routes/sms.js).
 // Ligger helt utanför kartan tills någon läst meddelandet och geotaggat det manuellt
@@ -15,9 +15,10 @@ interface Props {
   onArmTipPick: () => void;
   tipPickResult: { lat: number; lng: number } | null;
   onConsumeTipPick: () => void;
+  sidebarOpen: boolean;
 }
 
-export function SmsTipsPanel({ onClose, onTagged, tipPickMode, onArmTipPick, tipPickResult, onConsumeTipPick }: Props) {
+export function SmsTipsPanel({ onClose, onTagged, tipPickMode, onArmTipPick, tipPickResult, onConsumeTipPick, sidebarOpen }: Props) {
   const [tips, setTips] = useState<SmsTip[]>([]);
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<SmsTip | null>(null);
@@ -83,17 +84,7 @@ export function SmsTipsPanel({ onClose, onTagged, tipPickMode, onArmTipPick, tip
   const municipalities = SWEDEN.find(c => c.name === county)?.municipalities ?? [];
 
   return (
-    <div style={{
-      position: 'absolute', left: 190, top: 10, bottom: 10, zIndex: 10,
-      width: 360, background: '#1e1e30', border: '1px solid #333',
-      borderRadius: 8, display: 'flex', flexDirection: 'column',
-      boxShadow: '0 4px 20px #0006',
-    }}>
-      <div style={{ padding: '10px 14px 8px', borderBottom: '1px solid #333', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <span style={{ fontWeight: 700, fontSize: 14 }}>📨 Tips via SMS</span>
-        <button className="btn-ghost btn-sm" onClick={onClose}><IconClose /></button>
-      </div>
-
+    <SidePanelFrame icon="📨" title="Tips via SMS" onClose={onClose} sidebarOpen={sidebarOpen}>
       <div style={{ flex: 1, overflowY: 'auto', padding: 10 }}>
         {loading && <div style={{ color: '#666', fontSize: 12, padding: 8 }}>Laddar…</div>}
         {!loading && tips.length === 0 && <div style={{ color: '#666', fontSize: 12, padding: 8 }}>Inga väntande tips.</div>}
@@ -156,6 +147,6 @@ export function SmsTipsPanel({ onClose, onTagged, tipPickMode, onArmTipPick, tip
           </div>
         ))}
       </div>
-    </div>
+    </SidePanelFrame>
   );
 }

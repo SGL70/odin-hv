@@ -24,4 +24,9 @@ export const CHANGELOG: ChangelogEntry[] = [
     title: 'Mediabevakning',
     description: 'Ny "📰 Nyheter"-inkorg som automatiskt skördar SVT, SR, TV4 och Norrbottens-Kuriren via RSS. Tagga en rubrik med kommun/plats för att göra den till ett kartobjekt, eller ta bort den till Läst-listan (Slasken) längst ned — inget försvinner permanent. Egna källor kan läggas till i Inställningar → Nyhetskällor.',
   },
+  {
+    date: '2026-07-20',
+    title: 'Installationsprompt',
+    description: 'Odin Fält frågar nu direkt om du vill installera appen på hemskärmen när du surfar in från en Android-telefon, i stället för att förlita sig på webbläsarens egen fördröjda "installera app"-förslag.',
+  },
 ];

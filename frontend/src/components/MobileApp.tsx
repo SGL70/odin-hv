@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { MobileMapView } from './MobileMapView';
 import { FieldReportView } from './FieldReportView';
+import { InstallPrompt } from './InstallPrompt';
 
 // Toppnivå-skal för /report-PWA:n (Mobilversion.odp) — en installerad app, två vyer som växlas
 // internt utan sidladdning, i stället för två separata sidor/PWA:er. /report förblir
@@ -9,7 +10,12 @@ import { FieldReportView } from './FieldReportView';
 export function MobileApp() {
   const [view, setView] = useState<'karta' | 'rapport'>('karta');
 
-  return view === 'karta'
-    ? <MobileMapView onAddNew={() => setView('rapport')} />
-    : <FieldReportView onBack={() => setView('karta')} />;
+  return (
+    <>
+      {view === 'karta'
+        ? <MobileMapView onAddNew={() => setView('rapport')} />
+        : <FieldReportView onBack={() => setView('karta')} />}
+      <InstallPrompt />
+    </>
+  );
 }

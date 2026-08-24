@@ -20,13 +20,27 @@ import { PolygonSearchPanel } from './PolygonSearchPanel';
 import { SmsTipsPanel } from './SmsTipsPanel';
 import { NewsPanel } from './NewsPanel';
 import { WeatherPanel } from './WeatherPanel';
-import { IconClose, IconSettings, IconImport } from '../lib/uiIcons';
+import { IconClose, IconSettings, IconHelp } from '../lib/uiIcons';
 import { ensureMapIcons, buildRoadIconExpression, buildIntelReportIconExpression, POWER_ICON_ID, WEATHER_ICON_ID, POLICE_ICON_ID } from '../lib/mapIcons';
 import { useAuth } from '../contexts/AuthContext';
 import { STATUS } from '../styles/tokens';
 import { io } from 'socket.io-client';
 import { STYLE, DRAW_LAYERS, POLYGON_LAYERS, LINE_LAYERS, unclassifiedRingLayer } from '../lib/mapConfig';
 import { lineLengthM, polygonAreaM2, formatDistance, formatArea } from '../lib/geoMath';
+
+// Alla topbar-knappar blandar emoji-glyfer (varierande synlig storlek per platform/typsnitt)
+// och SVG-ikoner (IconSettings/IconHelp/IconClose) — det här ger dem en gemensam fast
+// storlek/bredd så raden inte ser ojämn ut. Ärver INTE i SVG-ikonernas size-props (de sätts
+// för hand till samma numeriska värde, TOPBAR_ICON_SIZE, nedan) eftersom de renderas via
+// width/height-attribut, inte font-size.
+// lineHeight/verticalAlign satta explicit — annars avgör den enskilda emoji-glyfens egna
+// font-metrik (ascent/descent) radboxens höjd, och t.ex. 🌤 (nyare Unicode-tecken, sämre
+// stöd i vissa typsnitts vanliga metrik) gjorde just den knappen synbart högre än de andra.
+const TOPBAR_ICON_SIZE = 14;
+const topbarEmojiStyle: React.CSSProperties = {
+  fontSize: TOPBAR_ICON_SIZE, display: 'inline-block', width: 16, lineHeight: '16px',
+  textAlign: 'center', verticalAlign: 'middle',
+};
 
 function geometryCenter(geometry: GeoJSON.Geometry): [number, number] | null {
   if (geometry.type === 'Point') return geometry.coordinates as [number, number];
@@ -45,7 +59,7 @@ function geometryCenter(geometry: GeoJSON.Geometry): [number, number] | null {
 
 
 export function MapView() {
-  const { user, logout, catchupData, catchupOpen, openCatchup, closeCatchup } = useAuth();
+  const { user, logout, catchupData, catchupOpen, openCatchup, closeCatchup, criticalAlertsEnabled } = useAuth();
   const mapRef = useRef<maplibregl.Map | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -111,9 +125,6 @@ export function MapView() {
     } catch { /* ignore */ }
     return new Set();
   });
-  const [harvestInterval, setHarvestInterval] = useState<number>(
-    () => parseInt(localStorage.getItem('harvestInterval') || '15')
-  );
   const [addDialog, setAddDialog] = useState<{ lngLat: maplibregl.LngLat } | null>(null);
   const [polygonPoints, setPolygonPoints] = useState<[number, number][]>([]);
   const [polygonReady, setPolygonReady] = useState(false);
@@ -143,7 +154,6 @@ export function MapView() {
       if (typeof p.opomrFilter === 'boolean') setOpomrFilter(p.opomrFilter);
       if (typeof p.baseMap === 'string') setBaseMap(p.baseMap as 'osm' | 'lm');
       if (Array.isArray(p.wmsOverlays)) setWmsOverlays(new Set(p.wmsOverlays as string[]));
-      if (typeof p.harvestInterval === 'number') setHarvestInterval(p.harvestInterval);
     }).catch(() => { /* ingen inloggning ännu eller nätverksfel — kör vidare på localStorage-värdena */ })
       .finally(() => setPrefsLoaded(true));
   }, []);
@@ -162,11 +172,10 @@ export function MapView() {
         opomrFilter,
         baseMap,
         wmsOverlays: [...wmsOverlays],
-        harvestInterval,
       }).catch(() => { /* tyst — preferenser är inte kritiska, försöker igen vid nästa ändring */ });
     }, 800);
     return () => clearTimeout(t);
-  }, [prefsLoaded, visible, sidebarOpen, rightPanelOpen, rightPanelTab, opomrFilter, baseMap, wmsOverlays, harvestInterval]);
+  }, [prefsLoaded, visible, sidebarOpen, rightPanelOpen, rightPanelTab, opomrFilter, baseMap, wmsOverlays]);
 
   const canEdit = user?.role === 'editor' || user?.role === 'admin';
   const isPolygonMode = addMode && POLYGON_LAYERS.includes(addLayer);
@@ -631,7 +640,9 @@ export function MapView() {
         if (map.getLayer(`hit-${layer.id}`))                map.setLayoutProperty(`hit-${layer.id}`,                'visibility', vis);
         if (map.getLayer(`lyr-${layer.id}`))                map.setLayoutProperty(`lyr-${layer.id}`,                'visibility', vis);
         if (map.getLayer(`lyr-${layer.id}-outline`))        map.setLayoutProperty(`lyr-${layer.id}-outline`,        'visibility', vis);
-        if (map.getLayer(`crit-${layer.id}`))               map.setLayoutProperty(`crit-${layer.id}`,               'visibility', vis);
+        // FEATURE_CRITICAL_ALERTS av — kritikalitetsringarna döljs oavsett lagerval tills flaggan slås på.
+        const critVis = criticalAlertsEnabled ? vis : 'none';
+        if (map.getLayer(`crit-${layer.id}`))               map.setLayoutProperty(`crit-${layer.id}`,               'visibility', critVis);
         if (map.getLayer(`lbl-${layer.id}`))                map.setLayoutProperty(`lbl-${layer.id}`,                'visibility', vis);
         if (map.getLayer(`lyr-${layer.id}-cluster`))        map.setLayoutProperty(`lyr-${layer.id}-cluster`,        'visibility', vis);
         if (map.getLayer(`lyr-${layer.id}-cluster-count`))  map.setLayoutProperty(`lyr-${layer.id}-cluster-count`,  'visibility', vis);
@@ -640,7 +651,7 @@ export function MapView() {
     if (map.isStyleLoaded()) applyVisibility();
     map.once('idle', applyVisibility);
     return () => { map.off('idle', applyVisibility); };
-  }, [visible, features, mapLoaded]);
+  }, [visible, features, mapLoaded, criticalAlertsEnabled]);
 
   // Base map switch: OSM ↔ Lantmäteriet topo
   useEffect(() => {
@@ -1199,15 +1210,12 @@ export function MapView() {
         backdropFilter: 'blur(8px)',
       }}>
         <OdinLogo size="md" />
-        <button className="btn-ghost btn-sm" onClick={() => setShowDash(d => !d)}>📊 Dashboard</button>
-        <button className="btn-ghost btn-sm" onClick={() => toggleSidePanel('analysis')}>📊 Analys</button>
-        <button className="btn-ghost btn-sm" onClick={() => toggleSidePanel('criticality')}>🎯 Kritiska objekt</button>
-        <button className={activeTool === 'polygon' ? 'btn-primary btn-sm' : 'btn-ghost btn-sm'} onClick={() => toggleTool('polygon')}>📐 Polygon</button>
-        <button className={activeTool === 'measure' ? 'btn-primary btn-sm' : 'btn-ghost btn-sm'} onClick={() => toggleTool('measure')}>📏 Mät</button>
-        {canEdit && <button className="btn-ghost btn-sm" onClick={() => toggleSidePanel('reports')}>🕵 Rapporter</button>}
+        <button className="btn-ghost btn-sm" onClick={() => setShowDash(d => !d)}><span style={topbarEmojiStyle}>📊</span> Dashboard</button>
+        <button className="btn-ghost btn-sm" onClick={() => toggleSidePanel('analysis')}><span style={topbarEmojiStyle}>📊</span> Analys</button>
+        {canEdit && <button className="btn-ghost btn-sm" onClick={() => toggleSidePanel('reports')}><span style={topbarEmojiStyle}>🕵</span> Rapporter</button>}
         {canEdit && (
           <button className="btn-ghost btn-sm" onClick={() => toggleSidePanel('smsTips')} style={{ position: 'relative' }}>
-            📨 Tips
+            <span style={topbarEmojiStyle}>📨</span> Tips
             {smsTipCount > 0 && (
               <span style={{
                 position: 'absolute', top: -5, right: -5, background: '#f2545b', color: '#fff',
@@ -1218,7 +1226,7 @@ export function MapView() {
         )}
         {canEdit && (
           <button className="btn-ghost btn-sm" onClick={() => toggleSidePanel('news')} style={{ position: 'relative' }}>
-            📰 Nyheter
+            <span style={topbarEmojiStyle}>📰</span> Nyheter
             {newsItemCount > 0 && (
               <span style={{
                 position: 'absolute', top: -5, right: -5, background: '#f2545b', color: '#fff',
@@ -1227,7 +1235,7 @@ export function MapView() {
             )}
           </button>
         )}
-        <button className="btn-ghost btn-sm" onClick={() => toggleSidePanel('weather')}>🌤 Väder</button>
+        <button className="btn-ghost btn-sm" onClick={() => toggleSidePanel('weather')}><span style={topbarEmojiStyle}>🌤</span> Väder</button>
         {canEdit && unclassifiedCount > 0 && (
           <button
             onClick={() => toggleSidePanel('unclassified')}
@@ -1236,7 +1244,7 @@ export function MapView() {
               fontSize: 11, color: '#f0a83c', background: '#f0a83c22', padding: '3px 8px', borderRadius: 999,
               whiteSpace: 'nowrap', border: '1px solid #f0a83c55', cursor: 'pointer',
             }}
-          >🚩 Oklassade ({unclassifiedCount})</button>
+          ><span style={{ ...topbarEmojiStyle, fontSize: 11, width: 13, lineHeight: '13px' }}>🚩</span> Oklassade ({unclassifiedCount})</button>
         )}
         {canEdit && (
           <button
@@ -1248,21 +1256,26 @@ export function MapView() {
               setAddMode(true);
             }}
           >
-            {addMode ? <><IconClose size={12} /> Avbryt</> : '+ 7S'}
+            {addMode ? <><IconClose size={TOPBAR_ICON_SIZE} /> Avbryt</> : '+ 7S'}
           </button>
         )}
-        {canEdit && <button className="btn-ghost btn-sm" onClick={() => setShowImport(true)}><IconImport size={13} /> Importera</button>}
-        {user?.role === 'admin' && (
-          <button className="btn-ghost btn-sm" onClick={() => setShowSettings(true)}><IconSettings size={13} /> Inställningar</button>
-        )}
+
+        {/* Rit-/mätverktyg — avskilda med en delare från panel-knapparna ovan eftersom de är
+            en annan sorts verktyg (kartinteraktion, inte panelöppning). */}
+        <div style={{ width: 1, height: 24, background: '#3a3a52', margin: '0 4px', flexShrink: 0 }} />
+        <button className={activeTool === 'polygon' ? 'btn-primary btn-sm' : 'btn-ghost btn-sm'} onClick={() => toggleTool('polygon')}><span style={topbarEmojiStyle}>📐</span> Polygon</button>
+        <button className={activeTool === 'measure' ? 'btn-primary btn-sm' : 'btn-ghost btn-sm'} onClick={() => toggleTool('measure')}><span style={topbarEmojiStyle}>📏</span> Mät</button>
+
         <div style={{ flex: 1 }} />
         {catchupData && (catchupData.alerts.length + catchupData.changelogEntries.length > 0) && (
           <button className="btn-ghost btn-sm" onClick={openCatchup}>
-            📋 {catchupData.alerts.length + catchupData.changelogEntries.length}
+            <span style={topbarEmojiStyle}>📋</span> {catchupData.alerts.length + catchupData.changelogEntries.length}
           </button>
         )}
-        <a href="/docs/00-index.html" target="_blank" rel="noreferrer" style={{ fontSize: 12, color: '#888', textDecoration: 'none', padding: '4px 8px', border: '1px solid #444', borderRadius: 4 }}>📖 Hjälp</a>
-        <a href="/api/export/kmz" style={{ fontSize: 12, color: '#888', textDecoration: 'none', padding: '4px 8px', border: '1px solid #444', borderRadius: 4 }} download>⬇ KMZ</a>
+        <button className="btn-ghost btn-sm" onClick={() => setShowSettings(true)}><IconSettings size={TOPBAR_ICON_SIZE} /> Inställningar</button>
+        <a href="/docs/00-index.html" target="_blank" rel="noreferrer" className="btn-ghost btn-sm" style={{ textDecoration: 'none', cursor: 'pointer', borderRadius: 'var(--radius-control)' }}>
+          <IconHelp size={TOPBAR_ICON_SIZE} /> Hjälp
+        </a>
         <span style={{ fontSize: 12, color: '#888' }}>
           {user?.username} <span className={`badge badge-${user?.role === 'admin' ? 'orange' : user?.role === 'editor' ? 'blue' : 'green'}`}>{user?.role}</span>
         </span>
@@ -1276,39 +1289,50 @@ export function MapView() {
         opomrFilter={opomrFilter} onOpomrFilter={setOpomrFilter}
         alerts={openAlerts} onAcknowledgeAlert={acknowledgeAlert}
         isAdmin={user?.role === 'admin'} onManageAlertRules={() => setShowAlertRules(true)}
+        showAlerts={criticalAlertsEnabled}
       />
 
-      <AlertBanner
-        alerts={bannerAlerts}
-        onDismiss={id => setBannerAlerts(prev => prev.filter(e => e.id !== id))}
-        onAcknowledge={acknowledgeAlert}
-      />
+      {criticalAlertsEnabled && (
+        <AlertBanner
+          alerts={bannerAlerts}
+          onDismiss={id => setBannerAlerts(prev => prev.filter(e => e.id !== id))}
+          onAcknowledge={acknowledgeAlert}
+        />
+      )}
 
       {catchupOpen && catchupData && (
         <CatchupModal data={catchupData} onClose={closeCatchup} onAcknowledgeAlert={acknowledgeAlert} />
       )}
 
-      {showDash && <Dashboard onClose={() => setShowDash(false)} />}
+      {showDash && <Dashboard onClose={() => setShowDash(false)} sidebarOpen={sidebarOpen} />}
 
-      {showSettings && <SettingsModal onClose={() => setShowSettings(false)} />}
+      {showSettings && (
+        <SettingsModal
+          onClose={() => setShowSettings(false)}
+          onOpenCriticality={() => { setShowSettings(false); toggleSidePanel('criticality'); }}
+          onOpenImport={() => { setShowSettings(false); setShowImport(true); }}
+        />
+      )}
 
-      {activeSidePanel === 'analysis' && <AnalysisPanel onClose={() => setActiveSidePanel(null)} />}
+      {activeSidePanel === 'analysis' && <AnalysisPanel onClose={() => setActiveSidePanel(null)} sidebarOpen={sidebarOpen} />}
 
       {activeSidePanel === 'reports' && (
         <ReportListPanel
           features={features}
           onClose={() => setActiveSidePanel(null)}
           onSelect={f => setSelected(f)}
+          sidebarOpen={sidebarOpen}
         />
       )}
 
-      {showAlertRules && <AlertRulesModal features={features} onClose={() => setShowAlertRules(false)} />}
+      {criticalAlertsEnabled && showAlertRules && <AlertRulesModal features={features} onClose={() => setShowAlertRules(false)} />}
 
-      {activeSidePanel === 'criticality' && (
+      {criticalAlertsEnabled && activeSidePanel === 'criticality' && (
         <CriticalityPanel
           features={features}
           onClose={() => setActiveSidePanel(null)}
           onSelect={f => { setSelected(f); centerOnFeature(f); }}
+          sidebarOpen={sidebarOpen}
         />
       )}
 
@@ -1317,6 +1341,7 @@ export function MapView() {
           features={features}
           onClose={() => setActiveSidePanel(null)}
           onSelect={f => { setSelected(f); centerOnFeature(f); setActiveSidePanel(null); }}
+          sidebarOpen={sidebarOpen}
         />
       )}
 
@@ -1328,6 +1353,7 @@ export function MapView() {
           onArmTipPick={() => setTipPickMode(true)}
           tipPickResult={tipPickResult}
           onConsumeTipPick={() => setTipPickResult(null)}
+          sidebarOpen={sidebarOpen}
         />
       )}
 
@@ -1339,6 +1365,7 @@ export function MapView() {
           onArmNewsPick={() => setNewsPickMode(true)}
           newsPickResult={newsPickResult}
           onConsumeNewsPick={() => setNewsPickResult(null)}
+          sidebarOpen={sidebarOpen}
         />
       )}
 
@@ -1350,6 +1377,7 @@ export function MapView() {
           weatherPickResult={weatherPickResult}
           onConsumeWeatherPick={() => setWeatherPickResult(null)}
           onCoordsChange={setWeatherCoords}
+          sidebarOpen={sidebarOpen}
         />
       )}
 
@@ -1358,6 +1386,7 @@ export function MapView() {
           results={polygonSearchResults}
           onClose={() => setActiveSidePanel(null)}
           onSelect={f => { setSelected(f); centerOnFeature(f); setActiveSidePanel(null); }}
+          sidebarOpen={sidebarOpen}
         />
       )}
 
@@ -1378,8 +1407,6 @@ export function MapView() {
         addLayer={addLayer}
         onAddLayerChange={id => { setAddLayer(id); setPolygonPoints([]); setPolygonReady(false); }}
         onImported={loadFeatures}
-        harvestRefreshInterval={harvestInterval}
-        onHarvestRefreshIntervalChange={v => { setHarvestInterval(v); localStorage.setItem('harvestInterval', String(v)); }}
         pendingPlacement={!!showDialog}
         placementInfo={polygonReady ? (isLineMode ? `Linje med ${polygonPoints.length} punkter` : `Polygon med ${polygonPoints.length} hörn`) : undefined}
         newName={newName}

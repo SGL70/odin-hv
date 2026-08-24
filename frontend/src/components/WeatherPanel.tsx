@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { api } from '../api';
 import type { WeatherForecast } from '../types';
-import { IconClose } from '../lib/uiIcons';
+import { SidePanelFrame } from './SidePanelFrame';
 
 // Väder-vid-plats (SMHI punktprognos) — komplement till Vädervarningar-lagret. Varningar täcker
 // stora områden och grova hot; den här panelen svarar på "vad blir det för vind/temp/nederbörd
@@ -26,9 +26,10 @@ interface Props {
   weatherPickResult: { lat: number; lng: number } | null;
   onConsumeWeatherPick: () => void;
   onCoordsChange: (c: { lat: number; lng: number } | null) => void;
+  sidebarOpen: boolean;
 }
 
-export function WeatherPanel({ onClose, weatherPickMode, onArmWeatherPick, weatherPickResult, onConsumeWeatherPick, onCoordsChange }: Props) {
+export function WeatherPanel({ onClose, weatherPickMode, onArmWeatherPick, weatherPickResult, onConsumeWeatherPick, onCoordsChange, sidebarOpen }: Props) {
   const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(null);
   const [forecast, setForecast] = useState<WeatherForecast | null>(null);
   const [loading, setLoading] = useState(false);
@@ -54,17 +55,7 @@ export function WeatherPanel({ onClose, weatherPickMode, onArmWeatherPick, weath
   const current = forecast?.current;
 
   return (
-    <div style={{
-      position: 'absolute', left: 190, top: 10, bottom: 10, zIndex: 10,
-      width: 340, background: '#1e1e30', border: '1px solid #333',
-      borderRadius: 8, display: 'flex', flexDirection: 'column',
-      boxShadow: '0 4px 20px #0006',
-    }}>
-      <div style={{ padding: '10px 14px 8px', borderBottom: '1px solid #333', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <span style={{ fontWeight: 700, fontSize: 14 }}>🌤 Väder vid plats</span>
-        <button className="btn-ghost btn-sm" onClick={onClose}><IconClose /></button>
-      </div>
-
+    <SidePanelFrame icon="🌤" title="Väder vid plats" onClose={onClose} sidebarOpen={sidebarOpen} width={340}>
       <div style={{ flex: 1, overflowY: 'auto', padding: 10 }}>
         <button
           className="btn-ghost btn-sm"
@@ -128,6 +119,6 @@ export function WeatherPanel({ onClose, weatherPickMode, onArmWeatherPick, weath
           </>
         )}
       </div>
-    </div>
+    </SidePanelFrame>
   );
 }

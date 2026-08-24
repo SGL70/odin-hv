@@ -38,7 +38,7 @@ interface Props {
 }
 
 export function MobileMapView({ onAddNew }: Props) {
-  const { user, logout } = useAuth();
+  const { user, logout, criticalAlertsEnabled } = useAuth();
   const canEdit = user?.role === 'editor' || user?.role === 'admin';
   const mapRef = useRef<maplibregl.Map | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -151,8 +151,11 @@ export function MobileMapView({ onAddNew }: Props) {
     for (const layer of POINT_LAYERS) {
       const id = `lyr-${layer.id}`;
       if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', visible.has(layer.id) ? 'visible' : 'none');
+      // FEATURE_CRITICAL_ALERTS av — kritikalitetsringen döljs oavsett lagerval tills flaggan slås på.
+      const critId = `crit-${layer.id}`;
+      if (map.getLayer(critId)) map.setLayoutProperty(critId, 'visibility', criticalAlertsEnabled && visible.has(layer.id) ? 'visible' : 'none');
     }
-  }, [visible]);
+  }, [visible, criticalAlertsEnabled]);
 
   function toggleLayer(id: LayerId) {
     setVisible(prev => {
@@ -215,6 +218,7 @@ export function MobileMapView({ onAddNew }: Props) {
               opomrFilter={opomrFilter} onOpomrFilter={setOpomrFilter}
               alerts={openAlerts} onAcknowledgeAlert={acknowledgeAlert}
               isAdmin={false} onManageAlertRules={() => {}}
+              showAlerts={criticalAlertsEnabled}
             />
           </div>
         </>

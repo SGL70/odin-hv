@@ -1,6 +1,5 @@
 const express = require('express');
 const archiver = require('archiver');
-const db = require('../db');
 const { requireAuth } = require('../middleware/auth');
 
 const router = express.Router();
@@ -43,7 +42,7 @@ router.get('/geojson', requireAuth, async (req, res) => {
   const { layer } = req.query;
   const where = layer ? 'WHERE f.layer = $1' : '';
   const params = layer ? [layer] : [];
-  const { rows } = await db.query(
+  const { rows } = await req.db.query(
     `SELECT f.uid, f.layer, f.cot_type, f.name, ST_AsGeoJSON(f.geom)::json AS geom, f.attributes
      FROM features f ${where}`, params
   );
@@ -64,7 +63,7 @@ router.get('/kmz', requireAuth, async (req, res) => {
   const { layer } = req.query;
   const where = layer ? 'WHERE f.layer = $1' : '';
   const params = layer ? [layer] : [];
-  const { rows } = await db.query(
+  const { rows } = await req.db.query(
     `SELECT f.uid, f.layer, f.cot_type, f.name, ST_AsGeoJSON(f.geom)::json AS geom, f.attributes
      FROM features f ${where}`, params
   );
@@ -82,7 +81,7 @@ router.get('/cot', requireAuth, async (req, res) => {
   const { layer } = req.query;
   const where = layer ? 'WHERE f.layer = $1' : '';
   const params = layer ? [layer] : [];
-  const { rows } = await db.query(
+  const { rows } = await req.db.query(
     `SELECT f.uid, f.layer, f.cot_type, f.name, ST_AsGeoJSON(f.geom)::json AS geom, f.attributes, f.updated_at
      FROM features f ${where}`, params
   );

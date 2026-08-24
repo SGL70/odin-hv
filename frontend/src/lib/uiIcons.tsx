@@ -40,6 +40,25 @@ export function IconImport({ size = 14 }: IconProps) {
   );
 }
 
+export function IconExport({ size = 14 }: IconProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 16 16" style={{ flexShrink: 0 }}>
+      <path d="M8 3v8.5M4.5 8.5L8 12l3.5-3.5" stroke="currentColor" strokeWidth={1.4} strokeLinecap="round" strokeLinejoin="round" fill="none" />
+      <path d="M3 13h10" stroke="currentColor" strokeWidth={1.4} strokeLinecap="round" />
+    </svg>
+  );
+}
+
+export function IconHelp({ size = 14 }: IconProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 16 16" style={{ flexShrink: 0 }}>
+      <circle cx={8} cy={8} r={6.2} stroke="currentColor" strokeWidth={1.4} fill="none" />
+      <path d="M6 6.3a2 2 0 1 1 2.8 1.8c-.6.3-.8.7-.8 1.2v.3" stroke="currentColor" strokeWidth={1.3} strokeLinecap="round" fill="none" />
+      <circle cx={8} cy={11.6} r={0.75} fill="currentColor" />
+    </svg>
+  );
+}
+
 export function IconRefresh({ size = 14 }: IconProps) {
   return (
     <svg width={size} height={size} viewBox="0 0 16 16" style={{ flexShrink: 0 }}>

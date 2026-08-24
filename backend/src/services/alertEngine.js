@@ -1,33 +1,79 @@
 const crypto = require('crypto');
-const db = require('../db');
 const analysisRouter = require('../routes/analysis');
+const { sendSms, isConfigured: smsConfigured } = require('./sms46elks');
 
 const CRITICALITY_ORDER = { normal: 0, gul: 1, rod: 2 };
+const SEVERITY_ORDER = { info: 0, varning: 1, kritisk: 2 };
+
+// SMS-tröskeln är en org-inställning (settings.sms_min_severity), inte per regel — "Nivån
+// behöver vara en inställning" (2026-07-16). Defaultar till 'kritisk' om inget är satt än,
+// samma "reserveras för kritisk nivå"-rekommendation som docs/notifieringssystem-forslag.md.
+async function smsMinSeverity(db, orgId) {
+  const { rows } = await db.query(`SELECT value FROM settings WHERE org_id = $1 AND key = 'sms_min_severity'`, [orgId]);
+  const v = rows[0]?.value;
+  return typeof v === 'string' && v in SEVERITY_ORDER ? v : 'kritisk';
+}
+
+// Skickar SMS till de mottagare (rule.target.roles) som har ett telefonnummer satt, om
+// händelsens nivå når upp till den globala SMS-tröskeln. Egna try/catch per mottagare så att
+// ett ogiltigt nummer eller ett 46elks-fel aldrig stoppar in-app-leveransen ovan.
+async function deliverSms(db, rule, message) {
+  if (!smsConfigured()) return;
+  const minSeverity = await smsMinSeverity(db, rule.org_id);
+  if (SEVERITY_ORDER[rule.severity] < SEVERITY_ORDER[minSeverity]) return;
+
+  // Multi-tenancy steg 11 — org-scopad avsändaridentitet (settings-nyckeln `sms_sender_name`),
+  // INTE separata 46elks-credentials per org (de förblir delade, se ELKS_FROM). Faller tillbaka
+  // på ELKS_FROM (sendSms() i sms46elks.js) om orgen inte satt någon egen avsändare.
+  const senderRow = await db.query(`SELECT value FROM settings WHERE org_id = $1 AND key = 'sms_sender_name'`, [rule.org_id]);
+  const senderName = typeof senderRow.rows[0]?.value === 'string' ? senderRow.rows[0].value : null;
+
+  // Org-scopat — bara mottagare i samma organisation som regeln som utlöste larmet, annars
+  // skulle en larmregel i en bataljon SMS:a användare i en helt annan bataljon.
+  const roles = rule.target?.roles?.length ? rule.target.roles : ['reader', 'editor', 'admin'];
+  const { rows } = await db.query(
+    `SELECT phone FROM users WHERE role = ANY($1) AND org_id = $2 AND phone IS NOT NULL AND phone != ''`,
+    [roles, rule.org_id]
+  );
+  for (const r of rows) {
+    try {
+      await sendSms(r.phone, `ODIN hv: ${message}`, senderName);
+    } catch (err) {
+      console.error(`SMS-leverans till ${r.phone} misslyckades:`, err.message);
+    }
+  }
+}
 
 // Riktar leveransen per roll (io.to('role:'+r)) istället för blind broadcast — rule.target.roles
 // defaultar till alla tre roller (se migrations.js ensureNotificationColumns), så obekonfigurerade
 // regler beter sig precis som innan denna ändring.
-async function insertEvent(io, rule, entityKey, message, details, featureUid = null) {
+async function insertEvent(io, db, rule, entityKey, message, details, featureUid = null) {
+  // org_id ärvs direkt från regeln som utlöste eventet (denormaliserat, samma mönster som
+  // rule_name/rule_type ovan) — inte från vem/vad som råkade köra evaluateAlerts() just då,
+  // som ofta är systeminitierat (efter skördning) snarare än en inloggad användares request.
   const { rows } = await db.query(`
-    INSERT INTO alert_events (rule_id, rule_name, rule_type, entity_key, message, details, feature_uid, severity)
-    VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+    INSERT INTO alert_events (rule_id, rule_name, rule_type, entity_key, message, details, feature_uid, severity, org_id)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
     ON CONFLICT (rule_id, entity_key) WHERE status = 'open' DO NOTHING
     RETURNING *
-  `, [rule.id, rule.name, rule.type, entityKey, message, details, featureUid, rule.severity]);
+  `, [rule.id, rule.name, rule.type, entityKey, message, details, featureUid, rule.severity, rule.org_id]);
   if (rows.length) {
     const roles = rule.target?.roles?.length ? rule.target.roles : ['reader', 'editor', 'admin'];
-    for (const role of roles) io.to(`role:${role}`).emit('alert:triggered', rows[0]);
+    // org:<id>:role:<roll> (steg 8) — inte bara role:<roll> — annars läcker larmet till samma
+    // roll i en helt annan organisation, se index.js:s socket.io-anslutningshanterare.
+    for (const role of roles) io.to(`org:${rule.org_id}:role:${role}`).emit('alert:triggered', rows[0]);
+    await deliverSms(db, rule, message).catch(err => console.error('SMS-leverans misslyckades:', err.message));
   }
 }
 
-async function evaluateThreshold(io, rule) {
+async function evaluateThreshold(io, db, rule) {
   const { score_threshold } = rule.config;
   if (typeof score_threshold !== 'number') return;
-  const scores = await analysisRouter.computeDisruptionScores();
+  const scores = await analysisRouter.computeDisruptionScores(db, rule.org_id);
   for (const m of scores) {
     if (m.score >= score_threshold) {
       await insertEvent(
-        io, rule, m.name,
+        io, db, rule, m.name,
         `Störningspoäng ${m.score} i ${m.name} överstiger tröskeln ${score_threshold}`,
         { municipality: m.name, score: m.score, raw_score: m.raw_score, elavbrott: m.elavbrott, road_count: m.road_count, police_count: m.police_count },
       );
@@ -41,12 +87,12 @@ function isValidProximityConfig(config) {
   return config.min_criticality in CRITICALITY_ORDER;
 }
 
-async function evaluateProximity(io, rule) {
-  if (rule.config && rule.config.target_uid) await evaluateProximityTarget(io, rule);
-  else await evaluateProximityCriticality(io, rule);
+async function evaluateProximity(io, db, rule) {
+  if (rule.config && rule.config.target_uid) await evaluateProximityTarget(io, db, rule);
+  else await evaluateProximityCriticality(io, db, rule);
 }
 
-async function evaluateProximityCriticality(io, rule) {
+async function evaluateProximityCriticality(io, db, rule) {
   const { layer, min_criticality, distance_m } = rule.config;
   if (!layer || !distance_m || !(min_criticality in CRITICALITY_ORDER)) return;
   const allowed = Object.keys(CRITICALITY_ORDER).filter(c => CRITICALITY_ORDER[c] >= CRITICALITY_ORDER[min_criticality] && c !== 'normal');
@@ -78,7 +124,7 @@ async function evaluateProximityCriticality(io, rule) {
 
   for (const r of rows) {
     await insertEvent(
-      io, rule, r.source_uid,
+      io, db, rule, r.source_uid,
       `${r.source_name} (${layer}) är inom ${Math.round(r.distance_m)} m från kritiskt objekt ${r.target_name} (${r.target_criticality})`,
       { source_uid: r.source_uid, source_name: r.source_name, target_uid: r.target_uid, target_name: r.target_name, target_criticality: r.target_criticality, distance_m: Math.round(r.distance_m) },
       r.source_uid,
@@ -86,7 +132,7 @@ async function evaluateProximityCriticality(io, rule) {
   }
 }
 
-async function evaluateProximityTarget(io, rule) {
+async function evaluateProximityTarget(io, db, rule) {
   // Framtida utökningspunkt: extra filter (t.ex. exclude_bearing_deg) kan läggas
   // som ytterligare valfria nycklar i config och läsas ut här — bygg inte nu.
   const { layer, distance_m, target_uid } = rule.config;
@@ -104,7 +150,7 @@ async function evaluateProximityTarget(io, rule) {
 
   for (const r of rows) {
     await insertEvent(
-      io, rule, r.source_uid,
+      io, db, rule, r.source_uid,
       `${r.source_name} (${layer}) är inom ${Math.round(r.distance_m)} m från ${r.target_name}`,
       { source_uid: r.source_uid, source_name: r.source_name, target_uid: r.target_uid, target_name: r.target_name, distance_m: Math.round(r.distance_m) },
       r.source_uid,
@@ -112,7 +158,7 @@ async function evaluateProximityTarget(io, rule) {
   }
 }
 
-async function evaluateCluster(io, rule) {
+async function evaluateCluster(io, db, rule) {
   const { layer, min_count, radius_m } = rule.config;
   if (!layer || !min_count || !radius_m) return;
 
@@ -133,7 +179,7 @@ async function evaluateCluster(io, rule) {
   for (const r of rows) {
     const entityKey = 'cluster:' + crypto.createHash('md5').update(r.uids.join(',')).digest('hex');
     await insertEvent(
-      io, rule, entityKey,
+      io, db, rule, entityKey,
       `${r.n} händelser i lager ${layer} klustrade inom ${radius_m} m (tröskel ${min_count})`,
       { layer, count: Number(r.n), radius_m, uids: r.uids, names: r.names },
     );
@@ -142,7 +188,7 @@ async function evaluateCluster(io, rule) {
 
 // Spår 1, användningsfall 1: kritisk vädervarning i OpOmr. Vädervarningar är redan
 // OpOmr-filtrerade vid skördning (harvest.js) så ingen ytterligare geo-koll behövs här.
-async function evaluateWeatherCritical(io, rule) {
+async function evaluateWeatherCritical(io, db, rule) {
   const minSeverity = rule.config?.min_severity;
   if (!Array.isArray(minSeverity) || !minSeverity.length) return;
   const { rows } = await db.query(
@@ -151,7 +197,7 @@ async function evaluateWeatherCritical(io, rule) {
   );
   for (const r of rows) {
     await insertEvent(
-      io, rule, r.uid,
+      io, db, rule, r.uid,
       `${r.name} (${r.attributes.severity})`,
       { feature_uid: r.uid, severity_level: r.attributes.severity },
       r.uid,
@@ -160,28 +206,30 @@ async function evaluateWeatherCritical(io, rule) {
 }
 
 // Spår 1, användningsfall 4: AI-klassificerad brådskande nyhet (Haiku, se newsClassifier.js).
-async function evaluateNewsUrgent(io, rule) {
+async function evaluateNewsUrgent(io, db, rule) {
   const { rows } = await db.query(
     `SELECT id, title, category FROM news_items WHERE relevant = true AND urgent = true AND status != 'discarded'`
   );
   for (const r of rows) {
     await insertEvent(
-      io, rule, `news:${r.id}`,
+      io, db, rule, `news:${r.id}`,
       `${r.title}${r.category ? ' (' + r.category + ')' : ''}`,
       { news_item_id: r.id, category: r.category },
     );
   }
 }
 
-async function evaluateAlerts(io) {
+// db: req.db (route-triggad utvärdering) eller en withTenant()-scopad klient (bakgrundsjobb —
+// efter skördning/RSS-polling). Måste alltid höra till SAMMA organisation som reglerna som hämtas.
+async function evaluateAlerts(io, db) {
   const { rows: rules } = await db.query(`SELECT * FROM alert_rules WHERE enabled = true`);
   for (const rule of rules) {
     try {
-      if (rule.type === 'threshold') await evaluateThreshold(io, rule);
-      else if (rule.type === 'proximity') await evaluateProximity(io, rule);
-      else if (rule.type === 'cluster') await evaluateCluster(io, rule);
-      else if (rule.type === 'weather_critical') await evaluateWeatherCritical(io, rule);
-      else if (rule.type === 'news_urgent') await evaluateNewsUrgent(io, rule);
+      if (rule.type === 'threshold') await evaluateThreshold(io, db, rule);
+      else if (rule.type === 'proximity') await evaluateProximity(io, db, rule);
+      else if (rule.type === 'cluster') await evaluateCluster(io, db, rule);
+      else if (rule.type === 'weather_critical') await evaluateWeatherCritical(io, db, rule);
+      else if (rule.type === 'news_urgent') await evaluateNewsUrgent(io, db, rule);
     } catch (err) {
       console.error(`Alert rule "${rule.name}" (${rule.type}) evaluation failed:`, err.message);
     }

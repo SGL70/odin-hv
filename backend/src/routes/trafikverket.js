@@ -1,6 +1,6 @@
 const express = require('express');
-const db = require('../db');
 const { requireAuth, requireRole } = require('../middleware/auth');
+const { resolveOrgId } = require('../services/orgContext');
 
 const router = express.Router();
 const TRV_URL = 'https://api.trafikinfo.trafikverket.se/v2/data.json';
@@ -303,23 +303,24 @@ router.post('/import', requireAuth, requireRole('editor', 'admin'), async (req, 
 
   const COT = { vehicles: 'a-f-G-U-C-V' };
   let imported = 0, skipped = 0;
+  const orgId = await resolveOrgId(req.user.id);
 
   for (const f of features) {
     const { layer, name, _source_id, ...attrs } = f.properties || {};
     if (!layer || !name || !f.geometry) { skipped++; continue; }
     try {
-      await db.query(
-        `INSERT INTO features (layer, name, geom, cot_type, attributes, created_by, updated_by)
-         VALUES ($1,$2,ST_GeomFromGeoJSON($3),$4,$5,$6,$6)
+      await req.db.query(
+        `INSERT INTO features (layer, name, geom, cot_type, attributes, created_by, updated_by, org_id)
+         VALUES ($1,$2,ST_GeomFromGeoJSON($3),$4,$5,$6,$6,$7)
          ON CONFLICT DO NOTHING`,
         [layer, name, JSON.stringify(f.geometry), COT[layer] || 'b-m-p-s-p',
-         { ...attrs, trv_source_id: _source_id }, req.user.id]
+         { ...attrs, trv_source_id: _source_id }, req.user.id, orgId]
       );
       imported++;
     } catch { skipped++; }
   }
 
-  if (imported > 0) req.io.emit('features:reloaded', {});
+  if (imported > 0) req.io.to(`org:${req.tenant.orgId}`).emit('features:reloaded', {});
   res.json({ imported, skipped });
 });
 

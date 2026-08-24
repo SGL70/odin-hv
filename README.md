@@ -162,6 +162,12 @@ Se [docs/notifieringssystem-forslag.md](docs/notifieringssystem-forslag.md) för
 - Nivå (info/varning/kritisk) och mottagarroller konfigurerbart per regel (Varningsregler-modalen)
 - Dygnsrapport kl 06:00 via e-post till admin-rollen (händelseräkning, störningsscore-trend, öppna larm, skördestatus)
 
+### Installationsprompt för Odin Fält (2026-07-20)
+Manifest/ikoner uppfyllde redan installerbarhetskraven (se PWA-fixen ovan), men Chrome visar sin egen installationsprompt bara efter flera besök över tid — ett enskilt besök på `odinhv.se` från Android gav ingen fråga. Ny bottenbanner (`InstallPrompt.tsx`) fångar `beforeinstallprompt` själv och frågar direkt: "Installera ODIN Fält som app på hemskärmen?".
+
+### Feature-flaggning av Kritiska objekt/larmsystemet (2026-08-24)
+Notifieringssystemet ovan är kodklart men inte klart för alla användare ännu. `FEATURE_CRITICAL_ALERTS` (default `false`) döljer Kritiska objekt-panelen, kartringarna, kritikalitetsfältet i objektpanelen, samt hela larmsystemet (AlertBanner, larmlista, Hantera larmregler, larmdelen av catch-up-modalen) tills flaggan slås på. Bakgrundsjobben (alertEngine, dygnsrapport) fortsätter köra oavsett — flaggan styr bara vad UI:t visar. Backend exponerar värdet publikt via `GET /api/config`; sätt env-variabeln i `docker-compose.yml` och starta om backend-containern för att slå på/av, ingen ny build krävs.
+
 ---
 
 ## Roadmap
@@ -243,6 +249,7 @@ ADMIN_PASSWORD=               # Lösenord för admin vid första start
 TRAFIKVERKET_API_KEY=         # Trafikverkets Öppna Data (api.trafikinfo.trafikverket.se)
 TRAFIKVERKET_DATEX_KEY=       # Extra nyckel för TrafficFlow/DATEX-objekttyper
 FORTYSIX_ELKS_API_KEY=        # 46elks SMS-gateway
+FEATURE_CRITICAL_ALERTS=      # true för att visa Kritiska objekt + larmsystemet i UI (default: dolt)
 ```
 
 ### Deploy av enskild fil

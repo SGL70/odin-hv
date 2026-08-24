@@ -1,11 +1,12 @@
 import { useMemo, useState } from 'react';
 import type { Feature } from '../types';
-import { IconClose } from '../lib/uiIcons';
+import { SidePanelFrame } from './SidePanelFrame';
 
 interface Props {
   features: Feature[];
   onClose: () => void;
   onSelect: (f: Feature) => void;
+  sidebarOpen: boolean;
 }
 
 const SOURCE_LETTERS = ['A', 'B', 'C', 'D', 'E', 'F'];
@@ -24,7 +25,7 @@ function cutoffFor(t: TimeFilter): string | null {
   return new Date(Date.now() - hours * 3600 * 1000).toISOString();
 }
 
-export function ReportListPanel({ features, onClose, onSelect }: Props) {
+export function ReportListPanel({ features, onClose, onSelect, sidebarOpen }: Props) {
   const [sourceFilter, setSourceFilter] = useState('Alla');
   const [infoFilter, setInfoFilter] = useState('Alla');
   const [timeFilter, setTimeFilter] = useState<TimeFilter>('alla');
@@ -40,18 +41,8 @@ export function ReportListPanel({ features, onClose, onSelect }: Props) {
   }, [features, sourceFilter, infoFilter, timeFilter]);
 
   return (
-    <div style={{
-      position: 'absolute', left: 190, top: 10, bottom: 10, zIndex: 10,
-      width: 360, background: '#1e1e30', border: '1px solid #333',
-      borderRadius: 8, display: 'flex', flexDirection: 'column',
-      boxShadow: '0 4px 20px #0006',
-    }}>
-      <div style={{ padding: '10px 14px 8px', borderBottom: '1px solid #333', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <span style={{ fontWeight: 700, fontSize: 14 }}>🕵 Underrättelserapporter</span>
-        <button className="btn-ghost btn-sm" onClick={onClose}><IconClose /></button>
-      </div>
-
-      <div style={{ padding: '10px 14px', borderBottom: '1px solid #333', display: 'flex', flexDirection: 'column', gap: 8 }}>
+    <SidePanelFrame icon="🕵" title="Underrättelserapporter" onClose={onClose} sidebarOpen={sidebarOpen}>
+      <div style={{ padding: '10px 14px', borderBottom: '1px solid #2e2f45', display: 'flex', flexDirection: 'column', gap: 8 }}>
         <div style={{ display: 'flex', gap: 6 }}>
           {(['24h', '48h', '7d', 'alla'] as TimeFilter[]).map(t => (
             <button key={t} onClick={() => setTimeFilter(t)} style={{
@@ -102,6 +93,6 @@ export function ReportListPanel({ features, onClose, onSelect }: Props) {
           </div>
         ))}
       </div>
-    </div>
+    </SidePanelFrame>
   );
 }

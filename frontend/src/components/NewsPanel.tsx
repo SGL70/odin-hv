@@ -3,7 +3,8 @@ import { io } from 'socket.io-client';
 import { api } from '../api';
 import { SWEDEN } from '../lib/sweden';
 import type { NewsItem } from '../types';
-import { IconClose, IconChevronUp, IconChevronDown } from '../lib/uiIcons';
+import { IconChevronUp, IconChevronDown } from '../lib/uiIcons';
+import { SidePanelFrame } from './SidePanelFrame';
 
 // Mediabevakning — granskningsinkorg för RSS-skördade nyhetsrubriker (se backend/src/routes/news.js
 // och services/newsFeeds.js). Ligger helt utanför kartan tills någon läst rubriken och geotaggat den
@@ -31,9 +32,10 @@ interface Props {
   onArmNewsPick: () => void;
   newsPickResult: { lat: number; lng: number } | null;
   onConsumeNewsPick: () => void;
+  sidebarOpen: boolean;
 }
 
-export function NewsPanel({ onClose, onTagged, newsPickMode, onArmNewsPick, newsPickResult, onConsumeNewsPick }: Props) {
+export function NewsPanel({ onClose, onTagged, newsPickMode, onArmNewsPick, newsPickResult, onConsumeNewsPick, sidebarOpen }: Props) {
   const [items, setItems] = useState<NewsItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<NewsItem | null>(null);
@@ -137,17 +139,7 @@ export function NewsPanel({ onClose, onTagged, newsPickMode, onArmNewsPick, news
   const municipalities = SWEDEN.find(c => c.name === county)?.municipalities ?? [];
 
   return (
-    <div style={{
-      position: 'absolute', left: 190, top: 10, bottom: 10, zIndex: 10,
-      width: 380, background: '#1e1e30', border: '1px solid #333',
-      borderRadius: 8, display: 'flex', flexDirection: 'column',
-      boxShadow: '0 4px 20px #0006',
-    }}>
-      <div style={{ padding: '10px 14px 8px', borderBottom: '1px solid #333', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <span style={{ fontWeight: 700, fontSize: 14 }}>📰 Nyheter</span>
-        <button className="btn-ghost btn-sm" onClick={onClose}><IconClose /></button>
-      </div>
-
+    <SidePanelFrame icon="📰" title="Nyheter" onClose={onClose} sidebarOpen={sidebarOpen} width={380}>
       <div style={{ flex: 1, overflowY: 'auto', padding: 10 }}>
         {loading && <div style={{ color: '#666', fontSize: 12, padding: 8 }}>Laddar…</div>}
         {!loading && items.length === 0 && <div style={{ color: '#666', fontSize: 12, padding: 8 }}>Inga väntande nyheter.</div>}
@@ -265,6 +257,6 @@ export function NewsPanel({ onClose, onTagged, newsPickMode, onArmNewsPick, news
           )}
         </div>
       </div>
-    </div>
+    </SidePanelFrame>
   );
 }

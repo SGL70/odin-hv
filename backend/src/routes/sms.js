@@ -2,6 +2,7 @@ const express = require('express');
 const db = require('../db');
 const { requireAuth, requireRole } = require('../middleware/auth');
 const { resolveMunicipalityCentroid } = require('../services/geo');
+const { resolveOrgId } = require('../services/orgContext');
 
 const router = express.Router();
 
@@ -20,12 +21,16 @@ router.post('/incoming', express.urlencoded({ extended: false }), async (req, re
   if (!message || !from) return;
 
   try {
+    // Ingen inloggad användare här (46elks-webhook) — resolveOrgId(null) faller tillbaka till
+    // Standardbataljon. org_id sätts bara vid en ny avsändares FÖRSTA sms (ON CONFLICT rör den inte),
+    // så ägarskapet inte flyttas om samma nummer redan tillhör en annan org senare i multi-tenancy.
+    const orgId = await resolveOrgId(null);
     const { rows } = await db.query(
-      `INSERT INTO sms_senders (phone, message_count, last_seen_at)
-       VALUES ($1, 1, NOW())
+      `INSERT INTO sms_senders (phone, message_count, last_seen_at, org_id)
+       VALUES ($1, 1, NOW(), $2)
        ON CONFLICT (phone) DO UPDATE SET message_count = sms_senders.message_count + 1, last_seen_at = NOW()
        RETURNING status, label, lat, lng`,
-      [from]
+      [from, orgId]
     );
     const sender = rows[0];
 
@@ -41,22 +46,23 @@ router.post('/incoming', express.urlencoded({ extended: false }), async (req, re
 
     if (sender.status === 'known') {
       await db.query(
-        `INSERT INTO features (layer, name, geom, cot_type, attributes, created_by, updated_by)
-         VALUES ('sms_alerts', $1, ST_SetSRID(ST_MakePoint($2, $3), 4326), 'b-m-p-s-p', $4, 1, 1)`,
+        `INSERT INTO features (layer, name, geom, cot_type, attributes, created_by, updated_by, org_id)
+         VALUES ('sms_alerts', $1, ST_SetSRID(ST_MakePoint($2, $3), 4326), 'b-m-p-s-p', $4, 1, 1, $5)`,
         [
           name, sender.lng, sender.lat,
           {
             from, description, received_at: created || new Date().toISOString(),
             raw_message: message, source: sender.label || from, elks_id: id || null,
           },
+          orgId,
         ]
       );
       req.io?.emit('features:reloaded', {});
       console.log(`SMS-avisering sparad: från ${sender.label || from} — ${name}`);
     } else {
       await db.query(
-        `INSERT INTO sms_tips (elks_id, from_number, message, received_at) VALUES ($1,$2,$3,$4)`,
-        [id || null, from, message, created || new Date().toISOString()]
+        `INSERT INTO sms_tips (elks_id, from_number, message, received_at, org_id) VALUES ($1,$2,$3,$4,$5)`,
+        [id || null, from, message, created || new Date().toISOString(), orgId]
       );
       req.io?.emit('sms_tip:new', {});
       console.log(`Tips via SMS mottaget från ${from}, väntar på geotaggning`);
@@ -70,7 +76,7 @@ router.post('/incoming', express.urlencoded({ extended: false }), async (req, re
 
 router.get('/tips', requireAuth, requireRole('editor', 'admin'), async (req, res) => {
   const status = req.query.status || 'pending';
-  const { rows } = await db.query(
+  const { rows } = await req.db.query(
     `SELECT id, elks_id, from_number, message, received_at, status, created_at
      FROM sms_tips WHERE status = $1 ORDER BY received_at DESC`,
     [status]
@@ -82,7 +88,7 @@ router.post('/tips/:id/tag', requireAuth, requireRole('editor', 'admin'), async 
   const { id } = req.params;
   const { municipality, area, lat, lng } = req.body;
   try {
-    const tipRes = await db.query(`SELECT * FROM sms_tips WHERE id = $1 AND status = 'pending'`, [id]);
+    const tipRes = await req.db.query(`SELECT * FROM sms_tips WHERE id = $1 AND status = 'pending'`, [id]);
     const tip = tipRes.rows[0];
     if (!tip) return res.status(404).json({ error: 'Tips hittades inte eller är redan hanterat' });
 
@@ -99,9 +105,10 @@ router.post('/tips/:id/tag', requireAuth, requireRole('editor', 'admin'), async 
     const name = lines[0].slice(0, 120);
     const description = lines.slice(1).join('\n').trim();
 
-    const featureRes = await db.query(
-      `INSERT INTO features (layer, name, geom, cot_type, attributes, created_by, updated_by)
-       VALUES ('sms_alerts', $1, ST_SetSRID(ST_MakePoint($2, $3), 4326), 'b-m-p-s-p', $4, $5, $5)
+    const orgId = await resolveOrgId(req.user.id);
+    const featureRes = await req.db.query(
+      `INSERT INTO features (layer, name, geom, cot_type, attributes, created_by, updated_by, org_id)
+       VALUES ('sms_alerts', $1, ST_SetSRID(ST_MakePoint($2, $3), 4326), 'b-m-p-s-p', $4, $5, $5, $6)
        RETURNING uid`,
       [
         name, finalLng, finalLat,
@@ -111,10 +118,11 @@ router.post('/tips/:id/tag', requireAuth, requireRole('editor', 'admin'), async 
           location_precision: (lat != null && lng != null) ? 'exact' : 'kommun',
         },
         req.user.id,
+        orgId,
       ]
     );
 
-    await db.query(`UPDATE sms_tips SET status = 'tagged', tagged_feature_uid = $1 WHERE id = $2`, [featureRes.rows[0].uid, id]);
+    await req.db.query(`UPDATE sms_tips SET status = 'tagged', tagged_feature_uid = $1 WHERE id = $2`, [featureRes.rows[0].uid, id]);
 
     req.io?.emit('features:reloaded', {});
     res.json({ ok: true, feature_uid: featureRes.rows[0].uid });
@@ -124,14 +132,14 @@ router.post('/tips/:id/tag', requireAuth, requireRole('editor', 'admin'), async 
 });
 
 router.post('/tips/:id/discard', requireAuth, requireRole('editor', 'admin'), async (req, res) => {
-  await db.query(`UPDATE sms_tips SET status = 'discarded' WHERE id = $1`, [req.params.id]);
+  await req.db.query(`UPDATE sms_tips SET status = 'discarded' WHERE id = $1`, [req.params.id]);
   res.json({ ok: true });
 });
 
 // ── Avsändarregister — administration av alla nummer som hörts av ───────────
 
 router.get('/senders', requireAuth, requireRole('admin'), async (req, res) => {
-  const { rows } = await db.query('SELECT * FROM sms_senders ORDER BY last_seen_at DESC');
+  const { rows } = await req.db.query('SELECT * FROM sms_senders ORDER BY last_seen_at DESC');
   res.json(rows);
 });
 
@@ -147,11 +155,14 @@ router.put('/senders/:phone', requireAuth, requireRole('admin'), async (req, res
       lat = centroid.lat;
       lng = centroid.lng;
     }
-    await db.query(
-      `INSERT INTO sms_senders (phone, status, label, lat, lng, updated_by)
-       VALUES ($1, $2, $3, $4, $5, $6)
+    // org_id sätts bara på en riktigt ny rad (ON CONFLICT rör den inte) — annars skulle en
+    // admin-redigering av en redan existerande avsändare kunna flytta den till fel organisation.
+    const orgId = await resolveOrgId(req.user.id);
+    await req.db.query(
+      `INSERT INTO sms_senders (phone, status, label, lat, lng, updated_by, org_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
        ON CONFLICT (phone) DO UPDATE SET status = $2, label = $3, lat = $4, lng = $5, updated_by = $6`,
-      [phone, status, label ?? null, lat ?? null, lng ?? null, req.user.id]
+      [phone, status, label ?? null, lat ?? null, lng ?? null, req.user.id, orgId]
     );
     res.json({ ok: true });
   } catch (err) {

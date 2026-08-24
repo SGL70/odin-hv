@@ -36,8 +36,6 @@ interface Props {
   onCancelPlacement: () => void;
 
   onImported: () => void;
-  harvestRefreshInterval: number;
-  onHarvestRefreshIntervalChange: (v: number) => void;
 }
 
 const TABS: { id: RightTab; label: string }[] = [
@@ -49,7 +47,7 @@ export function RightPanel({
   open, onOpenChange, activeTab, onActiveTabChange, harvestActive, onHarvestActivityChange,
   feature, group, onSelectFromGroup, onCloseFeature, onSaved, onDeleted, addMode, addLayer, onAddLayerChange,
   pendingPlacement, placementInfo, newName, onNewNameChange, newFields, onNewFieldChange, onSubmitNew, onCancelPlacement,
-  onImported, harvestRefreshInterval, onHarvestRefreshIntervalChange,
+  onImported,
 }: Props) {
   if (!open) {
     return (
@@ -117,11 +115,23 @@ export function RightPanel({
           <HarvestSidebar
             onImported={onImported}
             onActivityChange={onHarvestActivityChange}
-            refreshInterval={harvestRefreshInterval}
-            onRefreshIntervalChange={onHarvestRefreshIntervalChange}
           />
         </div>
       </div>
+
+      {/* Dölj-knapp — Sidebar.tsx:s motsvarighet på vänster sida hade en men denna saknades,
+          så höger panel gick bara att fälla ut, aldrig fälla in igen utan att ladda om sidan. */}
+      <button
+        onClick={() => onOpenChange(false)}
+        style={{
+          background: '#1b1c2cee', border: '1px solid #2e2f45',
+          borderRight: 'none', borderRadius: '6px 0 0 6px',
+          color: '#9ea3c0', fontSize: 16, width: 22, height: 40,
+          cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+          alignSelf: 'flex-start', marginTop: 8, flexShrink: 0,
+        }}
+        title="Dölj"
+      >›</button>
     </div>
   );
 }

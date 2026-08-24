@@ -2,9 +2,18 @@ const express = require('express');
 const db = require('../db');
 const { requireAuth, requireRole } = require('../middleware/auth');
 const { evaluateAlerts } = require('../services/alertEngine');
+const { resolveOrgId, resolveVisibleOrgIds } = require('../services/orgContext');
 
-function afterHarvest(io) {
-  evaluateAlerts(io).catch(err => console.error('Alert evaluation error:', err.message));
+// Fire-and-forget BY DESIGN (aldrig awaited av anroparen, larmutvärdering ska inte fördröja
+// skördesvaret) — får därför ALDRIG återanvända anroparens db-klient, vars livstid styrs av något
+// annat (svaret för en route, withTenant()-scopet för en schemalagd körning) som kan stänga
+// innan evaluateAlerts hunnit klart. Öppnar sin egen oberoende withTenant()-scope via userId
+// (samma resolveOrgId-mönster som saveFeatures m.fl., userId 0 = Standardbataljon).
+async function afterHarvest(io, userId) {
+  const orgId = await resolveOrgId(userId);
+  const visibleOrgIds = await resolveVisibleOrgIds(orgId);
+  db.withTenant({ orgId, visibleOrgIds }, (bgDb) => evaluateAlerts(io, bgDb))
+    .catch(err => console.error('Alert evaluation error:', err.message));
 }
 
 const router = express.Router();
@@ -278,10 +287,15 @@ function mergeStations(osmFeatures, okq8WebFeatures, thresholdM = 150) {
 // Remove previously harvested features — optionally filtered by source prefix
 // ABI sekvensneutralitet: flyttar rader till features_history i stället för att bara radera dem,
 // så rådata finns kvar för framtida korrelation även efter att den ersatts av en nyare skördning.
-async function archiveAndDelete(whereSql, params, reason) {
+// db (första parametern) är antingen req.db (HTTP-triggad skördning) eller en withTenant()-scopad
+// klient (schemalagd körning, se runAutoHarvest längst ned) — samma parameter hela vägen genom
+// skördningskedjan, aldrig den delade modul-poolen direkt.
+async function archiveAndDelete(db, whereSql, params, reason) {
+  // org_id kopieras direkt från källraden i features (SELECT ... org_id), inte via
+  // resolveOrgId() — den arkiverade raden ska behålla samma organisation den redan hade.
   await db.query(
-    `INSERT INTO features_history (uid, layer, cot_type, name, geom, attributes, created_at, updated_at, archived_reason)
-     SELECT uid, layer, cot_type, name, geom, attributes, created_at, updated_at, $${params.length + 1}
+    `INSERT INTO features_history (uid, layer, cot_type, name, geom, attributes, created_at, updated_at, archived_reason, org_id)
+     SELECT uid, layer, cot_type, name, geom, attributes, created_at, updated_at, $${params.length + 1}, org_id
      FROM features WHERE ${whereSql}`,
     [...params, reason],
   );
@@ -291,7 +305,7 @@ async function archiveAndDelete(whereSql, params, reason) {
 // Läser upp uid/kritikalitet/visningsnamn för rader som är på väg att raderas av clearHarvested(),
 // så saveFeatures() kan återanvända samma uid och bevara användarsatta fält vid omskördning i
 // stället för att varje körning skapar helt nya rader (se roadmap "Persistent identitet vid skördning").
-async function captureIdentity(layer, sourcePattern = null) {
+async function captureIdentity(db, layer, sourcePattern = null) {
   const conditions = [`layer = $1`, `(attributes->>'scraped_at') IS NOT NULL`, `attributes ? 'external_id'`];
   const params = [layer];
   if (sourcePattern) { params.push(sourcePattern); conditions.push(`attributes->>'source' ILIKE $2`); }
@@ -306,15 +320,17 @@ async function captureIdentity(layer, sourcePattern = null) {
   return map;
 }
 
-async function clearHarvested(layer, sourcePattern = null) {
+async function clearHarvested(db, layer, sourcePattern = null) {
   if (sourcePattern) {
     await archiveAndDelete(
+      db,
       `layer = $1 AND (attributes->>'scraped_at') IS NOT NULL AND attributes->>'source' ILIKE $2`,
       [layer, sourcePattern],
       'harvest_refresh',
     );
   } else {
     await archiveAndDelete(
+      db,
       `layer = $1 AND (attributes->>'scraped_at') IS NOT NULL`,
       [layer],
       'harvest_refresh',
@@ -330,8 +346,22 @@ function deriveOccurredAt(attrs) {
   return attrs.start_time || attrs.scheduled_time || attrs.measured_at || attrs.datetime || attrs.scraped_at || new Date().toISOString();
 }
 
-async function saveFeatures(features, userId, identityMap = null) {
+async function saveFeatures(db, features, userId, identityMap = null) {
   let imported = 0, skipped = 0;
+  // Resolveras en gång per anrop, inte per feature — userId 0 (schemalagd skördning, se
+  // runAutoHarvest) faller tillbaka till Standardbataljon via resolveOrgId().
+  const orgId = await resolveOrgId(userId);
+  // BUGFIX 2026-07-18: features.created_by/updated_by är en FOREIGN KEY mot users(id), som är
+  // SERIAL (börjar på 1) — id 0 finns aldrig. userId=0 (schemalagd skördning, se runAutoHarvest)
+  // gav alltså en FK-överträdelse på VARJE rad, tyst fångad av per-rad try/catch:en nedan (räknas
+  // som "skipped", ingen synlig felkod någonstans). Denna bugg fanns redan i den ursprungliga
+  // "server-schemalagd skördning"-funktionen (byggd 2026-07-16/17) — auto-skördningen för
+  // polishändelser/trafikhändelser/elavbrott/vädervarningar/trafikflöde har alltså ALDRIG sparat
+  // något sedan den byggdes, upptäckt 2026-07-18 (skillnaden mellan `saveFeatures`s `orgId`, som
+  // korrekt faller tillbaka via resolveOrgId(), och `created_by`, som fram tills nu skickades
+  // rakt igenom oöversatt). NULL är giltigt (kolumnen saknar NOT NULL) och betyder "systemet",
+  // vilket är den semantiskt korrekta representationen av "ingen inloggad användare" — inte 0.
+  const createdBy = userId || null;
   for (const f of features) {
     const { layer, name, ...attrs } = f.properties;
     if (!layer || !name || !f.geometry) { skipped++; continue; }
@@ -353,16 +383,16 @@ async function saveFeatures(features, userId, identityMap = null) {
     try {
       const result = identity
         ? await db.query(
-            `INSERT INTO features (uid, layer, name, geom, cot_type, attributes, created_by, updated_by)
-             VALUES ($1, $2, $3, ST_GeomFromGeoJSON($4), 'b-m-p-s-p', $5, $6, $6)
+            `INSERT INTO features (uid, layer, name, geom, cot_type, attributes, created_by, updated_by, org_id)
+             VALUES ($1, $2, $3, ST_GeomFromGeoJSON($4), 'b-m-p-s-p', $5, $6, $6, $7)
              ON CONFLICT DO NOTHING`,
-            [identity.uid, layer, name, JSON.stringify(f.geometry), attrs, userId]
+            [identity.uid, layer, name, JSON.stringify(f.geometry), attrs, createdBy, orgId]
           )
         : await db.query(
-            `INSERT INTO features (layer, name, geom, cot_type, attributes, created_by, updated_by)
-             VALUES ($1, $2, ST_GeomFromGeoJSON($3), 'b-m-p-s-p', $4, $5, $5)
+            `INSERT INTO features (layer, name, geom, cot_type, attributes, created_by, updated_by, org_id)
+             VALUES ($1, $2, ST_GeomFromGeoJSON($3), 'b-m-p-s-p', $4, $5, $5, $6)
              ON CONFLICT DO NOTHING`,
-            [layer, name, JSON.stringify(f.geometry), attrs, userId]
+            [layer, name, JSON.stringify(f.geometry), attrs, createdBy, orgId]
           );
       imported += result.rowCount || 0;
       if ((result.rowCount || 0) === 0) skipped++;
@@ -412,8 +442,9 @@ function parseTrvWKT(wkt) {
   return null;
 }
 
-async function getOpOmrBbox() {
-  const { rows } = await db.query("SELECT value FROM settings WHERE key='op_municipalities'");
+async function getOpOmrBbox(db, userId) {
+  const orgId = await resolveOrgId(userId);
+  const { rows } = await db.query("SELECT value FROM settings WHERE org_id=$1 AND key='op_municipalities'", [orgId]);
   const munis = rows[0]?.value || [];
   if (!munis.length) throw new Error('Inga OpOmr-kommuner konfigurerade');
   const r = await db.query(
@@ -499,35 +530,49 @@ async function fetchTrvTraffic(bbox) {
   }).filter(Boolean);
 }
 
+// Körfunktionerna registreras här (sourceId -> async (io, userId) => void) så att både
+// HTTP-rutten och den schemalagda skördningen (se runAutoHarvest längst ned) kan återanvända
+// exakt samma logik utan ett fejkat req/res.
+const scrapeRunners = {};
+
 function makeTrvScrapeRoute(sourceId, fetchFn, layer, clearPattern) {
-  router.get(`/${sourceId}/preview`, requireAuth, async (_req, res) => {
+  router.get(`/${sourceId}/preview`, requireAuth, async (req, res) => {
     try {
-      const bbox = await getOpOmrBbox();
+      const bbox = await getOpOmrBbox(req.db, req.user.id);
       const features = await fetchFn(bbox);
       res.json({ source: sourceId, total: features.length });
     } catch (err) { res.status(502).json({ error: err.message }); }
   });
 
-  router.post(`/${sourceId}/scrape`, requireAuth, requireRole('editor', 'admin'), async (req, res) => {
+  // db: req.db (manuell route) eller en withTenant()-scopad klient (schemalagd, se runAutoHarvest).
+  async function run(io, userId, db) {
     const ctrl = startJob(sourceId);
-    res.json({ started: true });
-    const io = req.io;
     io.emit('harvest:progress', { source: sourceId, phase: 'Hämtar från Trafikverket…', done: 0, total: 1 });
     try {
       if (ctrl.signal.aborted) throw cancelledError(sourceId);
-      const bbox = await getOpOmrBbox();
+      const bbox = await getOpOmrBbox(db, userId);
       const features = await fetchFn(bbox);
       if (ctrl.signal.aborted) throw cancelledError(sourceId);
       io.emit('harvest:progress', { source: sourceId, phase: 'Sparar…', done: 1, total: 1 });
-      const identityMap = await captureIdentity(layer, clearPattern);
-      await clearHarvested(layer, clearPattern);
-      const { imported, skipped } = await saveFeatures(features, req.user?.id || 0, identityMap);
+      const identityMap = await captureIdentity(db, layer, clearPattern);
+      await clearHarvested(db, layer, clearPattern);
+      const { imported, skipped } = await saveFeatures(db, features, userId, identityMap);
       io.emit('harvest:done', { source: sourceId, imported, skipped });
       if (imported > 0) io.emit('features:reloaded', {});
-      afterHarvest(io);
+      afterHarvest(io, userId);
     } catch (err) {
       io.emit('harvest:done', { source: sourceId, imported: 0, skipped: 0, error: err.message });
+      throw err;
     } finally { activeJobs.delete(sourceId); }
+  }
+  scrapeRunners[sourceId] = run;
+
+  router.post(`/${sourceId}/scrape`, requireAuth, requireRole('editor', 'admin'), async (req, res) => {
+    res.json({ started: true });
+    // Fire-and-forget efter svaret ovan — får inte återanvända req.db (samma race som
+    // afterHarvest, se dess kommentar). Öppnar en egen oberoende scope via req.tenant.
+    db.withTenant(req.tenant, (bgDb) => run(req.io.to(`org:${req.tenant.orgId}`), req.user?.id || 0, bgDb))
+      .catch(() => { /* redan loggat/emitterat i run() ovan */ });
   });
 }
 
@@ -732,9 +777,9 @@ function buildSituationFeatures(situations) {
   return features;
 }
 
-router.get('/situations/preview', requireAuth, async (_req, res) => {
+router.get('/situations/preview', requireAuth, async (req, res) => {
   try {
-    const bbox = await getOpOmrBbox();
+    const bbox = await getOpOmrBbox(req.db, req.user.id);
     const sits = await fetchSituations(bbox);
     const features = buildSituationFeatures(sits);
     res.json({ count: features.length, features });
@@ -743,17 +788,17 @@ router.get('/situations/preview', requireAuth, async (_req, res) => {
   }
 });
 
-router.post('/situations/scrape', requireAuth, async (req, res) => {
+async function runSituationsScrape(io, userId, db) {
   const ctrl = startJob('situations');
-  const io = req.io;
   io.emit('harvest:progress', { source: 'situations', phase: 'Hämtar från Trafikverket…', done: 0, total: 1 });
   try {
     if (ctrl.signal.aborted) throw new Error('Avbrutet');
-    const bbox = await getOpOmrBbox();
+    const bbox = await getOpOmrBbox(db, userId);
     const sits = await fetchSituations(bbox);
     const features = buildSituationFeatures(sits);
     // Purge closed situations and stale data older than 4h (arkiveras, raderas inte)
     await archiveAndDelete(
+      db,
       `layer = 'road_situations' AND (
         (attributes->>'end_time' <> '' AND (attributes->>'end_time')::timestamptz < NOW()) OR
         (attributes->>'scraped_at')::timestamptz < NOW() - INTERVAL '4 hours'
@@ -761,18 +806,27 @@ router.post('/situations/scrape', requireAuth, async (req, res) => {
       [],
       'ttl_expired',
     );
-    const identityMap = await captureIdentity('road_situations', null);
-    await clearHarvested('road_situations');
+    const identityMap = await captureIdentity(db, 'road_situations', null);
+    await clearHarvested(db, 'road_situations');
     io.emit('harvest:progress', { source: 'situations', phase: 'Sparar…', done: 1, total: 1 });
-    const { imported, skipped } = await saveFeatures(features, req.user?.id || 0, identityMap);
+    const { imported, skipped } = await saveFeatures(db, features, userId, identityMap);
     io.emit('harvest:done', { source: 'situations', imported, skipped });
     io.emit('features:reloaded', {});
-    afterHarvest(io);
-    res.json({ imported, skipped });
+    afterHarvest(io, userId);
+    return { imported, skipped };
   } catch (err) {
     io.emit('harvest:done', { source: 'situations', imported: 0, skipped: 0, error: err.message });
-    res.status(500).json({ error: err.message });
+    throw err;
   } finally { activeJobs.delete('situations'); }
+}
+scrapeRunners.situations = runSituationsScrape;
+
+router.post('/situations/scrape', requireAuth, async (req, res) => {
+  try {
+    res.json(await runSituationsScrape(req.io.to(`org:${req.tenant.orgId}`), req.user?.id || 0, req.db));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // ── Tågstörningar (Trafikverket TrainStation + TrainAnnouncement) ────────────
@@ -784,8 +838,9 @@ router.post('/situations/scrape', requireAuth, async (req, res) => {
 
 const NORRBOTTEN_COUNTY_NO = 25;
 
-async function fetchOpOmrRailwayStations() {
-  const opomrRow = await db.query("SELECT value FROM settings WHERE key='op_municipalities'");
+async function fetchOpOmrRailwayStations(db, userId) {
+  const orgId = await resolveOrgId(userId);
+  const opomrRow = await db.query("SELECT value FROM settings WHERE org_id=$1 AND key='op_municipalities'", [orgId]);
   const munis = opomrRow.rows[0]?.value || [];
   if (!munis.length) throw new Error('Inga OpOmr-kommuner konfigurerade');
 
@@ -846,9 +901,9 @@ function buildRailwayFeatures(announcements, stations) {
   return features;
 }
 
-router.get('/railway-situations/preview', requireAuth, async (_req, res) => {
+router.get('/railway-situations/preview', requireAuth, async (req, res) => {
   try {
-    const stations = await fetchOpOmrRailwayStations();
+    const stations = await fetchOpOmrRailwayStations(req.db, req.user.id);
     const anns = await fetchRailwayAnnouncements(stations);
     const features = buildRailwayFeatures(anns, stations);
     res.json({ count: features.length, features });
@@ -860,24 +915,28 @@ router.get('/railway-situations/preview', requireAuth, async (_req, res) => {
 router.post('/railway-situations/scrape', requireAuth, requireRole('editor', 'admin'), async (req, res) => {
   const ctrl = startJob('railway-situations');
   res.json({ started: true });
-  const io = req.io;
+  const io = req.io.to(`org:${req.tenant.orgId}`);
   io.emit('harvest:progress', { source: 'railway-situations', phase: 'Hämtar från Trafikverket…', done: 0, total: 1 });
+  // Allt nedan körs EFTER svaret ovan — får inte återanvända req.db (samma race som afterHarvest),
+  // öppnar en egen oberoende scope via req.tenant för hela den efterföljande skördningen.
+  db.withTenant(req.tenant, async (bgDb) => {
   try {
     if (ctrl.signal.aborted) throw cancelledError('railway-situations');
-    const stations = await fetchOpOmrRailwayStations();
+    const stations = await fetchOpOmrRailwayStations(bgDb, req.user.id);
     const anns = await fetchRailwayAnnouncements(stations);
     const features = buildRailwayFeatures(anns, stations);
     if (ctrl.signal.aborted) throw cancelledError('railway-situations');
     io.emit('harvest:progress', { source: 'railway-situations', phase: 'Sparar…', done: 1, total: 1 });
-    const identityMap = await captureIdentity('railway_situations', null);
-    await clearHarvested('railway_situations');
-    const { imported, skipped } = await saveFeatures(features, req.user?.id || 0, identityMap);
+    const identityMap = await captureIdentity(bgDb, 'railway_situations', null);
+    await clearHarvested(bgDb, 'railway_situations');
+    const { imported, skipped } = await saveFeatures(bgDb, features, req.user?.id || 0, identityMap);
     io.emit('harvest:done', { source: 'railway-situations', imported, skipped });
     if (imported > 0) io.emit('features:reloaded', {});
-    afterHarvest(io);
+    afterHarvest(io, req.user?.id || 0);
   } catch (err) {
     io.emit('harvest:done', { source: 'railway-situations', imported: 0, skipped: 0, error: err.message });
   } finally { activeJobs.delete('railway-situations'); }
+  }).catch(err => console.error('railway-situations withTenant error:', err.message));
 });
 
 // ── SMHI Vädervarningar (Impact Based Weather Warnings) ───────────────────────
@@ -938,9 +997,9 @@ async function fetchSmhiWarnings(bbox) {
   return features;
 }
 
-router.get('/weather-warnings/preview', requireAuth, async (_req, res) => {
+router.get('/weather-warnings/preview', requireAuth, async (req, res) => {
   try {
-    const bbox = await getOpOmrBbox();
+    const bbox = await getOpOmrBbox(req.db, req.user.id);
     const features = await fetchSmhiWarnings(bbox);
     res.json({ count: features.length, features });
   } catch (err) {
@@ -948,38 +1007,45 @@ router.get('/weather-warnings/preview', requireAuth, async (_req, res) => {
   }
 });
 
-router.post('/weather-warnings/scrape', requireAuth, requireRole('editor', 'admin'), async (req, res) => {
+async function runWeatherWarningsScrape(io, userId, db) {
   const ctrl = startJob('weather-warnings');
-  res.json({ started: true });
-  const io = req.io;
   io.emit('harvest:progress', { source: 'weather-warnings', phase: 'Hämtar från SMHI…', done: 0, total: 1 });
   try {
     if (ctrl.signal.aborted) throw cancelledError('weather-warnings');
-    const bbox = await getOpOmrBbox();
+    const bbox = await getOpOmrBbox(db, userId);
     const features = await fetchSmhiWarnings(bbox);
     if (ctrl.signal.aborted) throw cancelledError('weather-warnings');
     io.emit('harvest:progress', { source: 'weather-warnings', phase: 'Sparar…', done: 1, total: 1 });
     // Rensa varningar som gått ut (arkiveras, raderas inte) — SMHI tar själva bort dem ur
     // flödet men vi vill inte att en tillfällig felad skördning låter en gammal varning ligga kvar.
     await archiveAndDelete(
+      db,
       `layer = 'weather_warnings' AND attributes->>'end_time' <> '' AND (attributes->>'end_time')::timestamptz < NOW()`,
       [],
       'ttl_expired',
     );
-    const identityMap = await captureIdentity('weather_warnings', null);
-    await clearHarvested('weather_warnings');
-    const { imported, skipped } = await saveFeatures(features, req.user?.id || 0, identityMap);
+    const identityMap = await captureIdentity(db, 'weather_warnings', null);
+    await clearHarvested(db, 'weather_warnings');
+    const { imported, skipped } = await saveFeatures(db, features, userId, identityMap);
     io.emit('harvest:done', { source: 'weather-warnings', imported, skipped });
     if (imported > 0) io.emit('features:reloaded', {});
-    afterHarvest(io);
+    afterHarvest(io, userId);
   } catch (err) {
     io.emit('harvest:done', { source: 'weather-warnings', imported: 0, skipped: 0, error: err.message });
+    throw err;
   } finally { activeJobs.delete('weather-warnings'); }
+}
+scrapeRunners['weather-warnings'] = runWeatherWarningsScrape;
+
+router.post('/weather-warnings/scrape', requireAuth, requireRole('editor', 'admin'), async (req, res) => {
+  res.json({ started: true });
+  db.withTenant(req.tenant, (bgDb) => runWeatherWarningsScrape(req.io, req.user?.id || 0, bgDb))
+    .catch(() => { /* redan loggat/emitterat ovan */ });
 });
 
-router.get('/bridges/preview', requireAuth, async (_req, res) => {
+router.get('/bridges/preview', requireAuth, async (req, res) => {
   try {
-    const bbox = await getOpOmrBbox();
+    const bbox = await getOpOmrBbox(req.db, req.user.id);
     const features = await fetchBridges(bbox);
     res.json({ source: 'bridges', total: features.length, sample: features.slice(0, 3) });
   } catch (err) { res.status(502).json({ error: err.message }); }
@@ -988,23 +1054,25 @@ router.get('/bridges/preview', requireAuth, async (_req, res) => {
 router.post('/bridges/scrape', requireAuth, requireRole('editor', 'admin'), async (req, res) => {
   const ctrl = startJob('bridges');
   res.json({ started: true });
-  const io = req.io;
+  const io = req.io.to(`org:${req.tenant.orgId}`);
   io.emit('harvest:progress', { source: 'bridges', phase: 'Hämtar från OSM…', done: 0, total: 1 });
+  db.withTenant(req.tenant, async (bgDb) => {
   try {
     if (ctrl.signal.aborted) throw cancelledError('bridges');
-    const bbox = await getOpOmrBbox();
+    const bbox = await getOpOmrBbox(bgDb, req.user.id);
     const features = await fetchBridges(bbox);
     if (ctrl.signal.aborted) throw cancelledError('bridges');
     io.emit('harvest:progress', { source: 'bridges', phase: 'Sparar…', done: 1, total: 1 });
-    const identityMap = await captureIdentity('bridges', null);
-    await clearHarvested('bridges');
-    const { imported, skipped } = await saveFeatures(features, req.user?.id || 0, identityMap);
+    const identityMap = await captureIdentity(bgDb, 'bridges', null);
+    await clearHarvested(bgDb, 'bridges');
+    const { imported, skipped } = await saveFeatures(bgDb, features, req.user?.id || 0, identityMap);
     io.emit('harvest:done', { source: 'bridges', imported, skipped });
     if (imported > 0) io.emit('features:reloaded', {});
-    afterHarvest(io);
+    afterHarvest(io, req.user?.id || 0);
   } catch (err) {
     io.emit('harvest:done', { source: 'bridges', imported: 0, skipped: 0, error: err.message });
   } finally { activeJobs.delete('bridges'); }
+  }).catch(err => console.error('bridges withTenant error:', err.message));
 });
 
 // ── Routes ────────────────────────────────────────────────────────────────────
@@ -1021,9 +1089,9 @@ function cancelledError(source) {
 }
 
 // GET /api/harvest/status — last scraped_at per source, derived from features table
-router.get('/status', requireAuth, async (_req, res) => {
+router.get('/status', requireAuth, async (req, res) => {
   try {
-    const { rows } = await db.query(`
+    const { rows } = await req.db.query(`
       SELECT
         CASE
           WHEN layer = 'fuel' AND attributes->>'source' ILIKE 'OSM%' THEN 'osm'
@@ -1049,6 +1117,11 @@ router.get('/status', requireAuth, async (_req, res) => {
     for (const r of rows) if (r.src) status[r.src] = r.last_at;
     const times = [status.osm, status.okq8, status.skoogs].filter(Boolean);
     if (times.length > 0) status.combined = times.sort()[0];
+
+    // Nyhetskällor ligger i news_sources, inte features — separat fråga
+    const newsRow = await req.db.query(`SELECT MAX(last_fetched_at) AS last_at FROM news_sources WHERE enabled = true`);
+    if (newsRow.rows[0]?.last_at) status.news = newsRow.rows[0].last_at;
+
     res.json(status);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -1071,22 +1144,24 @@ router.get('/osm/preview', requireAuth, async (_req, res) => {
 router.post('/osm/scrape', requireAuth, requireRole('editor', 'admin'), async (req, res) => {
   const ctrl = startJob('osm');
   res.json({ started: true });
-  const io = req.io;
+  const io = req.io.to(`org:${req.tenant.orgId}`);
   io.emit('harvest:progress', { source: 'osm', done: 0, total: 1 });
+  db.withTenant(req.tenant, async (bgDb) => {
   try {
     if (ctrl.signal.aborted) throw cancelledError('osm');
     const features = await osmFuelStations();
     if (ctrl.signal.aborted) throw cancelledError('osm');
     io.emit('harvest:progress', { source: 'osm', done: features.length, total: features.length });
-    const identityMap = await captureIdentity('fuel', 'OSM%');
-    await clearHarvested('fuel', 'OSM%');
-    const { imported, skipped } = await saveFeatures(features, req.user?.id || 0, identityMap);
+    const identityMap = await captureIdentity(bgDb, 'fuel', 'OSM%');
+    await clearHarvested(bgDb, 'fuel', 'OSM%');
+    const { imported, skipped } = await saveFeatures(bgDb, features, req.user?.id || 0, identityMap);
     io.emit('harvest:done', { source: 'osm', imported, skipped });
     if (imported > 0) io.emit('features:reloaded', {});
-    afterHarvest(io);
+    afterHarvest(io, req.user?.id || 0);
   } catch (err) {
     io.emit('harvest:done', { source: 'osm', imported: 0, skipped: 0, error: err.message });
   } finally { activeJobs.delete('osm'); }
+  }).catch(err => console.error('osm withTenant error:', err.message));
 });
 
 // GET /api/harvest/okq8/preview
@@ -1107,23 +1182,25 @@ router.post('/okq8/scrape', requireAuth, requireRole('editor', 'admin'), async (
     return res.status(502).json({ error: 'Kunde inte hämta stationsindex: ' + err.message });
   }
   res.json({ started: true, total: urls.length });
-  const io = req.io;
+  const io = req.io.to(`org:${req.tenant.orgId}`);
   io.emit('harvest:progress', { source: 'okq8', done: 0, total: urls.length });
+  db.withTenant(req.tenant, async (bgDb) => {
   try {
     const features = await runBatched(urls, okq8Station, CONCURRENCY,
       (done, total) => {
         if (ctrl.signal.aborted) throw cancelledError('okq8');
         io.emit('harvest:progress', { source: 'okq8', done, total });
       });
-    const identityMap = await captureIdentity('fuel', 'OKQ8');
-    await clearHarvested('fuel', 'OKQ8');
-    const { imported, skipped } = await saveFeatures(features, req.user?.id || 0, identityMap);
+    const identityMap = await captureIdentity(bgDb, 'fuel', 'OKQ8');
+    await clearHarvested(bgDb, 'fuel', 'OKQ8');
+    const { imported, skipped } = await saveFeatures(bgDb, features, req.user?.id || 0, identityMap);
     io.emit('harvest:done', { source: 'okq8', imported, skipped });
     if (imported > 0) io.emit('features:reloaded', {});
-    afterHarvest(io);
+    afterHarvest(io, req.user?.id || 0);
   } catch (err) {
     io.emit('harvest:done', { source: 'okq8', imported: 0, skipped: 0, error: err.message });
   } finally { activeJobs.delete('okq8'); }
+  }).catch(err => console.error('okq8 withTenant error:', err.message));
 });
 
 // GET /api/harvest/skoogs/preview
@@ -1139,21 +1216,23 @@ router.get('/skoogs/preview', requireAuth, async (_req, res) => {
 router.post('/skoogs/scrape', requireAuth, requireRole('editor', 'admin'), async (req, res) => {
   const ctrl = startJob('skoogs');
   res.json({ started: true });
-  const io = req.io;
+  const io = req.io.to(`org:${req.tenant.orgId}`);
   io.emit('harvest:progress', { source: 'skoogs', phase: 'Skoogs Bränsle…', done: 0, total: 1 });
+  db.withTenant(req.tenant, async (bgDb) => {
   try {
     if (ctrl.signal.aborted) throw cancelledError('skoogs');
     const features = await skoogsFuelStations();
     io.emit('harvest:progress', { source: 'skoogs', phase: 'Skoogs Bränsle…', done: 1, total: 1 });
-    const identityMap = await captureIdentity('fuel', 'Skoogs');
-    await clearHarvested('fuel', 'Skoogs');
-    const { imported, skipped } = await saveFeatures(features, req.user?.id || 0, identityMap);
+    const identityMap = await captureIdentity(bgDb, 'fuel', 'Skoogs');
+    await clearHarvested(bgDb, 'fuel', 'Skoogs');
+    const { imported, skipped } = await saveFeatures(bgDb, features, req.user?.id || 0, identityMap);
     io.emit('harvest:done', { source: 'skoogs', imported, skipped });
     if (imported > 0) io.emit('features:reloaded', {});
-    afterHarvest(io);
+    afterHarvest(io, req.user?.id || 0);
   } catch (err) {
     io.emit('harvest:done', { source: 'skoogs', imported: 0, skipped: 0, error: err.message });
   } finally { activeJobs.delete('skoogs'); }
+  }).catch(err => console.error('skoogs withTenant error:', err.message));
 });
 
 // GET /api/harvest/combined/preview
@@ -1165,11 +1244,12 @@ router.get('/combined/preview', requireAuth, (_req, res) => {
 router.post('/combined/scrape', requireAuth, requireRole('editor', 'admin'), async (req, res) => {
   const ctrl = startJob('combined');
   res.json({ started: true });
-  const io = req.io;
+  const io = req.io.to(`org:${req.tenant.orgId}`);
 
   const aborted = () => ctrl.signal.aborted;
   const checkAbort = (phase) => { if (aborted()) throw cancelledError(phase); };
 
+  db.withTenant(req.tenant, async (bgDb) => {
   try {
     // Phase 1: OSM
     io.emit('harvest:progress', { source: 'combined', phase: 'Hämtar OSM…', done: 0, total: 1 });
@@ -1199,22 +1279,24 @@ router.post('/combined/scrape', requireAuth, requireRole('editor', 'admin'), asy
     io.emit('harvest:progress', { source: 'combined', phase: 'Sammanfogar…', done: 0, total: 1 });
     const merged = [...mergeStations(osmFeatures, okq8Features), ...skoogsFeatures];
     io.emit('harvest:progress', { source: 'combined', phase: 'Sparar till karta…', done: 0, total: 1 });
-    const identityMap = await captureIdentity('fuel', null);
-    await clearHarvested('fuel');
-    const { imported, skipped } = await saveFeatures(merged, req.user?.id || 0, identityMap);
+    const identityMap = await captureIdentity(bgDb, 'fuel', null);
+    await clearHarvested(bgDb, 'fuel');
+    const { imported, skipped } = await saveFeatures(bgDb, merged, req.user?.id || 0, identityMap);
     io.emit('harvest:done', { source: 'combined', imported, skipped });
     if (imported > 0) io.emit('features:reloaded', {});
-    afterHarvest(io);
+    afterHarvest(io, req.user?.id || 0);
   } catch (err) {
     io.emit('harvest:done', { source: 'combined', imported: 0, skipped: 0, error: err.message });
   } finally { activeJobs.delete('combined'); }
+  }).catch(err => console.error('combined withTenant error:', err.message));
 });
 
 // ── Polishändelser routes ────────────────────────────────────────────────────
 
-router.get('/police/preview', requireAuth, async (_req, res) => {
+router.get('/police/preview', requireAuth, async (req, res) => {
   try {
-    const { rows } = await db.query("SELECT value FROM settings WHERE key='op_municipalities'");
+    const orgId = await resolveOrgId(req.user.id);
+    const { rows } = await req.db.query("SELECT value FROM settings WHERE org_id=$1 AND key='op_municipalities'", [orgId]);
     const municipalities = rows[0]?.value || [];
     const r = await fetch('https://polisen.se/api/events', {
       headers: { 'User-Agent': UA, 'Accept': 'application/json' },
@@ -1232,13 +1314,12 @@ router.get('/police/preview', requireAuth, async (_req, res) => {
   } catch (err) { res.status(502).json({ error: err.message }); }
 });
 
-router.post('/police/scrape', requireAuth, requireRole('editor', 'admin'), async (req, res) => {
+async function runPoliceScrape(io, userId, db) {
   const ctrl = startJob('police');
-  res.json({ started: true });
-  const io = req.io;
   io.emit('harvest:progress', { source: 'police', phase: 'Hämtar händelser…', done: 0, total: 1 });
   try {
-    const { rows } = await db.query("SELECT value FROM settings WHERE key='op_municipalities'");
+    const orgId = await resolveOrgId(userId);
+    const { rows } = await db.query("SELECT value FROM settings WHERE org_id=$1 AND key='op_municipalities'", [orgId]);
     const municipalities = rows[0]?.value || [];
     if (ctrl.signal.aborted) throw cancelledError('police');
 
@@ -1247,29 +1328,39 @@ router.post('/police/scrape', requireAuth, requireRole('editor', 'admin'), async
 
     // Purge events older than 30 days (arkiveras, raderas inte)
     await archiveAndDelete(
+      db,
       `layer='police_events' AND (attributes->>'scraped_at')::timestamptz < NOW() - INTERVAL '30 days'`,
       [],
       'ttl_expired',
     );
     // Clear previous harvest of same events (matchning mot police_id via external_id, se captureIdentity)
-    const identityMap = await captureIdentity('police_events', null);
-    await clearHarvested('police_events');
+    const identityMap = await captureIdentity(db, 'police_events', null);
+    await clearHarvested(db, 'police_events');
     io.emit('harvest:progress', { source: 'police', phase: 'Sparar…', done: 1, total: 1 });
-    const { imported, skipped } = await saveFeatures(features, req.user?.id || 0, identityMap);
+    const { imported, skipped } = await saveFeatures(db, features, userId, identityMap);
     io.emit('harvest:done', { source: 'police', imported, skipped });
     if (imported > 0) io.emit('features:reloaded', {});
-    afterHarvest(io);
+    afterHarvest(io, userId);
   } catch (err) {
     io.emit('harvest:done', { source: 'police', imported: 0, skipped: 0, error: err.message });
+    throw err;
   } finally { activeJobs.delete('police'); }
+}
+scrapeRunners.police = runPoliceScrape;
+
+router.post('/police/scrape', requireAuth, requireRole('editor', 'admin'), async (req, res) => {
+  res.json({ started: true });
+  db.withTenant(req.tenant, (bgDb) => runPoliceScrape(req.io.to(`org:${req.tenant.orgId}`), req.user?.id || 0, bgDb))
+    .catch(() => { /* redan loggat/emitterat ovan */ });
 });
 
 // ── EL-AVBROTT (avbrott.se) ────────────────────────────────────────────────────
 // Covers 27 Swedish grid operators incl. Vattenfall (inland BD) + PiteEnergi
 const AVBROTT_URL = 'https://avbrott.se/api/outages';
 
-async function fetchPowerOutages() {
-  const opomrRow = await db.query("SELECT value FROM settings WHERE key='op_municipalities'");
+async function fetchPowerOutages(db, userId) {
+  const orgId = await resolveOrgId(userId);
+  const opomrRow = await db.query("SELECT value FROM settings WHERE org_id=$1 AND key='op_municipalities'", [orgId]);
   const munis = opomrRow.rows[0]?.value || [];
   if (!munis.length) throw new Error('Inga OpOmr-kommuner konfigurerade');
 
@@ -1341,34 +1432,72 @@ async function fetchPowerOutages() {
     });
 }
 
-router.get('/power/preview', requireAuth, async (_req, res) => {
+router.get('/power/preview', requireAuth, async (req, res) => {
   try {
-    const features = await fetchPowerOutages();
+    const features = await fetchPowerOutages(req.db, req.user.id);
     res.json({ source: 'power', total: features.length, features });
   } catch (err) {
     res.status(502).json({ error: err.message });
   }
 });
 
-router.post('/power/scrape', requireAuth, async (req, res) => {
+async function runPowerScrape(io, userId, db) {
   const ctrl = startJob('power');
-  const io = req.io;
   io.emit('harvest:progress', { source: 'power', phase: 'Hämtar från avbrott.se…', done: 0, total: 1 });
   try {
-    const features = await fetchPowerOutages();
+    const features = await fetchPowerOutages(db, userId);
     if (ctrl.signal.aborted) throw cancelledError('power');
-    const identityMap = await captureIdentity('power_outages', null);
-    await clearHarvested('power_outages');
+    const identityMap = await captureIdentity(db, 'power_outages', null);
+    await clearHarvested(db, 'power_outages');
     io.emit('harvest:progress', { source: 'power', phase: 'Sparar…', done: 1, total: 1 });
-    const { imported, skipped } = await saveFeatures(features, req.user?.id || 0, identityMap);
+    const { imported, skipped } = await saveFeatures(db, features, userId, identityMap);
     io.emit('harvest:done', { source: 'power', imported, skipped });
     if (imported > 0) io.emit('features:reloaded', {});
-    afterHarvest(io);
-    res.json({ imported, skipped });
+    afterHarvest(io, userId);
+    return { imported, skipped };
   } catch (err) {
     io.emit('harvest:done', { source: 'power', imported: 0, skipped: 0, error: err.message });
-    res.status(502).json({ error: err.message });
+    throw err;
   } finally { activeJobs.delete('power'); }
+}
+scrapeRunners.power = runPowerScrape;
+
+router.post('/power/scrape', requireAuth, async (req, res) => {
+  try {
+    res.json(await runPowerScrape(req.io.to(`org:${req.tenant.orgId}`), req.user?.id || 0, req.db));
+  } catch (err) {
+    res.status(502).json({ error: err.message });
+  }
 });
 
+// Server-schemalagd skördning (index.js scheduleAutoHarvest) — samma fem källor som tidigare
+// var klientstyrda via HarvestSidebar.tsx:s "Auto"-dropdown (borttagen, se den commiten), nu
+// körs de oavsett om någon har appen öppen. userId 0 = system, matchar redan existerande
+// req.user?.id || 0-fallbacken som användes här sedan tidigare.
+const AUTO_HARVEST_SOURCES = ['police', 'situations', 'power', 'weather-warnings', 'trv-traffic'];
+
+// Multi-tenancy steg 5 — loopar över BATALJONER (aldrig militärregioner, de äger ingen egen data,
+// se docs/multitenancy-forslag.md) och öppnar en egen withTenant()-scopad anslutning per varv, i
+// stället för att dela den gemensamma modul-poolen. Idag finns bara Standardbataljon så loopen
+// kör en gång, men strukturen är redan rätt för fler bataljoner.
+async function runAutoHarvest(io) {
+  await db.withEachBattalion(async (tenantDb, battalion) => {
+    // org:<id> (steg 8) — io här är den GLOBALA Socket.io-instansen (inget request att hänga
+    // org-scopet på, precis som withTenant/withEachBattalion i sig), så rummet måste skopas
+    // explicit per bataljon i denna loop, annars skulle en bataljons schemalagda skördeframsteg
+    // broadcastas till alla bataljoner.
+    const scopedIo = io.to(`org:${battalion.id}`);
+    for (const sourceId of AUTO_HARVEST_SOURCES) {
+      try {
+        await scrapeRunners[sourceId](scopedIo, 0, tenantDb);
+      } catch (err) {
+        console.error(`Schemalagd skördning av ${sourceId} misslyckades (bataljon ${battalion.id}):`, err.message);
+      }
+    }
+  });
+}
+
+router.runAutoHarvest = runAutoHarvest;
+router.archiveAndDelete = archiveAndDelete; // exponerad för testbarhet, samma mönster som ovan
+router.saveFeatures = saveFeatures;
 module.exports = router;

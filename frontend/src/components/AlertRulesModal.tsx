@@ -28,6 +28,12 @@ export function AlertRulesModal({ features, onClose }: Props) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
+  // SMS-tröskel (Spår 1, se alertEngine.js smsMinSeverity()) — en global inställning, inte per
+  // regel, så den hör hemma här snarare än i formuläret för enskilda regler nedan.
+  const [smsMinSeverity, setSmsMinSeverity] = useState<AlertSeverity>('kritisk');
+  const [smsSaving, setSmsSaving] = useState(false);
+  const [smsSaved, setSmsSaved] = useState(false);
+
   function toggleTargetRole(role: Role) {
     setTargetRoles(prev => prev.includes(role) ? prev.filter(r => r !== role) : [...prev, role]);
   }
@@ -38,6 +44,26 @@ export function AlertRulesModal({ features, onClose }: Props) {
   }
 
   useEffect(load, []);
+
+  useEffect(() => {
+    api.get<Record<string, unknown>>('/api/settings').then(s => {
+      const v = s.sms_min_severity;
+      if (v === 'info' || v === 'varning' || v === 'kritisk') setSmsMinSeverity(v);
+    });
+  }, []);
+
+  async function saveSmsMinSeverity(value: AlertSeverity) {
+    setSmsMinSeverity(value);
+    setSmsSaving(true);
+    await fetch('/api/settings/sms_min_severity', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${localStorage.getItem('token')}` },
+      body: JSON.stringify({ value }),
+    });
+    setSmsSaving(false);
+    setSmsSaved(true);
+    setTimeout(() => setSmsSaved(false), 2000);
+  }
 
   function resetForm() {
     setName('');
@@ -137,6 +163,20 @@ export function AlertRulesModal({ features, onClose }: Props) {
         <div style={{ display: 'flex', alignItems: 'center', marginBottom: 16 }}>
           <h3 style={{ fontSize: 14, fontWeight: 700, color: '#eee', flex: 1, margin: 0, display: 'flex', alignItems: 'center', gap: 6 }}><IconWarning size={13} /> Varningsregler</h3>
           <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#666', fontSize: 16, cursor: 'pointer' }}><IconClose size={15} /></button>
+        </div>
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16, padding: '8px 10px', background: '#16162a', border: '1px solid #2a2a40', borderRadius: 5 }}>
+          <span style={{ fontSize: 11, color: '#888', flexShrink: 0 }}>Skicka SMS vid nivå ≥</span>
+          <select
+            value={smsMinSeverity}
+            onChange={e => saveSmsMinSeverity(e.target.value as AlertSeverity)}
+            style={{ fontSize: 12, background: '#0d0d16', border: '1px solid #444', borderRadius: 4, color: '#ddd', padding: '3px 6px' }}
+          >
+            {(Object.keys(SEVERITY_LABELS) as AlertSeverity[]).map(s => <option key={s} value={s}>{SEVERITY_LABELS[s]}</option>)}
+          </select>
+          {smsSaving && <span style={{ fontSize: 10, color: '#666' }}>Sparar…</span>}
+          {smsSaved && <span style={{ fontSize: 10, color: '#4a9' }}>✓ Sparat</span>}
+          <span style={{ fontSize: 10, color: '#555', marginLeft: 'auto' }}>Kräver mobilnummer under Inställningar → Användare</span>
         </div>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 20 }}>

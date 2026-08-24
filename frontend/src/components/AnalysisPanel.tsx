@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { api } from '../api';
-import { IconClose } from '../lib/uiIcons';
+import { SidePanelFrame } from './SidePanelFrame';
 
 interface PowerMuni {
   kommun: string;
@@ -46,9 +46,9 @@ interface RoadEvent {
   attributes: Record<string, string>;
 }
 
-interface Props { onClose: () => void }
+interface Props { onClose: () => void; sidebarOpen: boolean }
 
-export function AnalysisPanel({ onClose }: Props) {
+export function AnalysisPanel({ onClose, sidebarOpen }: Props) {
   const [data, setData] = useState<AnalysisData | null>(null);
   const [tab, setTab] = useState<'opomr' | 'bd'>('opomr');
   const [loading, setLoading] = useState(true);
@@ -59,18 +59,8 @@ export function AnalysisPanel({ onClose }: Props) {
   }, []);
 
   return (
-    <div style={{
-      position: 'absolute', left: 190, top: 10, bottom: 10, zIndex: 10,
-      width: 360, background: '#1e1e30', border: '1px solid #333',
-      borderRadius: 8, display: 'flex', flexDirection: 'column',
-      boxShadow: '0 4px 20px #0006',
-    }}>
-      <div style={{ padding: '10px 14px 8px', borderBottom: '1px solid #333', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <span style={{ fontWeight: 700, fontSize: 14 }}>📊 Lägesanalys</span>
-        <button className="btn-ghost btn-sm" onClick={onClose}><IconClose /></button>
-      </div>
-
-      <div style={{ display: 'flex', borderBottom: '1px solid #333' }}>
+    <SidePanelFrame icon="📊" title="Lägesanalys" onClose={onClose} sidebarOpen={sidebarOpen}>
+      <div style={{ display: 'flex', borderBottom: '1px solid #2e2f45' }}>
         {(['opomr', 'bd'] as const).map(t => (
           <button key={t} onClick={() => setTab(t)} style={{
             flex: 1, padding: '7px 0', fontSize: 11, fontWeight: 700,
@@ -96,7 +86,7 @@ export function AnalysisPanel({ onClose }: Props) {
         {data && tab === 'opomr' && <OpOmrTab data={data} />}
         {data && tab === 'bd'    && <BDTab data={data} />}
       </div>
-    </div>
+    </SidePanelFrame>
   );
 }
 

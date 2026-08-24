@@ -35,7 +35,7 @@ interface Props {
 }
 
 export function MobileFeatureSheet({ feature, onClose, onClassified }: Props) {
-  const { user } = useAuth();
+  const { user, criticalAlertsEnabled } = useAuth();
   const canEdit = user?.role === 'editor' || user?.role === 'admin';
   const [marking, setMarking] = useState(false);
 
@@ -72,10 +72,12 @@ export function MobileFeatureSheet({ feature, onClose, onClassified }: Props) {
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
           <span style={{ fontSize: 11, color: '#9ea3c0' }}>{layerCfg.icon} {layerCfg.label}</span>
-          <span style={{
-            fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 4,
-            background: crit.color + '22', color: crit.color, border: `1px solid ${crit.color}55`,
-          }}>{crit.label}</span>
+          {criticalAlertsEnabled && (
+            <span style={{
+              fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 4,
+              background: crit.color + '22', color: crit.color, border: `1px solid ${crit.color}55`,
+            }}>{crit.label}</span>
+          )}
         </div>
 
         {unclassified && (

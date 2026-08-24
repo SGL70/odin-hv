@@ -1,7 +1,7 @@
-const db = require('../db');
 const { matchesKeywordRules } = require('../lib/newsKeywords');
 const { classifyNewsItem } = require('./newsClassifier');
 const { evaluateAlerts } = require('./alertEngine');
+const { resolveOrgId } = require('./orgContext');
 
 const USER_AGENT = 'ResurslageNewsBot/1.0 (+https://resurslage.jv10.se)';
 
@@ -144,7 +144,7 @@ async function fetchFeedItems(feedUrl) {
 // aldrig"-princip som en manuell kastning, återställningsbar därifrån, men håller inkorgen ren.
 // AND status='pending' skyddar mot att skriva över redan taggade/kastade poster (kan finnas kvar
 // med relevant IS NULL sedan innan klassificeringen fanns).
-async function classifyNewItem(id, title, summary, keywordRules) {
+async function classifyNewItem(db, id, title, summary, keywordRules) {
   try {
     if (!matchesKeywordRules(`${title} ${summary || ''}`, keywordRules)) {
       await db.query(
@@ -167,23 +167,25 @@ async function classifyNewItem(id, title, summary, keywordRules) {
   }
 }
 
-async function pollSource(io, source) {
+async function pollSource(io, db, source) {
   try {
     const items = await fetchFeedItems(source.feed_url);
-    const settingsRow = await db.query(`SELECT value FROM settings WHERE key = 'news_keyword_rules'`);
+    const settingsRow = await db.query(`SELECT value FROM settings WHERE org_id = $1 AND key = 'news_keyword_rules'`, [source.org_id]);
     const keywordRules = settingsRow.rows[0]?.value || [];
     let inserted = 0;
     for (const item of items) {
+      // org_id ärvs direkt från källan (source.org_id) — schemalagd RSS-pollning har ingen
+      // inloggad användare att härleda organisationen från.
       const { rows } = await db.query(
-        `INSERT INTO news_items (source_id, guid, title, link, summary, published_at)
-         VALUES ($1,$2,$3,$4,$5,$6)
+        `INSERT INTO news_items (source_id, guid, title, link, summary, published_at, org_id)
+         VALUES ($1,$2,$3,$4,$5,$6,$7)
          ON CONFLICT (source_id, guid) DO NOTHING
          RETURNING id`,
-        [source.id, item.guid, item.title, item.link, item.summary, item.published_at]
+        [source.id, item.guid, item.title, item.link, item.summary, item.published_at, source.org_id]
       );
       if (rows.length) {
         inserted++;
-        await classifyNewItem(rows[0].id, item.title, item.summary, keywordRules);
+        await classifyNewItem(db, rows[0].id, item.title, item.summary, keywordRules);
       }
     }
     await db.query(`UPDATE news_sources SET last_fetched_at = NOW(), last_error = NULL WHERE id = $1`, [source.id]);
@@ -191,33 +193,41 @@ async function pollSource(io, source) {
       io.emit('news_item:new', { source_id: source.id, count: inserted });
       console.log(`Nyhetskälla "${source.name}": ${inserted} nya poster`);
     }
+    return inserted;
   } catch (err) {
     await db.query(`UPDATE news_sources SET last_fetched_at = NOW(), last_error = $2 WHERE id = $1`, [source.id, err.message]);
     console.error(`Nyhetskälla "${source.name}" gick fel:`, err.message);
+    return 0;
   }
 }
 
-async function pollAllSources(io) {
+// Returnerar totalt antal nya poster över alla källor — används av Skördare-sidopanelen
+// (samma imported/skipped-svar som harvest.js-jobben) för att visa ett resultat efter en körning.
+// db: req.db (manuell /poll-route) eller en withTenant()-scopad klient (schemalagd, se index.js).
+async function pollAllSources(io, db) {
   const { rows } = await db.query(`SELECT * FROM news_sources WHERE enabled = true AND feed_url IS NOT NULL`);
+  let inserted = 0;
   for (const source of rows) {
-    await pollSource(io, source);
+    inserted += await pollSource(io, db, source);
   }
   // Samma afterHarvest()-mönster som harvest.js — låter t.ex. news_urgent-regeln (alertEngine.js)
   // upptäcka nyklassificerade brådskande nyheter direkt efter en pollningsomgång.
-  evaluateAlerts(io).catch(err => console.error('Alert evaluation error (news):', err.message));
+  evaluateAlerts(io, db).catch(err => console.error('Alert evaluation error (news):', err.message));
+  return inserted;
 }
 
 // Efterklassificerar poster som fanns innan nyckelordsfilter/Haiku-klassificeringen infördes
 // (relevant IS NULL). Körs i bakgrunden — kan vara hundratals poster och ska inte blockera
 // HTTP-anropet som startade den (se routes/news.js POST /classify-pending).
-async function classifyPendingBacklog(io) {
-  const settingsRow = await db.query(`SELECT value FROM settings WHERE key = 'news_keyword_rules'`);
+async function classifyPendingBacklog(io, db) {
+  const orgId = await resolveOrgId(null);
+  const settingsRow = await db.query(`SELECT value FROM settings WHERE org_id = $1 AND key = 'news_keyword_rules'`, [orgId]);
   const keywordRules = settingsRow.rows[0]?.value || [];
   const { rows } = await db.query(`SELECT id, title, summary FROM news_items WHERE relevant IS NULL AND status = 'pending'`);
   const total = rows.length;
   let done = 0;
   for (const item of rows) {
-    await classifyNewItem(item.id, item.title, item.summary, keywordRules);
+    await classifyNewItem(db, item.id, item.title, item.summary, keywordRules);
     done++;
     if (done % 5 === 0 || done === total) io.emit('news_classify:progress', { done, total });
   }

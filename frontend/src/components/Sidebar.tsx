@@ -21,6 +21,7 @@ interface Props {
   onAcknowledgeAlert: (id: number) => void;
   isAdmin: boolean;
   onManageAlertRules: () => void;
+  showAlerts: boolean;
 }
 
 const WMS_OVERLAYS = [
@@ -42,7 +43,7 @@ export function Sidebar({
   baseMap, overlays, onBaseMap, onOverlay,
   open, onOpenChange,
   opomrFilter, onOpomrFilter,
-  alerts, onAcknowledgeAlert, isAdmin, onManageAlertRules,
+  alerts, onAcknowledgeAlert, isAdmin, onManageAlertRules, showAlerts,
 }: Props) {
   const [expanded, setExpanded] = useState<Set<string>>(
     () => new Set(['events', 'layers', 'analysis', 'alerts'])
@@ -79,9 +80,9 @@ export function Sidebar({
         onClick={() => onOpenChange(true)}
         style={{
           position: 'absolute', top: 66, left: 0, zIndex: 15,
-          background: '#1e1e30ee', border: '1px solid #333',
+          background: '#1b1c2cee', border: '1px solid #2e2f45',
           borderLeft: 'none', borderRadius: '0 6px 6px 0',
-          color: '#aaa', fontSize: 16, width: 22, height: 40,
+          color: '#9ea3c0', fontSize: 16, width: 22, height: 40,
           cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
         }}
         title="Visa lager"
@@ -93,9 +94,9 @@ export function Sidebar({
   const analysisExpanded = expanded.has('analysis');
 
   return (
-    <div style={{ position: 'absolute', top: 58, left: 0, bottom: 0, zIndex: 15, display: 'flex' }}>
+    <div style={{ position: 'absolute', top: 58, left: 0, bottom: 10, zIndex: 15, display: 'flex' }}>
       <div style={{
-        width: 188, background: '#1e1e30ee', borderRight: '1px solid #333',
+        width: 188, background: '#1b1c2cee', border: '1px solid #2e2f45', borderRadius: 10,
         display: 'flex', flexDirection: 'column', overflowY: 'auto',
         backdropFilter: 'blur(8px)',
       }}>
@@ -115,7 +116,8 @@ export function Sidebar({
           </label>
         </div>
 
-        {/* Varningar */}
+        {/* Varningar — FEATURE_CRITICAL_ALERTS av */}
+        {showAlerts && (
         <div style={{ borderBottom: '1px solid #2a2a40' }}>
           <div style={{ display: 'flex', alignItems: 'center', padding: '7px 10px 7px 12px', gap: 6, cursor: 'pointer', userSelect: 'none' }}
             onClick={() => toggleGroup('alerts')}>
@@ -155,6 +157,7 @@ export function Sidebar({
             </div>
           )}
         </div>
+        )}
 
         {/* Analys */}
         <div style={{ borderBottom: '1px solid #2a2a40' }}>
@@ -290,9 +293,9 @@ export function Sidebar({
       <button
         onClick={() => onOpenChange(false)}
         style={{
-          background: '#1e1e30ee', border: '1px solid #333',
+          background: '#1b1c2cee', border: '1px solid #2e2f45',
           borderLeft: 'none', borderRadius: '0 6px 6px 0',
-          color: '#aaa', fontSize: 16, width: 22, height: 40,
+          color: '#9ea3c0', fontSize: 16, width: 22, height: 40,
           cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
           alignSelf: 'flex-start', marginTop: 8, flexShrink: 0,
         }}

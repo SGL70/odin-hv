@@ -2,6 +2,7 @@ const express = require('express');
 const db = require('../db');
 const { requireAuth, requireRole } = require('../middleware/auth');
 const { evaluateAlerts } = require('../services/alertEngine');
+const { resolveOrgId } = require('../services/orgContext');
 
 const router = express.Router();
 
@@ -67,7 +68,7 @@ router.get('/', requireAuth, async (req, res) => {
     }
 
     const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
-    const { rows } = await db.query(`${BASE_QUERY} ${where} ORDER BY f.updated_at DESC`, params);
+    const { rows } = await req.db.query(`${BASE_QUERY} ${where} ORDER BY f.updated_at DESC`, params);
     res.json(toGeoJSON(rows));
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -86,18 +87,18 @@ router.post('/search-polygon', requireAuth, async (req, res) => {
   const readerExclude = req.user.role === 'reader' ? `AND f.layer != 'intelligence_reports'` : '';
   try {
     const geomParam = JSON.stringify(polygon);
-    const exact = await db.query(`
+    const exact = await req.db.query(`
       ${BASE_QUERY}
       WHERE f.attributes->>'location_precision' = 'exact' ${readerExclude}
         AND ST_Within(f.geom, ST_SetSRID(ST_GeomFromGeoJSON($1), 4326))
     `, [geomParam]);
-    const kommun = await db.query(`
+    const kommun = await req.db.query(`
       ${BASE_QUERY}
       JOIN municipalities m ON m.short_name = f.attributes->>'municipality'
       WHERE f.attributes->>'location_precision' = 'kommun' ${readerExclude}
         AND ST_Intersects(m.geom, ST_SetSRID(ST_GeomFromGeoJSON($1), 4326))
     `, [geomParam]);
-    const lan = await db.query(`
+    const lan = await req.db.query(`
       ${BASE_QUERY}
       WHERE f.attributes->>'location_precision' = 'lan' ${readerExclude}
     `);
@@ -123,7 +124,7 @@ router.get('/history', requireAuth, requireRole('editor', 'admin'), async (req, 
     if (until) { params.push(until); conditions.push(`archived_at <= $${params.length}`); }
 
     const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
-    const { rows } = await db.query(
+    const { rows } = await req.db.query(
       `SELECT uid, layer, cot_type, name, ST_AsGeoJSON(geom)::json AS geom, attributes, created_at, updated_at, archived_at, archived_reason
        FROM features_history ${where} ORDER BY archived_at DESC LIMIT 500`,
       params,
@@ -158,7 +159,7 @@ router.get('/:uid/related', requireAuth, async (req, res) => {
     const conditions = [`tgt.uid <> $1`, `ST_DWithin(src.geom::geography, tgt.geom::geography, $2)`];
     if (req.user.role === 'reader') conditions.push(`tgt.layer != 'intelligence_reports'`);
 
-    const { rows } = await db.query(
+    const { rows } = await req.db.query(
       `SELECT tgt.uid, tgt.layer, tgt.cot_type, tgt.name, tgt.attributes, tgt.created_at, tgt.updated_at,
          ST_AsGeoJSON(tgt.geom)::json AS geom,
          ST_Distance(src.geom::geography, tgt.geom::geography) AS distance_m
@@ -195,23 +196,27 @@ router.post('/', requireAuth, requireRole('editor', 'admin'), async (req, res) =
   // exakt platsangivelse — till skillnad från t.ex. skördade polishändelser (roadmap #10).
   if (rest.location_precision == null) rest.location_precision = 'exact';
   try {
-    const { rows } = await db.query(
-      `INSERT INTO features (layer, name, geom, cot_type, attributes, created_by, updated_by)
-       VALUES ($1,$2,ST_GeomFromGeoJSON($3),$4,$5,$6,$6)
+    const orgId = await resolveOrgId(req.user.id);
+    const { rows } = await req.db.query(
+      `INSERT INTO features (layer, name, geom, cot_type, attributes, created_by, updated_by, org_id)
+       VALUES ($1,$2,ST_GeomFromGeoJSON($3),$4,$5,$6,$6,$7)
        RETURNING uid`,
-      [layer, name, JSON.stringify(geometry), cot_type || 'b-m-p-s-p', rest, req.user.id]
+      [layer, name, JSON.stringify(geometry), cot_type || 'b-m-p-s-p', rest, req.user.id, orgId]
     );
-    const { rows: feat } = await db.query(`${BASE_QUERY} WHERE f.uid = $1`, [rows[0].uid]);
-    await db.query(
-      'INSERT INTO activity_log (user_id,username,action,feature_uid,layer,feature_name) VALUES ($1,$2,$3,$4,$5,$6)',
-      [req.user.id, req.user.username, 'create', rows[0].uid, layer, name]
+    const { rows: feat } = await req.db.query(`${BASE_QUERY} WHERE f.uid = $1`, [rows[0].uid]);
+    await req.db.query(
+      'INSERT INTO activity_log (user_id,username,action,feature_uid,layer,feature_name,org_id) VALUES ($1,$2,$3,$4,$5,$6,$7)',
+      [req.user.id, req.user.username, 'create', rows[0].uid, layer, name, orgId]
     );
     const feature = toGeoJSON(feat).features[0];
-    req.io.emit('feature:created', feature);
+    req.io.to(`org:${req.tenant.orgId}`).emit('feature:created', feature);
     // Manuellt skapade objekt är en lika giltig signal som skördad data (ABI-dataneutralitet) —
     // en ny/uppdaterad kritikalitetsmärkning eller rapport ska kunna trigga varningsregler direkt,
     // inte bara vänta till nästa skördning (samma mönster som afterHarvest() i harvest.js).
-    evaluateAlerts(req.io).catch(err => console.error('Alert evaluation error:', err.message));
+    // Fire-and-forget EFTER svaret nedan — får INTE återanvända req.db (den städas/släpps när
+    // svaret är klart, en race mot att den redan lämnats tillbaka till poolen). Öppnar sin egen
+    // scope via req.tenant (samma org, oberoende anslutning/livstid), se middleware/auth.js.
+    db.withTenant(req.tenant, (bgDb) => evaluateAlerts(req.io, bgDb)).catch(err => console.error('Alert evaluation error:', err.message));
     res.status(201).json(feature);
   } catch (err) {
     res.status(400).json({ error: err.message });
@@ -221,20 +226,24 @@ router.post('/', requireAuth, requireRole('editor', 'admin'), async (req, res) =
 router.put('/:uid', requireAuth, requireRole('editor', 'admin'), async (req, res) => {
   const { name, geometry, cot_type, ...rest } = req.body;
   try {
-    await db.query(
+    await req.db.query(
       `UPDATE features SET name=$1, geom=ST_GeomFromGeoJSON($2), cot_type=$3, attributes=$4, updated_by=$5
        WHERE uid=$6`,
       [name, JSON.stringify(geometry), cot_type, rest, req.user.id, req.params.uid]
     );
-    const { rows } = await db.query(`${BASE_QUERY} WHERE f.uid = $1`, [req.params.uid]);
+    const { rows } = await req.db.query(`${BASE_QUERY} WHERE f.uid = $1`, [req.params.uid]);
     if (!rows.length) return res.status(404).json({ error: 'Ej funnen' });
-    await db.query(
-      'INSERT INTO activity_log (user_id,username,action,feature_uid,layer,feature_name) VALUES ($1,$2,$3,$4,$5,$6)',
-      [req.user.id, req.user.username, 'update', req.params.uid, rows[0].layer, name]
+    const orgId = await resolveOrgId(req.user.id);
+    await req.db.query(
+      'INSERT INTO activity_log (user_id,username,action,feature_uid,layer,feature_name,org_id) VALUES ($1,$2,$3,$4,$5,$6,$7)',
+      [req.user.id, req.user.username, 'update', req.params.uid, rows[0].layer, name, orgId]
     );
     const feature = toGeoJSON(rows).features[0];
-    req.io.emit('feature:updated', feature);
-    evaluateAlerts(req.io).catch(err => console.error('Alert evaluation error:', err.message));
+    req.io.to(`org:${req.tenant.orgId}`).emit('feature:updated', feature);
+    // Fire-and-forget EFTER svaret nedan — får INTE återanvända req.db (den städas/släpps när
+    // svaret är klart, en race mot att den redan lämnats tillbaka till poolen). Öppnar sin egen
+    // scope via req.tenant (samma org, oberoende anslutning/livstid), se middleware/auth.js.
+    db.withTenant(req.tenant, (bgDb) => evaluateAlerts(req.io, bgDb)).catch(err => console.error('Alert evaluation error:', err.message));
     res.json(feature);
   } catch (err) {
     res.status(400).json({ error: err.message });
@@ -244,12 +253,13 @@ router.put('/:uid', requireAuth, requireRole('editor', 'admin'), async (req, res
 router.delete('/layer/:layer', requireAuth, requireRole('editor', 'admin'), async (req, res) => {
   try {
     const { layer } = req.params;
-    const { rows } = await db.query('DELETE FROM features WHERE layer=$1 RETURNING uid', [layer]);
-    await db.query(
-      'INSERT INTO activity_log (user_id,username,action,layer,feature_name) VALUES ($1,$2,$3,$4,$5)',
-      [req.user.id, req.user.username, 'delete', layer, `Rensade ${rows.length} objekt`]
+    const { rows } = await req.db.query('DELETE FROM features WHERE layer=$1 RETURNING uid', [layer]);
+    const orgId = await resolveOrgId(req.user.id);
+    await req.db.query(
+      'INSERT INTO activity_log (user_id,username,action,layer,feature_name,org_id) VALUES ($1,$2,$3,$4,$5,$6)',
+      [req.user.id, req.user.username, 'delete', layer, `Rensade ${rows.length} objekt`, orgId]
     );
-    req.io.emit('features:reloaded', {});
+    req.io.to(`org:${req.tenant.orgId}`).emit('features:reloaded', {});
     res.json({ deleted: rows.length });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -258,13 +268,14 @@ router.delete('/layer/:layer', requireAuth, requireRole('editor', 'admin'), asyn
 
 router.delete('/:uid', requireAuth, requireRole('editor', 'admin'), async (req, res) => {
   try {
-    const { rows } = await db.query('DELETE FROM features WHERE uid=$1 RETURNING uid,layer,name', [req.params.uid]);
+    const { rows } = await req.db.query('DELETE FROM features WHERE uid=$1 RETURNING uid,layer,name', [req.params.uid]);
     if (!rows.length) return res.status(404).json({ error: 'Ej funnen' });
-    await db.query(
-      'INSERT INTO activity_log (user_id,username,action,feature_uid,layer,feature_name) VALUES ($1,$2,$3,$4,$5,$6)',
-      [req.user.id, req.user.username, 'delete', req.params.uid, rows[0].layer, rows[0].name]
+    const orgId = await resolveOrgId(req.user.id);
+    await req.db.query(
+      'INSERT INTO activity_log (user_id,username,action,feature_uid,layer,feature_name,org_id) VALUES ($1,$2,$3,$4,$5,$6,$7)',
+      [req.user.id, req.user.username, 'delete', req.params.uid, rows[0].layer, rows[0].name, orgId]
     );
-    req.io.emit('feature:deleted', { uid: req.params.uid });
+    req.io.to(`org:${req.tenant.orgId}`).emit('feature:deleted', { uid: req.params.uid });
     res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ error: err.message });

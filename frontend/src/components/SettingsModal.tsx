@@ -4,10 +4,12 @@ import { useAuth } from '../contexts/AuthContext';
 import { SWEDEN, type County } from '../lib/sweden';
 import { api } from '../api';
 import type { NewsSource } from '../types';
-import { IconClose, IconSettings, IconChevronUp, IconChevronDown, IconWarning } from '../lib/uiIcons';
+import { IconClose, IconSettings, IconChevronUp, IconChevronDown, IconWarning, IconImport, IconExport } from '../lib/uiIcons';
 
 interface Props {
   onClose: () => void;
+  onOpenCriticality: () => void;
+  onOpenImport: () => void;
 }
 
 const LAYER_WEIGHT_LABELS: Record<string, string> = {
@@ -32,11 +34,18 @@ const OPOMR_HARVEST_ENDPOINTS = [
   '/api/harvest/railway-situations/scrape',
 ];
 
-export function SettingsModal({ onClose }: Props) {
-  const { user: currentUser } = useAuth();
-  const [users, setUsers] = useState<{ id: number; username: string; role: string; email: string | null; created_at: string }[]>([]);
-  const [editingEmailId, setEditingEmailId] = useState<number | null>(null);
+export function SettingsModal({ onClose, onOpenCriticality, onOpenImport }: Props) {
+  const { user: currentUser, criticalAlertsEnabled } = useAuth();
+  // Kritiska objekt/Import/Export (ATAK) låg tidigare direkt i topbaren, öppna för fler roller
+  // än admin (Kritiska/Export helt utan spärr, Import bakom canEdit) — nu när de nås via
+  // Inställningar måste modalen vara öppningsbar för alla, med bara Verktyg-fliken synlig för
+  // icke-admin. De övriga flikarna (Användare, OpOmr, osv.) förblir admin-only.
+  const isAdmin = currentUser?.role === 'admin';
+  const canEdit = currentUser?.role === 'editor' || isAdmin;
+  const [users, setUsers] = useState<{ id: number; username: string; role: string; email: string | null; phone: string | null; created_at: string }[]>([]);
+  const [editingContactId, setEditingContactId] = useState<number | null>(null);
   const [emailDraft, setEmailDraft] = useState('');
+  const [phoneDraft, setPhoneDraft] = useState('');
   const [usersLoading, setUsersLoading] = useState(false);
   const [newUsername, setNewUsername] = useState('');
   const [newPassword, setNewPassword] = useState('');
@@ -49,11 +58,15 @@ export function SettingsModal({ onClose }: Props) {
   const [gulMultiplier, setGulMultiplier] = useState(1.5);
   const [rodMultiplier, setRodMultiplier] = useState(3);
   const [layerWeighting, setLayerWeighting] = useState<Record<string, number>>({});
+  const [smsSenderName, setSmsSenderName] = useState('');
+  const [emailSenderName, setEmailSenderName] = useState('');
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [snapshotting, setSnapshotting] = useState(false);
   const [expanded, setExpanded] = useState<Set<string>>(new Set(['Norrbottens län']));
-  const [activeTab, setActiveTab] = useState<'opomr' | 'weighting' | 'retention' | 'users' | 'senders' | 'news'>('opomr');
+  const [activeTab, setActiveTab] = useState<'opomr' | 'weighting' | 'retention' | 'users' | 'senders' | 'news' | 'tools'>(
+    () => (isAdmin ? 'opomr' : 'tools')
+  );
   const [newsSources, setNewsSources] = useState<NewsSource[]>([]);
   const [newsSourcesLoading, setNewsSourcesLoading] = useState(false);
   const [newSourceName, setNewSourceName] = useState('');
@@ -90,6 +103,8 @@ export function SettingsModal({ onClose }: Props) {
         setGulMultiplier(s.criticality_weighting?.gul_multiplier ?? 1.5);
         setRodMultiplier(s.criticality_weighting?.rod_multiplier ?? 3);
         setLayerWeighting(s.layer_weighting ?? { power_outages: 3, road_situations: 1, police_events: 1, railway_situations: 1 });
+        setSmsSenderName(s.sms_sender_name ?? '');
+        setEmailSenderName(s.email_sender_name ?? '');
         const rules = (s.news_keyword_rules || []) as { any?: string[]; all?: string[]; none?: string[] }[];
         setKeywordRules(rules.map(r => ({
           any: (r.any || []).join(', '), all: (r.all || []).join(', '), none: (r.none || []).join(', '),
@@ -172,6 +187,18 @@ export function SettingsModal({ onClose }: Props) {
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({ value: layerWeighting }),
       }),
+      // Multi-tenancy steg 11 — org-scopad avsändaridentitet (visningsnamn, INTE egna
+      // SMTP/46elks-credentials, se services/dailyReport.js / alertEngine.js::deliverSms()).
+      fetch('/api/settings/sms_sender_name', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ value: smsSenderName }),
+      }),
+      fetch('/api/settings/email_sender_name', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ value: emailSenderName }),
+      }),
     ]);
     setSaving(false);
     setSaved(true);
@@ -239,11 +266,12 @@ export function SettingsModal({ onClose }: Props) {
     }
   }
 
-  // E-post krävs för dygnsrapportens SMTP-leverans (services/dailyReport.js) — bara admin-
-  // rollens konton behöver egentligen en, men fältet visas för alla för enkelhets skull.
-  async function saveEmail(id: number) {
-    await api.users.setEmail(id, emailDraft.trim());
-    setEditingEmailId(null);
+  // E-post krävs för dygnsrapportens SMTP-leverans (dailyReport.js), telefonnummer för larm-SMS
+  // (sms46elks.js) — bara admin-rollens konton behöver egentligen kontaktvägar, men fälten visas
+  // för alla för enkelhets skull.
+  async function saveContact(id: number) {
+    await api.users.setContact(id, { email: emailDraft.trim(), phone: phoneDraft.trim() });
+    setEditingContactId(null);
     loadUsers();
   }
 
@@ -332,9 +360,12 @@ export function SettingsModal({ onClose }: Props) {
     loadNewsSources();
   }
 
+  // Skördningen är sedan Skördare-sidopanelen fick stöd för nyhetskällor fire-and-forget
+  // (samma harvest:progress/harvest:done-protokoll som harvest.js) — själva slutresultatet
+  // kommer via socket-lyssnaren nedan, inte via detta await.
   async function pollNewsNow() {
     setPolling(true);
-    try { await api.news.sources.poll(); loadNewsSources(); } finally { setPolling(false); }
+    try { await api.news.sources.poll(); } catch { setPolling(false); }
   }
 
   // Efterklassificering av poster från innan nyckelordsfilter/Haiku-klassificeringen fanns
@@ -352,6 +383,9 @@ export function SettingsModal({ onClose }: Props) {
       setClassifyProgress(p ? { done: p.classified, total: p.total } : null);
       setClassifying(false);
     });
+    socket.on('harvest:done', (d: { source: string }) => {
+      if (d.source === 'news') { loadNewsSources(); setPolling(false); }
+    });
     return () => { socket.disconnect(); };
   }, []);
 
@@ -363,6 +397,17 @@ export function SettingsModal({ onClose }: Props) {
     if (total === 0) setClassifying(false);
   }
 
+  const ALL_TABS = [
+    { id: 'opomr', label: 'Operativt område' },
+    { id: 'weighting', label: 'Viktning' },
+    { id: 'retention', label: 'Retention' },
+    { id: 'users', label: 'Användare' },
+    { id: 'senders', label: 'Avsändarnummer' },
+    { id: 'news', label: 'Nyhetskällor' },
+    { id: 'tools', label: 'Verktyg' },
+  ] as const;
+  const visibleTabs = ALL_TABS.filter(t => isAdmin || t.id === 'tools');
+
   return (
     <div style={{ position: 'fixed', inset: 0, background: '#000a', zIndex: 200, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', paddingTop: '8vh' }} onClick={onClose}>
       {/* Ankrad mot toppen (inte vertikalt centrerad) — annars flyttar sig hela modalen,
@@ -373,24 +418,19 @@ export function SettingsModal({ onClose }: Props) {
           <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#666', fontSize: 16, cursor: 'pointer' }}><IconClose size={15} /></button>
         </div>
 
-        <div style={{ display: 'flex', borderBottom: '1px solid #333', marginBottom: 16 }}>
-          {([
-            { id: 'opomr', label: 'Operativt område' },
-            { id: 'weighting', label: 'Viktning' },
-            { id: 'retention', label: 'Retention' },
-            { id: 'users', label: 'Användare' },
-            { id: 'senders', label: 'Avsändarnummer' },
-            { id: 'news', label: 'Nyhetskällor' },
-          ] as const).map(t => (
-            <button key={t.id} onClick={() => setActiveTab(t.id)} style={{
-              flex: 1, padding: '7px 0', fontSize: 11, fontWeight: 700,
-              background: activeTab === t.id ? '#2a2a44' : 'none', border: 'none',
-              color: activeTab === t.id ? '#7aaeff' : '#666',
-              borderBottom: activeTab === t.id ? '2px solid #5b8cff' : '2px solid transparent',
-              cursor: 'pointer', letterSpacing: 0.5,
-            }}>{t.label}</button>
-          ))}
-        </div>
+        {visibleTabs.length > 1 && (
+          <div style={{ display: 'flex', borderBottom: '1px solid #333', marginBottom: 16 }}>
+            {visibleTabs.map(t => (
+              <button key={t.id} onClick={() => setActiveTab(t.id)} style={{
+                flex: 1, padding: '7px 0', fontSize: 11, fontWeight: 700,
+                background: activeTab === t.id ? '#2a2a44' : 'none', border: 'none',
+                color: activeTab === t.id ? '#7aaeff' : '#666',
+                borderBottom: activeTab === t.id ? '2px solid #5b8cff' : '2px solid transparent',
+                cursor: 'pointer', letterSpacing: 0.5,
+              }}>{t.label}</button>
+            ))}
+          </div>
+        )}
 
         {activeTab === 'opomr' && <>
         {/* OpOmr */}
@@ -484,6 +524,37 @@ export function SettingsModal({ onClose }: Props) {
             disabled={snapshotting}
             style={{ padding: '5px 12px', borderRadius: 4, fontSize: 11, background: '#2a2a44', color: '#aaa', border: '1px solid #444', cursor: 'pointer' }}
           >{snapshotting ? 'Sparar…' : '⚡ Spara ögonblick nu'}</button>
+        </div>
+
+        {/* Avsändaridentitet — bara visningsnamn, inte egna e-post-/SMS-konton per organisation */}
+        <div style={{ marginBottom: 16 }}>
+          <div style={{ fontSize: 11, color: '#888', marginBottom: 10, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+            📧 Avsändaridentitet
+          </div>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+            <span style={{ fontSize: 12, color: '#aaa', flex: 1 }}>Avsändarnamn, dygnsrapport (e-post)</span>
+            <input
+              type="text"
+              value={emailSenderName}
+              onChange={e => { setEmailSenderName(e.target.value); setSaved(false); }}
+              placeholder="ODIN hv"
+              style={{ width: 160, padding: '3px 6px', background: '#16162a', border: '1px solid #444', borderRadius: 4, color: '#ddd', fontSize: 12 }}
+            />
+          </label>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+            <span style={{ fontSize: 12, color: '#aaa', flex: 1 }}>Avsändarnamn, larm-SMS</span>
+            <input
+              type="text"
+              value={smsSenderName}
+              onChange={e => { setSmsSenderName(e.target.value); setSaved(false); }}
+              placeholder="ODIN hv"
+              maxLength={11}
+              style={{ width: 160, padding: '3px 6px', background: '#16162a', border: '1px solid #444', borderRadius: 4, color: '#ddd', fontSize: 12 }}
+            />
+          </label>
+          <div style={{ fontSize: 11, color: '#555' }}>
+            Bara namnet mottagaren ser — samma delade e-post-/SMS-konto skickar för alla organisationer. Tomt fält faller tillbaka på standardvärdet.
+          </div>
         </div>
         </>}
 
@@ -582,19 +653,24 @@ export function SettingsModal({ onClose }: Props) {
                     )}
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 4 }}>
-                    {editingEmailId === u.id ? (
+                    {editingContactId === u.id ? (
                       <>
                         <input
-                          value={emailDraft} onChange={e => setEmailDraft(e.target.value)} placeholder="e-post (för dygnsrapport)"
+                          value={emailDraft} onChange={e => setEmailDraft(e.target.value)} placeholder="e-post (dygnsrapport)"
                           style={{ flex: 1, padding: '3px 6px', fontSize: 11, background: '#0d0d16', border: '1px solid #444', borderRadius: 3, color: '#ddd' }}
                         />
-                        <button className="btn-ghost btn-sm" onClick={() => saveEmail(u.id)}>Spara</button>
-                        <button className="btn-ghost btn-sm" onClick={() => setEditingEmailId(null)}>Avbryt</button>
+                        <input
+                          value={phoneDraft} onChange={e => setPhoneDraft(e.target.value)} placeholder="mobilnummer (SMS-larm)"
+                          style={{ flex: 1, padding: '3px 6px', fontSize: 11, background: '#0d0d16', border: '1px solid #444', borderRadius: 3, color: '#ddd' }}
+                        />
+                        <button className="btn-ghost btn-sm" onClick={() => saveContact(u.id)}>Spara</button>
+                        <button className="btn-ghost btn-sm" onClick={() => setEditingContactId(null)}>Avbryt</button>
                       </>
                     ) : (
                       <>
                         <span style={{ flex: 1, fontSize: 11, color: u.email ? '#888' : '#555' }}>{u.email || 'Ingen e-post satt'}</span>
-                        <button className="btn-ghost btn-sm" onClick={() => { setEditingEmailId(u.id); setEmailDraft(u.email || ''); }}>Redigera</button>
+                        <span style={{ flex: 1, fontSize: 11, color: u.phone ? '#888' : '#555' }}>{u.phone || 'Inget mobilnummer satt'}</span>
+                        <button className="btn-ghost btn-sm" onClick={() => { setEditingContactId(u.id); setEmailDraft(u.email || ''); setPhoneDraft(u.phone || ''); }}>Redigera</button>
                       </>
                     )}
                   </div>
@@ -828,7 +904,34 @@ export function SettingsModal({ onClose }: Props) {
         </div>
         </>}
 
-        {activeTab !== 'users' && activeTab !== 'senders' && activeTab !== 'news' && (
+        {activeTab === 'tools' && <>
+        {/* Verktyg — funktioner som tidigare låg direkt i menyraden, flyttade hit för att
+            hålla topbaren mindre proppfull. */}
+        <div style={{ fontSize: 11, color: '#888', marginBottom: 10, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+          Verktyg
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {criticalAlertsEnabled && (
+            <button className="btn-ghost btn-sm" onClick={onOpenCriticality} style={{ width: '100%', textAlign: 'left' }}>
+              🎯 Kritiska objekt
+            </button>
+          )}
+          {canEdit && (
+            <button className="btn-ghost btn-sm" onClick={onOpenImport} style={{ width: '100%', textAlign: 'left' }}>
+              <IconImport size={13} /> Importera
+            </button>
+          )}
+          <a
+            href="/api/export/kmz" download
+            className="btn-ghost btn-sm"
+            style={{ width: '100%', textAlign: 'left', display: 'block', textDecoration: 'none', cursor: 'pointer', borderRadius: 'var(--radius-control)' }}
+          >
+            <IconExport size={13} /> Export (ATAK)
+          </a>
+        </div>
+        </>}
+
+        {activeTab !== 'users' && activeTab !== 'senders' && activeTab !== 'news' && activeTab !== 'tools' && (
           <div style={{ display: 'flex', gap: 8, alignItems: 'center', borderTop: '1px solid #2a2a40', paddingTop: 16 }}>
             <button
               onClick={save}

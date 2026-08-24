@@ -8,6 +8,7 @@ export interface User {
   username: string;
   role: Role;
   email?: string | null;
+  phone?: string | null;
 }
 
 export type AlertRuleType = 'threshold' | 'proximity' | 'cluster' | 'weather_critical' | 'news_urgent';

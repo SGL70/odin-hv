@@ -21,6 +21,7 @@ services:
     build: ./backend
     restart: unless-stopped
     environment:
+      TZ: Europe/Stockholm
       DATABASE_URL: postgresql://ledning:${DB_PASSWORD}@db:5432/ledning
       JWT_SECRET: ${JWT_SECRET}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD}
@@ -31,6 +32,12 @@ services:
       SMTP_PORT: ${SMTP_PORT}
       SMTP_USER: ${SMTP_USER}
       SMTP_PASS: ${SMTP_PASS}
+      ELKS_API_USERNAME: ${ELKS_API_USERNAME}
+      ELKS_API_PASSWORD: ${ELKS_API_PASSWORD}
+      ELKS_FROM: ${ELKS_FROM}
+      PLATFORM_ADMIN_JWT_SECRET: ${PLATFORM_ADMIN_JWT_SECRET}
+      PLATFORM_ADMIN_PASSWORD: ${PLATFORM_ADMIN_PASSWORD}
+      FEATURE_CRITICAL_ALERTS: ${FEATURE_CRITICAL_ALERTS:-false}
       PORT: 3000
     volumes:
       - uploads_data:/app/uploads
