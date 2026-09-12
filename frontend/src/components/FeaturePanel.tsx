@@ -55,6 +55,7 @@ export function FeaturePanel({
   const [fields, setFields] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
   const [markingClassified, setMarkingClassified] = useState(false);
+  const [markingConfirmed, setMarkingConfirmed] = useState(false);
   const [error, setError] = useState('');
   const [imgTs, setImgTs] = useState(() => Date.now());
   const refreshRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -117,6 +118,21 @@ export function FeaturePanel({
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Kunde inte markera som klassad');
     } finally { setMarkingClassified(false); }
+  };
+
+  // tak_reports-markörer bekräftas explicit av en operatör (aldrig implicit via vanlig
+  // Spara, till skillnad från unclassified) — se spec:ens beslut om explicit handling.
+  const markConfirmed = async () => {
+    if (!feature || !canEdit) return;
+    setMarkingConfirmed(true);
+    try {
+      const saved = await api.updateFeature(feature.properties.uid, {
+        name, geometry: feature.geometry, cot_type: feature.properties.cot_type, ...fields, confirmed: 'true',
+      });
+      onSaved(saved as Feature);
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Kunde inte bekräfta markören');
+    } finally { setMarkingConfirmed(false); }
   };
 
   const del = async () => {
@@ -263,6 +279,21 @@ export function FeaturePanel({
           </div>
         )}
 
+        {/* Fältmarkör från Taky (services/takyBridge.js), väntar på explicit bekräftelse */}
+        {feature.properties.layer === 'tak_reports' && fields.confirmed !== 'true' && (
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: 10, padding: '8px 10px', marginBottom: 12,
+            background: '#e91e6322', border: '1px solid #e91e6355', borderRadius: 6,
+          }}>
+            <span style={{ fontSize: 12, color: '#e91e63', flex: 1 }}>📍 Obekräftad fältmarkör</span>
+            {canEdit && (
+              <button className="btn-ghost btn-sm" onClick={markConfirmed} disabled={markingConfirmed}>
+                {markingConfirmed ? 'Bekräftar…' : '✓ Bekräfta'}
+              </button>
+            )}
+          </div>
+        )}
+
         {/* Precisionsnivå — tyst infobadge, ingen åtgärd (roadmap #10), bara synlig när
             platsen INTE är exakt (kommun-centroid m.m.) */}
         {fields.location_precision && fields.location_precision !== 'exact' && (
@@ -345,9 +376,11 @@ export function FeaturePanel({
           const HIDDEN = new Set([
             'uid', 'layer', 'cot_type', 'name', 'criticality', 'display_name', 'unclassified', 'location_precision', 'created_by', 'updated_by', 'created_at', 'updated_at',
             'photo_url', 'station_url', 'scraped_at', 'trv_source_id', 'osm_id', '_source_id', 'police_id', 'external_id',
+            'cot_uid', 'confirmed',
             ...(layerCfg?.fields.map(f => f.key) || []),
           ]);
           const LABELS: Record<string, string> = {
+            cot_callsign: 'Anropssignal',
             address: 'Adress', phone: 'Telefon', brand: 'Varumärke',
             opening_hours: 'Öppettider', source: 'Källa', camera_type: 'Kameratyp',
             direction: 'Riktning', status: 'Status', avg_speed_kmh: 'Hastighet (km/h)',
