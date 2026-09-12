@@ -2,7 +2,7 @@ const { test, before, after, beforeEach } = require('node:test');
 const assert = require('node:assert/strict');
 const { db, resetData, loginAsAdmin, listen, baseUrl } = require('./helpers/testApp');
 const dbModule = require('../src/db');
-const { upsertTakReport } = require('../src/services/takyBridge');
+const { upsertTakReport, start, handleEvent } = require('../src/services/takyBridge');
 
 let server, base, adminToken, orgId;
 
@@ -46,4 +46,27 @@ test('upsertTakReport uppdaterar position vid återkommande event, rör inte con
     assert.deepEqual(rows[0].geom.coordinates, [22.2, 65.1]);
     assert.equal(rows[0].attributes.confirmed, 'true', 'ett återkommande CoT-event ska inte nollställa en redan bekräftad markör');
   });
+});
+
+test('handleEvent sänder features:reloaded till rätt org-rum efter en lyckad upsert', async () => {
+  // Regression: den ursprungliga implementationen skrev direkt till DB utan att sända samma
+  // 'features:reloaded'-event som POST /api/features och harvest.js — inga anslutna webbläsare
+  // fick veta att en ny markör fanns förrän någon manuellt laddade om sidan (upptäckt vid det
+  // första produktionstestet 2026-09-12).
+  const emitted = [];
+  const fakeIo = { to: room => ({ emit: (event, payload) => emitted.push({ room, event, payload }) }) };
+  start(fakeIo); // FEATURE_TAKY_BRIDGE är inte satt i testmiljön — sätter bara ioInstance, öppnar ingen socket
+
+  const xml = `<event version="2.0" uid="TEST-EMIT-1" type="b-m-p-s-p" time="t" start="t" stale="t" how="h-g-i-g-o">
+  <point lat="65.2" lon="22.3" hae="0" ce="10" le="10"/>
+  <detail><contact callsign="Charlie3"/></detail>
+</event>`;
+  await handleEvent(xml);
+
+  // Filtrera på vårt org-rum, inte total längd — andra testfiler i samma körning lämnar kvar
+  // egna bataljon-orgs (resetData() rensar aldrig organizations-tabellen), så withEachBattalion
+  // kan iterera fler än en battalion när hela sviten kör.
+  const forOurOrg = emitted.filter(e => e.room === `org:${orgId}`);
+  assert.equal(forOurOrg.length, 1);
+  assert.equal(forOurOrg[0].event, 'features:reloaded');
 });

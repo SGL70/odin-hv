@@ -10,6 +10,7 @@ let socket = null;
 let buffer = '';
 let reconnectDelay = RECONNECT_BASE_MS;
 let reconnectTimer = null;
+let ioInstance = null;
 
 // Upsert per bataljon — samma db.withEachBattalion()-mönster som harvest.js::runAutoHarvest()
 // använder för andra delade externa datakällor (polis/väder/trafik). org_id kommer alltid
@@ -42,10 +43,16 @@ async function upsertTakReport(tenantDb, orgId, attrs) {
   }
 }
 
+// Samma 'features:reloaded'-event som POST /api/features och alla harvest.js-källor sänder ut
+// efter en lyckad skrivning — utan det vet ingen ansluten webbläsare att en ny markör finns
+// förrän någon manuellt laddar om sidan (upptäckt vid första produktionstestet 2026-09-12).
 async function handleEvent(xml) {
   const attrs = cotEventToAttrs(xml);
   if (!attrs) return;
-  await db.withEachBattalion((tenantDb, battalion) => upsertTakReport(tenantDb, battalion.id, attrs));
+  await db.withEachBattalion(async (tenantDb, battalion) => {
+    await upsertTakReport(tenantDb, battalion.id, attrs);
+    if (ioInstance) ioInstance.to(`org:${battalion.id}`).emit('features:reloaded', {});
+  });
 }
 
 function onData(chunk) {
@@ -96,7 +103,8 @@ function isEnabled() {
   return process.env.FEATURE_TAKY_BRIDGE === 'true';
 }
 
-function start() {
+function start(io) {
+  ioInstance = io;
   if (!isEnabled()) {
     console.log('takyBridge: inaktiverad (FEATURE_TAKY_BRIDGE != "true")');
     return;
@@ -104,4 +112,4 @@ function start() {
   connect();
 }
 
-module.exports = { start, upsertTakReport };
+module.exports = { start, upsertTakReport, handleEvent };

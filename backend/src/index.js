@@ -227,7 +227,7 @@ async function start() {
   scheduleNewsPolling();
   scheduleAutoHarvest();
   scheduleDailyReport();
-  takyBridge.start();
+  takyBridge.start(io);
   server.listen(PORT, () => console.log(`Resursläge backend på port ${PORT}`));
 }
 
