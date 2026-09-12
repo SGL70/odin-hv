@@ -38,6 +38,17 @@ test('editor kan skapa ett objekt (POST /api/features)', async () => {
   assert.ok(feature.id);
 });
 
+test('editor kan skapa ett tak_reports-objekt', async () => {
+  const res = await fetch(`${base}/api/features`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${editorToken}` },
+    body: JSON.stringify({ layer: 'tak_reports', name: 'Testmarkör från ATAK', geometry: POINT }),
+  });
+  assert.equal(res.status, 201);
+  const feature = await res.json();
+  assert.equal(feature.properties.layer, 'tak_reports');
+});
+
 test('reader nekas att skapa objekt (403)', async () => {
   const res = await fetch(`${base}/api/features`, {
     method: 'POST',
