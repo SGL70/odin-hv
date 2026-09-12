@@ -133,7 +133,7 @@ export interface CatchupData {
   changelogEntries: ChangelogEntry[];
 }
 
-export type LayerId = 'fuel' | 'food' | 'water' | 'raw_materials' | 'vehicles' | 'firewood' | 'consumables' | 'roads' | 'bridges' | 'maintenance' | 'hygiene' | 'staging_areas' | 'transshipment' | 'cameras' | 'powerlines' | 'telecom' | 'railways' | 'ports' | 'airports' | 'medical' | 'emergency' | 'tunnels' | 'fording_points' | 'police_events' | 'road_situations' | 'power_outages' | 'sms_alerts' | 'intelligence_reports' | 'railway_situations' | 'news_reports' | 'weather_warnings';
+export type LayerId = 'fuel' | 'food' | 'water' | 'raw_materials' | 'vehicles' | 'firewood' | 'consumables' | 'roads' | 'bridges' | 'maintenance' | 'hygiene' | 'staging_areas' | 'transshipment' | 'cameras' | 'powerlines' | 'telecom' | 'railways' | 'ports' | 'airports' | 'medical' | 'emergency' | 'tunnels' | 'fording_points' | 'police_events' | 'road_situations' | 'power_outages' | 'sms_alerts' | 'intelligence_reports' | 'railway_situations' | 'news_reports' | 'weather_warnings' | 'tak_reports';
 
 export interface LayerConfig {
   id: LayerId;
@@ -613,6 +613,14 @@ export const LAYERS: LayerConfig[] = [
       { key: 'info_value',     label: 'Uppgiftens trovärdighet (STANAG 2511)',  type: 'select', options: ['1 – Bekräftad', '2 – Sannolikt sann', '3 – Möjligen sann', '4 – Tveksam', '5 – Osannolik', '6 – Kan ej bedömas'] },
       { key: 'description',    label: 'Uppgift / beskrivning av händelsen',     type: 'text' },
     ],
+  },
+  {
+    id: 'tak_reports',
+    label: 'Fältmarkörer (Taky)',
+    color: '#e91e63',
+    icon: '📍',
+    group: 'events',
+    fields: [],
   },
 ];
 

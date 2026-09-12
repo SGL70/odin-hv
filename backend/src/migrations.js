@@ -12,7 +12,7 @@ const FEATURE_LAYERS = [
   'maintenance', 'hygiene', 'staging_areas', 'transshipment', 'cameras', 'powerlines', 'telecom',
   'railways', 'ports', 'airports', 'medical', 'emergency', 'tunnels', 'fording_points',
   'police_events', 'road_situations', 'power_outages', 'sms_alerts', 'intelligence_reports',
-  'railway_situations', 'news_reports', 'weather_warnings',
+  'railway_situations', 'news_reports', 'weather_warnings', 'tak_reports',
 ];
 
 async function setFeatureLayerCheck(logSuffix) {
@@ -241,6 +241,12 @@ async function ensureLocationPrecisionBackfill() {
 // Utökar features_layer_check med 'weather_warnings' (SMHI Impact Based Weather Warnings).
 async function ensureWeatherWarningsLayer() {
   await setFeatureLayerCheck('weather_warnings');
+}
+
+// Taky-integration fas 1 (docs/superpowers/specs/2026-09-12-taky-integration-inflow-design.md)
+// — fältskapade CoT-markörer från ATAK/iTAK landar här via services/takyBridge.js.
+async function ensureTakReportsLayer() {
+  await setFeatureLayerCheck('tak_reports');
 }
 
 // Nyckelordsförfilter + Haiku-klassificering av nyhetsposter — relevant IS NULL betyder
@@ -562,7 +568,7 @@ module.exports = {
   ensureAlertSchema, ensureIntelligenceReportsLayer, ensureRailwaySituationsLayer, ensureFeatureHistorySchema,
   ensureUserPreferencesColumn, ensureSmsTablesSchema, ensureLastLoginColumn,
   ensureNewsReportsLayer, ensureNewsSchema, ensureLocationPrecisionBackfill,
-  ensureWeatherWarningsLayer, ensureNewsClassifierColumns, ensureNotificationColumns,
+  ensureWeatherWarningsLayer, ensureNewsClassifierColumns, ensureNotificationColumns, ensureTakReportsLayer,
   ensureRowLevelSecurity, RLS_TENANT_TABLES, applyRlsPolicies,
   ensurePlatformAdminsSchema,
 };

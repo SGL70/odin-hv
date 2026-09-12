@@ -25,7 +25,7 @@ import { ensureMapIcons, buildRoadIconExpression, buildIntelReportIconExpression
 import { useAuth } from '../contexts/AuthContext';
 import { STATUS } from '../styles/tokens';
 import { io } from 'socket.io-client';
-import { STYLE, DRAW_LAYERS, POLYGON_LAYERS, LINE_LAYERS, unclassifiedRingLayer } from '../lib/mapConfig';
+import { STYLE, DRAW_LAYERS, POLYGON_LAYERS, LINE_LAYERS, unclassifiedRingLayer, unconfirmedRingLayer } from '../lib/mapConfig';
 import { lineLengthM, polygonAreaM2, formatDistance, formatArea } from '../lib/geoMath';
 
 // Alla topbar-knappar blandar emoji-glyfer (varierande synlig storlek per platform/typsnitt)
@@ -535,6 +535,7 @@ export function MapView() {
           },
         });
         map.addLayer(unclassifiedRingLayer(layer.id, sourceId));
+        if (layer.id === 'tak_reports') map.addLayer(unconfirmedRingLayer(layer.id, sourceId));
         map.addLayer({
           id: `lbl-${layer.id}`,
           type: 'symbol', source: sourceId,

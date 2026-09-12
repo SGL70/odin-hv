@@ -7,11 +7,12 @@ const helmet = require('helmet');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const db = require('./db');
-const { ensureSettingsAndMunicipalitiesSchema, ensureOrganizationsSchema, ensureFeaturesOrgIdColumn, ensureAlertOrgIdColumns, ensureFeaturesHistoryOrgIdColumn, ensureSmsOrgIdColumns, ensureNewsOrgIdColumns, ensureActivityLogOrgIdColumn, ensureSettingsOrgIdColumn, ensureAlertSchema, ensureIntelligenceReportsLayer, ensureRailwaySituationsLayer, ensureFeatureHistorySchema, ensureUserPreferencesColumn, ensureSmsTablesSchema, ensureLastLoginColumn, ensureNewsReportsLayer, ensureNewsSchema, ensureLocationPrecisionBackfill, ensureWeatherWarningsLayer, ensureNewsClassifierColumns, ensureNotificationColumns, ensureRowLevelSecurity, ensurePlatformAdminsSchema } = require('./migrations');
+const { ensureSettingsAndMunicipalitiesSchema, ensureOrganizationsSchema, ensureFeaturesOrgIdColumn, ensureAlertOrgIdColumns, ensureFeaturesHistoryOrgIdColumn, ensureSmsOrgIdColumns, ensureNewsOrgIdColumns, ensureActivityLogOrgIdColumn, ensureSettingsOrgIdColumn, ensureAlertSchema, ensureIntelligenceReportsLayer, ensureRailwaySituationsLayer, ensureFeatureHistorySchema, ensureUserPreferencesColumn, ensureSmsTablesSchema, ensureLastLoginColumn, ensureNewsReportsLayer, ensureNewsSchema, ensureLocationPrecisionBackfill, ensureWeatherWarningsLayer, ensureNewsClassifierColumns, ensureNotificationColumns, ensureRowLevelSecurity, ensurePlatformAdminsSchema, ensureTakReportsLayer } = require('./migrations');
 const { pollAllSources } = require('./services/newsFeeds');
 const { resolveVisibleOrgIds } = require('./services/orgContext');
 const { sendDailyReport } = require('./services/dailyReport');
 const harvestRouter = require('./routes/harvest');
+const takyBridge = require('./services/takyBridge');
 
 const app = express();
 const server = http.createServer(app);
@@ -210,6 +211,7 @@ async function runMigrations() {
   await ensureNewsOrgIdColumns();
   await ensureLocationPrecisionBackfill();
   await ensureWeatherWarningsLayer();
+  await ensureTakReportsLayer();
   await ensureNewsClassifierColumns();
   await ensureNotificationColumns();
   await ensureRowLevelSecurity();
@@ -225,6 +227,7 @@ async function start() {
   scheduleNewsPolling();
   scheduleAutoHarvest();
   scheduleDailyReport();
+  takyBridge.start();
   server.listen(PORT, () => console.log(`Resursläge backend på port ${PORT}`));
 }
 

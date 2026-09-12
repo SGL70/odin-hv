@@ -18,3 +18,6 @@ snapshots/
 
 # Skärmdumpar för designgranskning (lokala, ej del av produkten)
 design-screenshots/
+
+# Taky mTLS-klientcertifikat (services/takyBridge.js) — hemligheter, aldrig i git
+certs/

@@ -56,3 +56,23 @@ export function unclassifiedRingLayer(layerId: LayerId, sourceId: string): mapli
     },
   };
 }
+
+// Samma tekniska mönster som unclassifiedRingLayer, men för tak_reports-lagrets explicita
+// confirmed-fält ('true'/'false') i stället för det universella unclassified-attributet —
+// se docs/superpowers/specs/2026-09-12-taky-integration-inflow-design.md ("Att bekräfta måste
+// vara en explicit handling", inte samma auto-clear-vid-spara som unclassified har).
+export function unconfirmedRingLayer(layerId: LayerId, sourceId: string): maplibregl.CircleLayerSpecification {
+  return {
+    id: `unconfirmed-${layerId}`,
+    type: 'circle', source: sourceId,
+    filter: ['!=', ['get', 'confirmed'], 'true'],
+    layout: { visibility: 'visible' },
+    paint: {
+      'circle-radius': 16,
+      'circle-color': 'rgba(0,0,0,0)',
+      'circle-stroke-width': 3,
+      'circle-stroke-color': '#e91e63',
+      'circle-stroke-opacity': 0.9,
+    },
+  };
+}
