@@ -12,6 +12,7 @@ const { pollAllSources } = require('./services/newsFeeds');
 const { resolveVisibleOrgIds } = require('./services/orgContext');
 const { sendDailyReport } = require('./services/dailyReport');
 const harvestRouter = require('./routes/harvest');
+const takyBridge = require('./services/takyBridge');
 
 const app = express();
 const server = http.createServer(app);
@@ -226,6 +227,7 @@ async function start() {
   scheduleNewsPolling();
   scheduleAutoHarvest();
   scheduleDailyReport();
+  takyBridge.start();
   server.listen(PORT, () => console.log(`Resursläge backend på port ${PORT}`));
 }
 

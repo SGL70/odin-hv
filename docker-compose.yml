@@ -38,9 +38,16 @@ services:
       PLATFORM_ADMIN_JWT_SECRET: ${PLATFORM_ADMIN_JWT_SECRET}
       PLATFORM_ADMIN_PASSWORD: ${PLATFORM_ADMIN_PASSWORD}
       FEATURE_CRITICAL_ALERTS: ${FEATURE_CRITICAL_ALERTS:-false}
+      FEATURE_TAKY_BRIDGE: ${FEATURE_TAKY_BRIDGE:-false}
+      TAKY_HOST: ${TAKY_HOST:-192.168.1.140}
+      TAKY_COT_PORT: ${TAKY_COT_PORT:-8089}
+      TAKY_CLIENT_CERT_PATH: /app/certs/taky/client.crt
+      TAKY_CLIENT_KEY_PATH: /app/certs/taky/client.key
+      TAKY_CA_CERT_PATH: /app/certs/taky/ca.crt
       PORT: 3000
     volumes:
       - uploads_data:/app/uploads
+      - ./certs/taky:/app/certs/taky:ro
     depends_on:
       db:
         condition: service_healthy
@@ -60,10 +67,3 @@ services:
 volumes:
   pgdata:
   uploads_data:
-
-# FreeTAK Server (opt-in — avkommentera för TAK-integration)
-# freetakserver:
-#   image: freetakteam/freetakserver:1.9.9
-#   ports:
-#     - "8087:8087/tcp"
-#     - "8088:8088/udp"
