@@ -7,9 +7,17 @@ const MARKER_XML = `<event version="2.0" uid="ANDROID-abc123" type="b-m-p-s-p" t
   <detail><contact callsign="Alpha1"/></detail>
 </event>`;
 
-const POSITION_XML = `<event version="2.0" uid="ANDROID-abc123" type="a-f-G-U-C" time="2026-09-12T10:00:00Z" start="2026-09-12T10:00:00Z" stale="2026-09-12T11:00:00Z" how="m-g">
+// Ping/kontrollmeddelande — inte en markör, inte affiliation-kodad. Ska filtreras bort.
+const PING_XML = `<event version="2.0" uid="ANDROID-abc123" type="t-x-c-t" time="2026-09-12T10:00:00Z" start="2026-09-12T10:00:00Z" stale="2026-09-12T11:00:00Z" how="m-g">
   <point lat="65.58" lon="22.15" hae="0" ce="9999999" le="9999999"/>
-  <detail><contact callsign="Alpha1"/></detail>
+</event>`;
+
+// En markör satt via ATAK:s symbolpalett (t.ex. "Okänd" ground-ikon) — vanligaste sättet att
+// droppa en taktisk markör i praktiken, se cotParser.js:s kommentar om varför detta inte längre
+// filtreras bort.
+const AFFILIATION_MARKER_XML = `<event version="2.0" uid="ANDROID-u12" type="a-u-G" time="2026-09-12T10:00:00Z" start="2026-09-12T10:00:00Z" stale="2026-09-12T11:00:00Z" how="h-g-i-g-o">
+  <point lat="66.265916" lon="22.83632" hae="0" ce="10" le="10"/>
+  <detail><contact callsign="u.12.235456"/></detail>
 </event>`;
 
 test('extractCotEvents plockar ut ett komplett event och lämnar tom rest', () => {
@@ -42,8 +50,19 @@ test('cotEventToAttrs tolkar en markör korrekt', () => {
   });
 });
 
-test('cotEventToAttrs filtrerar bort icke-markör-typer (positioner, fas 2)', () => {
-  assert.equal(cotEventToAttrs(POSITION_XML), null);
+test('cotEventToAttrs filtrerar bort ping/kontrollmeddelanden', () => {
+  assert.equal(cotEventToAttrs(PING_XML), null);
+});
+
+test('cotEventToAttrs tar med affiliation-kodade markörer (a-u-/a-f-/a-h-/a-n-)', () => {
+  const attrs = cotEventToAttrs(AFFILIATION_MARKER_XML);
+  assert.deepEqual(attrs, {
+    cot_uid: 'ANDROID-u12',
+    cot_type: 'a-u-G',
+    lat: 66.265916,
+    lon: 22.83632,
+    callsign: 'u.12.235456',
+  });
 });
 
 test('cotEventToAttrs returnerar null för trasig/ofullständig XML', () => {
